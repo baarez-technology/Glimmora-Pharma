@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(sed -i -e 's/border-\\\\[#0ea5e9\\\\]/border-\\(--brand\\)/g' -e 's/bg-\\\\[#1e3a5a\\\\]/bg-\\(--bg-border\\)/g' -e 's/text-\\\\[#1e3a5a\\\\]/text-\\(--bg-border\\)/g' -e 's/accent-\\\\[#0ea5e9\\\\]/accent-\\(--brand\\)/g' -e 's/text-\\\\[#334155\\\\]/text-\\(--text-muted\\)/g' \"$f\")",
+      "Bash(echo \"Fixed $f\")",
+      "Bash(done)"
+    ]
+  }
+}
