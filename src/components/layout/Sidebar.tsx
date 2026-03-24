@@ -1,4 +1,5 @@
-import { NavLink, useNavigate } from "react-router";
+import { useState, useEffect } from "react";
+import { NavLink, useNavigate, useLocation } from "react-router";
 import {
   LayoutDashboard,
   Search,
@@ -11,6 +12,12 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  ShieldCheck,
+  ChevronDown,
+  Layers,
+  FlaskConical,
+  Cpu,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -24,26 +31,95 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-const ALL_NAV: NavItem[] = [
-  { path: "/", label: "Dashboard", icon: LayoutDashboard },
-  { path: "gap-assessment", label: "Gap Assessment", icon: Search },
-  { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
-  { path: "csv-csa", label: "CSV / CSA", icon: Monitor },
-  { path: "inspection", label: "Inspection", icon: Map },
-  { path: "evidence", label: "Evidence", icon: FileText },
-  { path: "fda-483", label: "FDA 483", icon: Building2 },
-  { path: "agi-console", label: "AGI Console", icon: Bot },
-  { path: "governance", label: "Governance", icon: BarChart3 },
-  { path: "settings", label: "Settings", icon: Settings },
+interface NavGroup {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    id: "qms",
+    label: "QMS & Compliance",
+    icon: Layers,
+    items: [
+      { path: "/",              label: "Dashboard",      icon: LayoutDashboard },
+      { path: "gap-assessment", label: "Gap Assessment", icon: Search },
+      { path: "capa",           label: "CAPA Tracker",   icon: ClipboardList },
+      { path: "evidence",       label: "Evidence",       icon: FileText },
+    ],
+  },
+  {
+    id: "validation",
+    label: "Validation & Inspection",
+    icon: FlaskConical,
+    items: [
+      { path: "csv-csa",    label: "CSV / CSA",  icon: Monitor },
+      { path: "inspection", label: "Inspection", icon: Map },
+      { path: "fda-483",    label: "FDA 483",    icon: Building2 },
+    ],
+  },
+  {
+    id: "intelligence",
+    label: "Intelligence",
+    icon: Cpu,
+    items: [
+      { path: "agi-console", label: "AGI Console", icon: Bot },
+      { path: "governance",  label: "Governance",  icon: BarChart3 },
+    ],
+  },
+  {
+    id: "admin",
+    label: "Administration",
+    icon: SlidersHorizontal,
+    items: [
+      { path: "settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
+
+function getGroupForPath(pathname: string): string {
+  const current = pathname === "/" ? "/" : pathname.slice(1);
+  for (const group of NAV_GROUPS) {
+    if (group.items.some((item) => item.path === current)) return group.id;
+  }
+  return "qms";
+}
 
 export function Sidebar() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const activeSite = useActiveSite();
   const { allowedPaths } = useRole();
 
-  const visibleNav = ALL_NAV.filter((item) => allowedPaths.includes(item.path));
+  const [openGroups, setOpenGroups] = useState<Set<string>>(
+    () => new Set([getGroupForPath(location.pathname)])
+  );
+
+  // Auto-expand the group containing the active page on route change
+  useEffect(() => {
+    const active = getGroupForPath(location.pathname);
+    setOpenGroups((prev) => {
+      if (prev.has(active)) return prev;
+      return new Set([...prev, active]);
+    });
+  }, [location.pathname]);
+
+  const toggleGroup = (id: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const visibleGroups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((item) => allowedPaths.includes(item.path)),
+  })).filter((g) => g.items.length > 0);
 
   const handleLogout = () => {
     dispatch(logout());
@@ -54,52 +130,164 @@ export function Sidebar() {
     <aside
       aria-label="Application navigation"
       className="w-60 min-h-screen flex flex-col shrink-0"
-      style={{ background: "#071526", borderRight: "1px solid #1e3a5a" }}
+      style={{ background: "var(--bg-surface)", borderRight: "1px solid var(--bg-border)" }}
     >
-      <div style={{ padding: "20px 16px 16px", borderBottom: "1px solid #1e3a5a" }}>
-        <span style={{ color: "#0ea5e9", fontWeight: 700, fontSize: 15 }}>
-          Pharma Glimmora
-        </span>
-        <p style={{ color: "#3a5070", fontSize: 11, margin: "2px 0 0" }}>
-          {activeSite?.name ?? "\u2014"}
-        </p>
+      {/* ── Logo ── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "16px 16px 14px",
+          borderBottom: "1px solid var(--bg-border)",
+        }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            background: "var(--brand-muted)",
+            border: "1px solid var(--brand-border)",
+            flexShrink: 0,
+          }}
+        >
+          <ShieldCheck size={16} style={{ color: "var(--brand)" }} aria-hidden="true" />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: "var(--brand)", fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
+            Pharma Glimmora
+          </div>
+          <div
+            style={{
+              color: "var(--text-muted)",
+              fontSize: 11,
+              marginTop: 2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {activeSite?.name ?? "—"}
+          </div>
+        </div>
       </div>
 
-      <nav aria-label="Main navigation" style={{ flex: 1, paddingTop: 8 }}>
+      {/* ── Nav groups ── */}
+      <nav aria-label="Main navigation" style={{ flex: 1, padding: "8px 0", overflowY: "auto" }}>
         <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {visibleNav.map((item) => (
-            <li key={item.path}>
-              <NavLink
-                to={item.path === "/" ? "/" : `/${item.path}`}
-                end={item.path === "/"}
-                className={({ isActive }) =>
-                  `nav-item${isActive ? " active" : ""}`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <item.icon className="w-4 h-4" aria-hidden="true" />
-                    {item.label}
-                    {isActive && <span className="sr-only">(current page)</span>}
-                  </>
+          {visibleGroups.map((group) => {
+            const isOpen = openGroups.has(group.id);
+            return (
+              <li key={group.id}>
+                {/* Group header */}
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  onClick={() => toggleGroup(group.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    width: "100%",
+                    padding: "8px 12px",
+                    margin: "2px 8px",
+                    width: "calc(100% - 16px)",
+                    borderRadius: 8,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "background 0.15s",
+                    color: "#64748b",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: "0.02em",
+                    textTransform: "uppercase" as const,
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
+                >
+                  <group.icon size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
+                  <ChevronDown
+                    size={13}
+                    aria-hidden="true"
+                    style={{
+                      flexShrink: 0,
+                      transition: "transform 0.2s",
+                      transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)",
+                    }}
+                  />
+                </button>
+
+                {/* Group items */}
+                {isOpen && (
+                  <ul
+                    role="list"
+                    style={{
+                      listStyle: "none",
+                      margin: "2px 0 4px 0",
+                      padding: 0,
+                      borderLeft: "1px solid var(--bg-border)",
+                      marginLeft: 24,
+                    }}
+                  >
+                    {group.items.map((item) => (
+                      <li key={item.path}>
+                        <NavLink
+                          to={item.path === "/" ? "/" : `/${item.path}`}
+                          end={item.path === "/"}
+                          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+                          style={{ marginLeft: 0, marginRight: 8, paddingLeft: 10 }}
+                        >
+                          {({ isActive }) => (
+                            <>
+                              <item.icon className="w-4 h-4" aria-hidden="true" />
+                              {item.label}
+                              {isActive && <span className="sr-only">(current page)</span>}
+                            </>
+                          )}
+                        </NavLink>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </NavLink>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       </nav>
 
-      <div style={{ padding: "12px 8px", borderTop: "1px solid #1e3a5a" }}>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="nav-item"
-          style={{ width: "100%" }}
-          aria-label="Sign out"
+      {/* ── Footer ── */}
+      <div style={{ borderTop: "1px solid var(--bg-border)" }}>
+        <div style={{ padding: "8px 8px 4px" }}>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="nav-item"
+            style={{ width: "100%" }}
+            aria-label="Sign out"
+          >
+            <LogOut className="w-4 h-4" aria-hidden="true" />
+            Sign Out
+          </button>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "6px 16px 10px",
+            fontSize: 10,
+            color: "var(--text-muted)",
+          }}
         >
-          <LogOut className="w-4 h-4" aria-hidden="true" />
-          Sign Out
-        </button>
+          <span>© 2025 Glimmora International</span>
+          <span>v1.0</span>
+        </div>
       </div>
     </aside>
   );

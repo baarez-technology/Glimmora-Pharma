@@ -16,6 +16,15 @@ const savedTheme = (() => {
 })();
 document.documentElement.setAttribute("data-theme", savedTheme);
 
+const savedColorTheme = (() => {
+  try {
+    return localStorage.getItem("glimmora-color-theme") ?? "amber-gold";
+  } catch {
+    return "sky-blue";
+  }
+})();
+document.documentElement.setAttribute("data-color-theme", savedColorTheme);
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 1000 * 60 * 5 } },
 });
