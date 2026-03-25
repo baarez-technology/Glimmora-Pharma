@@ -47,27 +47,37 @@
 
 ### 1.2 Navigation
 
-The left sidebar is your main navigation. It shows only the modules your role is permitted to access.
+The left sidebar is your main navigation. Modules are grouped into collapsible sections. Click a group header to expand or collapse it. The group containing your current page is automatically expanded.
 
-| Icon | Module | Path |
-|---|---|---|
-| Grid | Executive Dashboard | `/` |
-| Clipboard | Inspection Readiness | `/inspection` |
-| Search | Gap Assessment | `/gap-assessment` |
-| CheckSquare | QMS & CAPA | `/capa` |
-| Shield | CSV/CSA | `/csv-csa` |
-| Bot | AGI Console | `/agi-console` |
-| Folder | Evidence & Docs | `/evidence` |
-| Activity | Governance & KPIs | `/governance` |
-| AlertOctagon | FDA 483 / WL | `/fda-483` |
-| Settings | Settings | `/settings` |
+| Group | Modules |
+|---|---|
+| **QMS & Compliance** | Dashboard, Gap Assessment, CAPA Tracker, Evidence |
+| **Validation & Inspection** | CSV/CSA, Inspection Readiness, FDA 483 / WL |
+| **Intelligence** | AGI Console, Governance & KPIs |
+| **Administration** | Settings |
+
+Only modules your role is permitted to access are shown within each group.
 
 ### 1.3 Top Bar
 
-- **Environment tag** (DEV / UAT / PROD) — always visible, top-right.
-- **Notifications bell** — alerts from the AGI layer and overdue items.
-- **Search** — global document and module search.
-- **Profile menu** — role display, theme toggle (dark/light), logout.
+From left to right:
+
+| Element | Description |
+|---|---|
+| **Company name + GxP Live badge** | Tenant name and environment status |
+| **Date / Time block** | Live date and time (updates every minute) |
+| **Search** | Global search — keyboard shortcut `Ctrl K` |
+| **Color theme picker** | Choose from 14 accent color themes |
+| **Dark / Light toggle** | Switch between dark and light mode |
+| **Help** | Documentation and support |
+| **Notifications bell** | Alerts from the AGI layer and overdue items |
+| **Avatar + Name / Role** | Current user identity and role badge |
+
+### 1.4 Color Themes
+
+Click the color palette icon in the top bar to pick an accent color. There are 14 options (Sky Blue, Ocean Blue, Teal, Emerald, Forest Green, Indigo Navy, Royal Purple, Rose Pink, Crimson Red, Orange, Amber Gold, Coffee Brown, Terracotta, Slate Gray).
+
+The selected color applies to: active nav item highlight, primary buttons, links, focus rings, badges, and toggle controls. Page backgrounds and sidebar backgrounds are **not** affected by the color theme — only interactive and accent elements change.
 
 ---
 
