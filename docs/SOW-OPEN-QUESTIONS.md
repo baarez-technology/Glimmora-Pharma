@@ -105,3 +105,51 @@
 
 42. What is exactly in scope for Phase 1 (this SOW) vs Phase 2? Digital twins, full agent orchestration, command center, and enterprise integrations are all marked "blueprint only" — at what point do they become buildable features?
 43. Is the Python AGI layer a separate microservice repo, or does it live inside this Next.js monorepo?
+
+---
+
+## Data Flow & Data Lifecycle
+
+44. How does data enter the system? Manual input forms, file uploads (CSV, PDF, reports), or integrations with external systems (QMS, LIMS, ERP, MES)? Some combination?
+45. What is the data lifecycle for compliance records (Findings, CAPAs, Systems, Evidence)? Specifically: can records be edited after creation, or are they immutable with amendment records? What triggers archival vs soft-delete?
+46. Is document versioning required? If a user uploads v2 of an SOP, does v1 remain accessible in the audit trail?
+
+---
+
+## API & Backend Contracts
+
+47. Will API endpoint contracts (request/response schemas) be provided by Glimmora, or should the frontend team define them as proposals? If proposals, what format — OpenAPI/Swagger, TypeScript interfaces, or informal?
+48. What is the expected API architecture — REST, GraphQL, or RPC? Are there separate services per domain (CAPA service, Findings service) or a monolithic API?
+49. For Phase 1, should the frontend use mock service workers (MSW), static JSON fixtures, or Redux-only state for demo purposes?
+
+---
+
+## Workflow & State Machines
+
+50. Beyond CAPA (covered in #17-21), are there formal state machines for other entities? Specifically: Finding lifecycle (Open → In Progress → Closed — can it revert?), System validation status transitions, and FDA 483 event response workflow.
+51. Are there SLA-based automatic state transitions? e.g. a Finding that stays "Open" past 30 days auto-escalates to "Overdue", or does this require manual intervention?
+52. For approval chains: is it a single-approver model (one QA Head signs off) or can there be sequential multi-approver workflows (e.g. QA Head → Regulatory Affairs → Super Admin)?
+
+---
+
+## UI Behavior & Form Logic
+
+53. What are the required vs optional fields for each entity form (CAPA, Finding, System, Evidence, FDA 483 event)? The current UI has form fields but no documented validation schema per entity.
+54. Should forms auto-save as drafts, or only persist on explicit "Save" action? For long forms (e.g. CAPA creation with RCA details), losing work on accidental navigation would be a poor UX.
+55. What is the expected behavior for concurrent edits? If two users open the same CAPA simultaneously, does last-write-win, or is there optimistic locking / conflict resolution?
+
+---
+
+## Scope & MVP Prioritization
+
+56. What is the priority order for building the remaining incomplete modules? Specifically: Dashboard, Inspection Readiness, and Governance are currently placeholders. Which should be completed first?
+57. Is this phase purely a UI/demo deliverable (all mock data, no persistence required), a functional prototype (localStorage persistence, realistic workflows), or a production-ready frontend (API-integrated, fully tested)?
+58. Are there specific demo scenarios or walkthroughs that stakeholders want to present? This would help prioritize which mock data and user flows to polish first.
+
+---
+
+## Error Handling & Edge Cases
+
+59. What should happen when a user attempts an action they don't have permission for? Silent hide (button not shown), disabled state with tooltip, or redirect to an "Access Denied" page?
+60. How should the UI handle API failures once connected? Retry with exponential backoff, show inline error with retry button, or redirect to a generic error page?
+61. What is the expected behavior for empty states (e.g. new site with zero CAPAs, zero Findings)? Should the system show onboarding prompts, sample data, or just an empty table with a CTA?
