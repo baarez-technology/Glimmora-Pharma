@@ -125,7 +125,7 @@ const eventSchema = z.object({
 type EventForm = z.infer<typeof eventSchema>;
 
 const obsSchema = z.object({
-  number: z.coerce.number().min(1, "Number required"),
+  number: z.number().min(1, "Number required"),
   text: z.string().min(5, "Observation text required"),
   area: z.string().optional(),
   regulation: z.string().optional(),

@@ -5,9 +5,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import clsx from "clsx";
 import {
-  Database, Server, GitBranch, Plus, Search, Filter, ChevronRight, ChevronDown,
+  Database, Server, GitBranch, Plus, Search, Filter, ChevronRight,
   AlertTriangle, AlertCircle, Clock, ShieldAlert, Info, Pencil, Save, X, Trash2,
-  CheckCircle2, Target, Shield, Zap, CheckSquare, ClipboardList, ClipboardCheck,
+  CheckCircle2, Target, Shield, Zap, ClipboardList, ClipboardCheck,
   FlaskConical, BarChart2, Activity, Cpu, Factory, Wrench,
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";

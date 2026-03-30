@@ -78,7 +78,7 @@ export function CAPAPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const dispatch = useAppDispatch();
-  const { role, canSign, canCloseCapa, isViewOnly } = useRole();
+  const { canSign, canCloseCapa, isViewOnly } = useRole();
 
   const capas = useAppSelector((s) => s.capa.items);
   const users = useAppSelector((s) => s.settings.users);

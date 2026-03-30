@@ -24,12 +24,6 @@ const siteSchema = z.object({
 
 type SiteFormValues = z.infer<typeof siteSchema>;
 
-const riskBadge: Record<string, string> = {
-  HIGH: "bg-(--danger-bg) text-(--danger)",
-  MEDIUM: "bg-(--warning-bg) text-(--warning)",
-  LOW: "bg-(--success-bg) text-(--success)",
-};
-
 const RISK_OPTIONS = [
   { value: "HIGH", label: "HIGH", badge: "HIGH", badgeVariant: "red" as const },
   { value: "MEDIUM", label: "MEDIUM", badge: "MED", badgeVariant: "amber" as const },
