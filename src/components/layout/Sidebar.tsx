@@ -101,7 +101,6 @@ export function Sidebar() {
     () => new Set([getGroupForPath(location.pathname)])
   );
 
-  // Auto-expand the group containing the active page on route change
   useEffect(() => {
     const active = getGroupForPath(location.pathname);
     setOpenGroups((prev) => {
@@ -132,16 +131,19 @@ export function Sidebar() {
   return (
     <aside
       aria-label="Application navigation"
-      className="w-60 min-h-screen flex flex-col shrink-0"
-      style={{ background: "var(--sidebar-bg)", borderRight: "1px solid var(--sidebar-border)" }}
+      className="w-[260px] min-h-screen flex flex-col shrink-0"
+      style={{
+        background: "var(--sidebar-bg)",
+        borderRight: "1px solid var(--sidebar-border)",
+      }}
     >
-      {/* ── Logo ── */}
+      {/* Logo */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 10,
-          padding: "16px 16px 14px",
+          padding: "14px 16px",
           borderBottom: "1px solid var(--sidebar-border)",
         }}
       >
@@ -154,15 +156,14 @@ export function Sidebar() {
             width: 32,
             height: 32,
             borderRadius: 8,
-            background: "var(--brand-muted)",
-            border: "1px solid var(--brand-border)",
+            background: "#f0a500",
             flexShrink: 0,
           }}
         >
-          <ShieldCheck size={16} style={{ color: "var(--brand)" }} aria-hidden="true" />
+          <ShieldCheck size={16} style={{ color: "#ffffff" }} aria-hidden="true" />
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ color: "var(--brand)", fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
+          <div style={{ color: "var(--sidebar-text)", fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
             Pharma Glimmora
           </div>
           <div
@@ -180,7 +181,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* ── Nav groups ── */}
+      {/* Nav groups */}
       <nav aria-label="Main navigation" style={{ flex: 1, padding: "8px 0", overflowY: "auto" }}>
         <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {visibleGroups.map((group) => {
@@ -195,33 +196,36 @@ export function Sidebar() {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 8,
+                    gap: 10,
                     width: "calc(100% - 16px)",
-                    padding: "8px 12px",
+                    padding: "9px 12px",
                     margin: "2px 8px",
                     borderRadius: 8,
-                    background: "none",
+                    background: isOpen ? "var(--sidebar-surface)" : "none",
                     border: "none",
                     cursor: "pointer",
                     transition: "background 0.15s",
-                    color: "var(--sidebar-text-muted)",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    letterSpacing: "0.02em",
-                    textTransform: "uppercase" as const,
+                    color: "var(--sidebar-text)",
+                    fontSize: 13,
+                    fontWeight: 500,
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--sidebar-accent)"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
+                  onMouseEnter={(e) => {
+                    if (!isOpen) (e.currentTarget as HTMLElement).style.background = "var(--sidebar-accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isOpen) (e.currentTarget as HTMLElement).style.background = "none";
+                  }}
                 >
-                  <group.icon size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
+                  <group.icon size={16} aria-hidden="true" style={{ flexShrink: 0, color: "var(--sidebar-text-muted)" }} />
                   <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
                   <ChevronDown
-                    size={13}
+                    size={14}
                     aria-hidden="true"
                     style={{
                       flexShrink: 0,
                       transition: "transform 0.2s",
                       transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)",
+                      color: "var(--sidebar-text-muted)",
                     }}
                   />
                 </button>
@@ -232,10 +236,8 @@ export function Sidebar() {
                     role="list"
                     style={{
                       listStyle: "none",
-                      margin: "2px 0 4px 0",
-                      padding: 0,
-                      borderLeft: "1px solid var(--sidebar-border)",
-                      marginLeft: 24,
+                      margin: "2px 0 6px 0",
+                      padding: "0 0 0 20px",
                     }}
                   >
                     {group.items.map((item) => (
@@ -244,14 +246,26 @@ export function Sidebar() {
                           to={item.path === "/" ? "/" : `/${item.path}`}
                           end={item.path === "/"}
                           className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
-                          style={{ marginLeft: 0, marginRight: 8, paddingLeft: 10 }}
+                          style={{ marginLeft: 0, paddingLeft: 12 }}
                         >
                           {({ isActive }) => (
                             <>
                               <item.icon className="w-4 h-4" aria-hidden="true" />
                               {item.label}
                               {item.path === "capa" && openCapaCount > 0 && (
-                                <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#ef4444] text-white min-w-[18px] text-center">
+                                <span
+                                  style={{
+                                    marginLeft: "auto",
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    padding: "1px 6px",
+                                    borderRadius: 20,
+                                    background: "#dc2626",
+                                    color: "#ffffff",
+                                    minWidth: 18,
+                                    textAlign: "center",
+                                  }}
+                                >
                                   {openCapaCount}
                                 </span>
                               )}
@@ -269,7 +283,7 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      {/* ── Footer ── */}
+      {/* Footer */}
       <div style={{ borderTop: "1px solid var(--sidebar-border)" }}>
         <div style={{ padding: "8px 8px 4px" }}>
           <button
@@ -280,7 +294,7 @@ export function Sidebar() {
             aria-label="Sign out"
           >
             <LogOut className="w-4 h-4" aria-hidden="true" />
-            Sign Out
+            Log Out
           </button>
         </div>
         <div
@@ -293,7 +307,7 @@ export function Sidebar() {
           }}
         >
           <span>© 2025 Glimmora International</span>
-          <span>v1.0</span>
+          <span>v2.0</span>
         </div>
       </div>
     </aside>

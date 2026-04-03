@@ -41,8 +41,8 @@
 ### 1.1 Accessing the Platform
 
 1. Open your browser and go to the Glimmora Pharma URL (provided by your Super Admin).
-2. On the **Sign In** screen, enter your email and password, or click **Sign in with SSO** if your organisation uses single sign-on.
-3. After login you will see the **Select Organisation / Site** screen. Choose your site (e.g., "Mumbai API Plant"). Your role is tied to your site assignment.
+2. On the **Welcome Back** login screen, you can sign in with **Google**, **Microsoft**, or enter your **Username** and **Passcode** manually. Use the "Remember me" checkbox to stay signed in, or click "Forgot passcode?" to reset.
+3. After login you will see the **Select your site** dialog. Choose your facility (e.g., "Mumbai API Manufacturing"). Your role is tied to your site assignment.
 4. You land on the **Executive Overview Dashboard**.
 
 ### 1.2 Navigation
@@ -64,14 +64,14 @@ From left to right:
 
 | Element | Description |
 |---|---|
-| **Company name + GxP Live badge** | Tenant name and environment status |
-| **Date / Time block** | Live date and time (updates every minute) |
+| **Hamburger menu** | Toggle sidebar visibility |
+| **Date / Time pills** | Separate date and time displays (updates every minute) |
 | **Search** | Global search — keyboard shortcut `Ctrl K` |
 | **Color theme picker** | Choose from 14 accent color themes |
 | **Dark / Light toggle** | Switch between dark and light mode |
-| **Help** | Documentation and support |
+| **Help** | Amber-styled help button for documentation and support |
 | **Notifications bell** | Alerts from the AGI layer and overdue items |
-| **Avatar + Name / Role** | Current user identity and role badge |
+| **Avatar + Name / Role** | Current user identity with name and role label |
 
 ### 1.4 Color Themes
 

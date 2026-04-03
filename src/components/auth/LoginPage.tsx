@@ -5,25 +5,20 @@ import { z } from "zod";
 import { useNavigate } from "react-router";
 import {
   Shield,
-  Mail,
-  Lock,
-  LogIn,
-  Building2,
+  Eye,
+  EyeOff,
   ChevronDown,
 } from "lucide-react";
 import clsx from "clsx";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
-import { useAppSelector } from "@/hooks/useAppSelector";
 import { setCredentials } from "@/store/auth.slice";
 import { updateOrg, addSite } from "@/store/settings.slice";
 import { store } from "@/store";
 import type { AuthUser } from "@/store/auth.slice";
-import { Input } from "@/components/ui/Input";
-import { Button } from "@/components/ui/Button";
 
 const schema = z.object({
-  email: z.string().email("Enter a valid email"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  email: z.string().min(1, "Username is required"),
+  password: z.string().min(1, "Passcode is required"),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -64,20 +59,21 @@ const MOCK_ACCOUNTS: Record<string, { password: string; user: AuthUser }> = {
 
 const CRED_ROWS: [string, string, string, string][] = [
   ["Super Admin", "admin@pharmaglimmora.com", "Admin@123", "#c0392b"],
-  ["QA Head", "qa@pharmaglimmora.com", "QaHead@123", "#a78bfa"],
-  ["Regulatory Affairs", "ra@pharmaglimmora.com", "RegAff@123", "#f472b6"],
-  ["CSV/Val Lead", "csv@pharmaglimmora.com", "CsvVal@123", "#38bdf8"],
+  ["QA Head", "qa@pharmaglimmora.com", "QaHead@123", "#7b68a5"],
+  ["Regulatory Affairs", "ra@pharmaglimmora.com", "RegAff@123", "#a57865"],
+  ["CSV/Val Lead", "csv@pharmaglimmora.com", "CsvVal@123", "#4a8fa8"],
   ["QC/Lab Director", "qc@pharmaglimmora.com", "QcLab@123", "#4a5e3a"],
-  ["IT/CDO", "it@pharmaglimmora.com", "ItCdo@123", "#2dd4bf"],
+  ["IT/CDO", "it@pharmaglimmora.com", "ItCdo@123", "#6e4c3e"],
   ["Operations Head", "ops@pharmaglimmora.com", "OpsHead@123", "#c9a84c"],
-  ["Viewer", "viewer@pharmaglimmora.com", "Viewer@123", "#d5bfb2"],
+  ["Viewer", "viewer@pharmaglimmora.com", "Viewer@123", "#8e7065"],
 ];
 
 export function LoginPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const isDark = useAppSelector((s) => s.theme.mode) === "dark";
   const [showCreds, setShowCreds] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   const {
     register,
@@ -91,7 +87,7 @@ export function LoginPage() {
     const account = MOCK_ACCOUNTS[data.email.toLowerCase().trim()];
 
     if (!account || account.password !== data.password) {
-      setError("root", { message: "Invalid email or password" });
+      setError("root", { message: "Invalid username or passcode" });
       return;
     }
 
@@ -115,21 +111,114 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#28201c] px-4">
-      <div className="fixed top-0 left-0 right-0 h-[3px] bg-[#a57865]" />
-
-      <div className="w-full max-w-[400px] pt-12 pb-10 px-10">
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-4"
+      style={{ background: "#ffffff" }}
+    >
+      <div className="w-full max-w-[420px]">
         {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5 bg-[rgba(14,165,233,0.15)] border border-[rgba(14,165,233,0.3)]">
-            <Shield className="w-[22px] h-[22px] text-[#a57865]" aria-hidden="true" />
+        <div className="mb-8">
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              background: "#f0a500",
+              borderRadius: 12,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 24,
+            }}
+          >
+            <Shield className="w-7 h-7 text-white" aria-hidden="true" />
           </div>
-          <h1 className="text-[22px] font-bold text-[#e2e8f0] tracking-tight mb-1 text-center">
-            Pharma Glimmora
+          <h1
+            style={{
+              fontSize: 28,
+              fontWeight: 800,
+              color: "#302d29",
+              marginBottom: 6,
+            }}
+          >
+            Welcome Back !
           </h1>
-          <p className="text-[13px] text-[#8e7065] text-center">
-            GxP Compliance Command Center
+          <p style={{ fontSize: 14, color: "#7a736a" }}>
+            Log into your account
           </p>
+        </div>
+
+        {/* SSO Options */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+          <button
+            type="button"
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 8,
+              padding: "16px 12px",
+              border: "1px solid #e8e4dd",
+              borderRadius: 10,
+              background: "#ffffff",
+              cursor: "pointer",
+              transition: "all 0.15s",
+              fontSize: 12,
+              color: "#302d29",
+              fontWeight: 500,
+            }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+            Sign in with Google
+          </button>
+          <button
+            type="button"
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 8,
+              padding: "16px 12px",
+              border: "1px solid #e8e4dd",
+              borderRadius: 10,
+              background: "#ffffff",
+              cursor: "pointer",
+              transition: "all 0.15s",
+              fontSize: 12,
+              color: "#302d29",
+              fontWeight: 500,
+            }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
+              <rect x="13" y="1" width="10" height="10" fill="#7FBA00"/>
+              <rect x="1" y="13" width="10" height="10" fill="#00A4EF"/>
+              <rect x="13" y="13" width="10" height="10" fill="#FFB900"/>
+            </svg>
+            Sign in with Microsoft
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            margin: "20px 0",
+          }}
+        >
+          <div style={{ flex: 1, height: 1, background: "#e8e4dd" }} />
+          <span style={{ fontSize: 13, color: "#a39e96", whiteSpace: "nowrap" }}>
+            Or continue with
+          </span>
+          <div style={{ flex: 1, height: 1, background: "#e8e4dd" }} />
         </div>
 
         {/* Form */}
@@ -137,93 +226,218 @@ export function LoginPage() {
           onSubmit={handleSubmit(onSubmit)}
           aria-label="Sign in to Pharma Glimmora"
           noValidate
-          className="w-full space-y-4 mt-8"
         >
           {/* Root error */}
           {errors.root && (
-            <div className="rounded-lg px-3 py-2 bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-[12px] text-[#c0392b]">
+            <div
+              role="alert"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 8,
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#dc2626",
+                fontSize: 13,
+                marginBottom: 16,
+              }}
+            >
               {errors.root.message}
             </div>
           )}
 
-          <Input
-            id="email"
-            label="Work email"
-            type="email"
-            required
-            icon={Mail}
-            autoComplete="email"
-            placeholder="admin@pharmaglimmora.com"
-            error={errors.email?.message}
-            {...register("email")}
-          />
-
-          {/* Password */}
-          <div>
-            <div className="flex justify-between items-center mb-1.5">
-              <label htmlFor="password" className="text-[11px] font-medium text-[#d5bfb2]">
-                Password <span className="text-[#c0392b]" aria-hidden="true">*</span>
-              </label>
-              <span className="text-[11px] text-[#a57865] cursor-pointer">Forgot password?</span>
-            </div>
-            <div className="relative">
-              <Lock className="w-3.5 h-3.5 text-[#8e7065] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                placeholder="••••••••••••"
-                required
-                aria-required="true"
-                aria-invalid={errors.password ? true : undefined}
-                aria-describedby={errors.password ? "password-error" : undefined}
-                {...register("password")}
-                className="w-full bg-[#3a2d28] border border-[#6b5349] rounded-lg pl-9.5 pr-3 py-2.5 text-[13px] text-[#e2e8f0] placeholder:text-[#6b5349] outline-none focus:border-[#a57865] focus:ring-[3px] focus:ring-[rgba(14,165,233,0.12)] transition-all duration-150"
-              />
-            </div>
-            {errors.password && (
-              <p id="password-error" role="alert" className="text-[11px] text-[#c0392b] mt-1">{errors.password.message}</p>
+          {/* Username */}
+          <div style={{ marginBottom: 16 }}>
+            <label
+              htmlFor="email"
+              style={{
+                display: "block",
+                fontSize: 13,
+                fontWeight: 500,
+                color: "#302d29",
+                marginBottom: 6,
+              }}
+            >
+              Username
+            </label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              placeholder="Enter your username"
+              aria-required="true"
+              aria-invalid={errors.email ? true : undefined}
+              {...register("email")}
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                borderRadius: 8,
+                border: `1px solid ${errors.email ? "#dc2626" : "#e8e4dd"}`,
+                fontSize: 14,
+                color: "#302d29",
+                background: "#ffffff",
+                outline: "none",
+                transition: "border-color 0.15s",
+              }}
+              onFocus={(e) => { if (!errors.email) e.target.style.borderColor = "#8b6914"; }}
+              onBlur={(e) => { if (!errors.email) e.target.style.borderColor = "#e8e4dd"; }}
+            />
+            {errors.email && (
+              <p role="alert" style={{ fontSize: 12, color: "#dc2626", marginTop: 4 }}>
+                {errors.email.message}
+              </p>
             )}
           </div>
 
-          <Button type="submit" icon={LogIn} loading={isSubmitting} fullWidth className="py-2.75">
-            {isSubmitting ? "Signing in..." : "Sign in"}
-          </Button>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 h-px bg-[#6b5349]" />
-            <span className="text-[11px] text-[#8e7065]">or continue with</span>
-            <div className="flex-1 h-px bg-[#6b5349]" />
+          {/* Passcode */}
+          <div style={{ marginBottom: 16 }}>
+            <label
+              htmlFor="password"
+              style={{
+                display: "block",
+                fontSize: 13,
+                fontWeight: 500,
+                color: "#302d29",
+                marginBottom: 6,
+              }}
+            >
+              Passcode
+            </label>
+            <div style={{ position: "relative" }}>
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                placeholder="Enter your passcode"
+                aria-required="true"
+                aria-invalid={errors.password ? true : undefined}
+                {...register("password")}
+                style={{
+                  width: "100%",
+                  padding: "10px 42px 10px 14px",
+                  borderRadius: 8,
+                  border: `1px solid ${errors.password ? "#dc2626" : "#e8e4dd"}`,
+                  fontSize: 14,
+                  color: "#302d29",
+                  background: "#ffffff",
+                  outline: "none",
+                  transition: "border-color 0.15s",
+                }}
+                onFocus={(e) => { if (!errors.password) e.target.style.borderColor = "#8b6914"; }}
+                onBlur={(e) => { if (!errors.password) e.target.style.borderColor = "#e8e4dd"; }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide passcode" : "Show passcode"}
+                style={{
+                  position: "absolute",
+                  right: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#a39e96",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+              </button>
+            </div>
+            {errors.password && (
+              <p role="alert" style={{ fontSize: 12, color: "#dc2626", marginTop: 4 }}>
+                {errors.password.message}
+              </p>
+            )}
           </div>
 
-          <Button variant="secondary" icon={Building2} fullWidth>
-            Single Sign-On (SSO)
-          </Button>
+          {/* Remember me + Forgot */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 20,
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 13,
+                color: "#302d29",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                style={{ accentColor: "#8b6914", width: 16, height: 16 }}
+              />
+              Remember me
+            </label>
+            <button
+              type="button"
+              style={{
+                background: "none",
+                border: "none",
+                color: "#8b6914",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: "pointer",
+                textDecoration: "underline",
+              }}
+            >
+              Forgot passcode?
+            </button>
+          </div>
+
+          {/* Login button */}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            style={{
+              width: "100%",
+              padding: "11px 20px",
+              borderRadius: 8,
+              background: "#8b6914",
+              color: "#ffffff",
+              fontSize: 14,
+              fontWeight: 600,
+              border: "none",
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+              opacity: isSubmitting ? 0.7 : 1,
+              transition: "all 0.15s",
+            }}
+          >
+            {isSubmitting ? "Signing in..." : "Login"}
+          </button>
         </form>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between mt-8 pt-5 border-t border-[#0f2039]">
-          <div className="flex items-center gap-1.5 text-[11px] text-[#6b5349]">
-            <Shield className="w-3 h-3" aria-hidden="true" />
-            21 CFR Part 11 compliant
-          </div>
-          <span className="text-[11px] text-[#8e7065]">Privacy · Terms</span>
-        </div>
-
         {/* Dev credentials toggle */}
-        <div className="mt-4">
+        <div style={{ marginTop: 24 }}>
           <button
             type="button"
             onClick={() => setShowCreds((v) => !v)}
-            className={clsx(
-              "w-full flex items-center justify-center gap-2",
-              "py-2 rounded-lg text-[11px] font-medium",
-              "border transition-all duration-150 bg-transparent",
-              isDark
-                ? "border-[#6b5349] text-[#8e7065] hover:text-[#d5bfb2] hover:border-[#2a4a6a]"
-                : "border-[#e2e8f0] text-[#d5bfb2] hover:text-[#8e7065]",
-            )}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              padding: "8px 12px",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 500,
+              background: "none",
+              border: "1px solid #e8e4dd",
+              color: "#7a736a",
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
           >
             <ChevronDown
               className={clsx("w-3.5 h-3.5 transition-transform", showCreds && "rotate-180")}
@@ -234,17 +448,20 @@ export function LoginPage() {
 
           {showCreds && (
             <div
-              className={clsx(
-                "mt-2 rounded-xl overflow-hidden border",
-                isDark ? "border-[#6b5349] bg-[#3a2d28]" : "border-[#e2e8f0] bg-white",
-              )}
+              style={{
+                marginTop: 8,
+                borderRadius: 10,
+                overflow: "hidden",
+                border: "1px solid #e8e4dd",
+                background: "#ffffff",
+              }}
             >
-              <table className="w-full border-collapse text-[11px]">
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                 <thead>
-                  <tr className={isDark ? "border-b border-[#6b5349]" : "border-b border-[#f1f5f9]"}>
-                    <th className="px-2.5 py-2 text-left text-[#8e7065] font-semibold">Role</th>
-                    <th className="px-2.5 py-2 text-left text-[#8e7065] font-semibold">Email</th>
-                    <th className="px-2.5 py-2 text-left text-[#8e7065] font-semibold">Password</th>
+                  <tr style={{ borderBottom: "1px solid #e8e4dd" }}>
+                    <th style={{ padding: "8px 10px", textAlign: "left", color: "#a39e96", fontWeight: 600 }}>Role</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", color: "#a39e96", fontWeight: 600 }}>Email</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", color: "#a39e96", fontWeight: 600 }}>Password</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -256,34 +473,46 @@ export function LoginPage() {
                         setValue("password", pass);
                         setShowCreds(false);
                       }}
-                      className={clsx(
-                        "cursor-pointer transition-colors",
-                        isDark ? "hover:bg-[#503e37]" : "hover:bg-[#f8fafc]",
-                        i < CRED_ROWS.length - 1 && (isDark ? "border-b border-[#0f2039]" : "border-b border-[#f8fafc]"),
-                      )}
+                      style={{
+                        cursor: "pointer",
+                        transition: "background 0.1s",
+                        borderBottom: i < CRED_ROWS.length - 1 ? "1px solid #f5f3ef" : "none",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#faf9f7"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
                     >
-                      <td className="px-2.5 py-2">
+                      <td style={{ padding: "6px 10px" }}>
                         <span
-                          className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                          style={{ background: colour + "1a", color: colour }}
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: 20,
+                            background: colour + "1a",
+                            color: colour,
+                          }}
                         >
                           {role}
                         </span>
                       </td>
-                      <td className={clsx("px-2.5 py-2 font-mono", isDark ? "text-[#8e7065]" : "text-[#d5bfb2]")}>
+                      <td style={{ padding: "6px 10px", fontFamily: "IBM Plex Mono, monospace", color: "#7a736a" }}>
                         {email}
                       </td>
-                      <td className={clsx("px-2.5 py-2 font-mono", isDark ? "text-[#8e7065]" : "text-[#d5bfb2]")}>
+                      <td style={{ padding: "6px 10px", fontFamily: "IBM Plex Mono, monospace", color: "#7a736a" }}>
                         {pass}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className={clsx(
-                "px-2.5 py-1.5 text-[10px] text-[#8e7065]",
-                isDark ? "border-t border-[#0f2039]" : "border-t border-[#f1f5f9]",
-              )}>
+              <div
+                style={{
+                  padding: "6px 10px",
+                  fontSize: 10,
+                  color: "#a39e96",
+                  borderTop: "1px solid #f5f3ef",
+                }}
+              >
                 Click any row to auto-fill
               </div>
             </div>

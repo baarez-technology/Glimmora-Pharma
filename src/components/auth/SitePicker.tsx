@@ -17,22 +17,22 @@ import type { SiteConfig } from "@/store/settings.slice";
 
 const riskStyles = {
   HIGH: {
-    iconBg: "bg-[rgba(239,68,68,0.12)]",
-    iconColor: "text-[#c0392b]",
-    badgeBg: "bg-[rgba(239,68,68,0.12)]",
-    badgeColor: "text-[#c0392b]",
+    iconBg: "rgba(239,68,68,0.08)",
+    iconColor: "#dc2626",
+    badgeBg: "rgba(239,68,68,0.08)",
+    badgeColor: "#dc2626",
   },
   MEDIUM: {
-    iconBg: "bg-[rgba(245,158,11,0.12)]",
-    iconColor: "text-[#c9a84c]",
-    badgeBg: "bg-[rgba(245,158,11,0.12)]",
-    badgeColor: "text-[#c9a84c]",
+    iconBg: "rgba(217,119,6,0.08)",
+    iconColor: "#d97706",
+    badgeBg: "rgba(217,119,6,0.08)",
+    badgeColor: "#d97706",
   },
   LOW: {
-    iconBg: "bg-[rgba(16,185,129,0.12)]",
-    iconColor: "text-[#4a5e3a]",
-    badgeBg: "bg-[rgba(16,185,129,0.12)]",
-    badgeColor: "text-[#4a5e3a]",
+    iconBg: "rgba(5,150,105,0.08)",
+    iconColor: "#059669",
+    badgeBg: "rgba(5,150,105,0.08)",
+    badgeColor: "#059669",
   },
 };
 
@@ -56,27 +56,42 @@ export function SitePicker() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-[rgba(40,32,28,0.85)]">
+    <div
+      className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: "rgba(48,45,41,0.5)", backdropFilter: "blur(4px)" }}
+    >
       <div
-        className="w-full max-w-[520px] flex flex-col overflow-hidden bg-[#3a2d28] border border-[#6b5349] rounded-2xl max-h-[90vh]"
+        className="w-full max-w-[520px] flex flex-col overflow-hidden rounded-2xl max-h-[90vh]"
+        style={{
+          background: "var(--bg-surface)",
+          border: "1px solid var(--bg-border)",
+          boxShadow: "var(--shadow-modal)",
+        }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="site-picker-title"
       >
         {/* header */}
-        <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-[#0f2039]">
+        <div
+          className="flex items-start justify-between px-6 pt-5 pb-4"
+          style={{ borderBottom: "1px solid var(--bg-border)" }}
+        >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0 bg-[rgba(14,165,233,0.12)] border border-[rgba(14,165,233,0.2)]">
-              <MapPin className="w-4 h-4 text-[#a57865]" aria-hidden="true" />
+            <div
+              className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0"
+              style={{ background: "rgba(139,105,20,0.1)", border: "1px solid rgba(139,105,20,0.2)" }}
+            >
+              <MapPin className="w-4 h-4" style={{ color: "var(--brand)" }} aria-hidden="true" />
             </div>
             <div>
               <h2
                 id="site-picker-title"
-                className="text-[15px] font-bold text-[#e2e8f0]"
+                className="text-[15px] font-bold"
+                style={{ color: "var(--text-primary)" }}
               >
                 Select your site
               </h2>
-              <p className="text-[12px] text-[#8e7065] mt-0.5">
+              <p className="text-[12px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
                 Choose the facility you are working from today
               </p>
             </div>
@@ -85,14 +100,15 @@ export function SitePicker() {
             type="button"
             onClick={() => navigate("/login")}
             aria-label="Close"
-            className="w-7 h-7 rounded-md flex items-center justify-center bg-transparent hover:bg-[#503e37] border-none cursor-pointer transition-colors duration-150"
+            className="w-7 h-7 rounded-md flex items-center justify-center border-none cursor-pointer transition-colors duration-150"
+            style={{ background: "transparent", color: "var(--text-muted)" }}
           >
-            <X className="w-[14px] h-[14px] text-[#8e7065]" aria-hidden="true" />
+            <X className="w-[14px] h-[14px]" aria-hidden="true" />
           </button>
         </div>
 
         {/* search */}
-        <div className="px-4 py-3 border-b border-[#0f2039]">
+        <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--bg-border)" }}>
           <Input
             id="site-search"
             type="search"
@@ -110,8 +126,8 @@ export function SitePicker() {
         >
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 gap-3">
-              <Info className="w-8 h-8 text-[#6b5349]" aria-hidden="true" />
-              <p className="text-[13px] text-[#8e7065] text-center">
+              <Info className="w-8 h-8" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+              <p className="text-[13px] text-center" style={{ color: "var(--text-secondary)" }}>
                 {searchQuery
                   ? "No sites match your search."
                   : "No active sites configured. Ask your admin to add sites in Settings."}
@@ -128,49 +144,61 @@ export function SitePicker() {
                     onClick={() => setSelectedSite(site)}
                     aria-pressed={isSelected}
                     aria-label={`${site.name} — ${site.risk} risk`}
-                    className={`w-full flex items-center gap-3 p-3 rounded-xl cursor-pointer border transition-all duration-150 outline-none text-left focus-visible:ring-2 focus-visible:ring-[#a57865] ${
-                      isSelected
-                        ? "bg-[#0c2f5a] border-[#a57865]"
-                        : "bg-transparent border-transparent hover:bg-[#503e37] hover:border-[#6b5349]"
-                    }`}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-150 outline-none text-left"
+                    style={{
+                      background: isSelected ? "var(--brand-muted)" : "transparent",
+                      border: isSelected ? "1px solid var(--brand-border)" : "1px solid transparent",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = "var(--bg-hover)";
+                        e.currentTarget.style.border = "1px solid var(--bg-border)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.border = "1px solid transparent";
+                      }
+                    }}
                   >
-                    {/* site icon */}
                     <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${risk.iconBg}`}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: risk.iconBg }}
                     >
                       <Building2
-                        className={`w-4 h-4 ${risk.iconColor}`}
+                        className="w-4 h-4"
+                        style={{ color: risk.iconColor }}
                         aria-hidden="true"
                       />
                     </div>
 
-                    {/* site info */}
                     <div className="flex-1 min-w-0 text-left">
-                      <p className="text-[13px] font-semibold text-[#e2e8f0] truncate">
+                      <p className="text-[13px] font-semibold truncate" style={{ color: "var(--text-primary)" }}>
                         {site.name}
                       </p>
-                      <p className="text-[11px] text-[#8e7065] mt-0.5 truncate">
+                      <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>
                         {site.location} · {site.gmpScope}
                       </p>
                     </div>
 
-                    {/* right side */}
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                       <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${risk.badgeBg} ${risk.badgeColor}`}
+                        className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                        style={{ background: risk.badgeBg, color: risk.badgeColor }}
                       >
                         {site.risk}
                       </span>
                       <div
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
-                          isSelected
-                            ? "border-[#a57865]"
-                            : "border-[#6b5349]"
-                        }`}
+                        className="w-4 h-4 rounded-full flex items-center justify-center transition-all"
+                        style={{
+                          border: isSelected ? "2px solid var(--brand)" : "2px solid var(--bg-border)",
+                        }}
                       >
                         {isSelected && (
                           <Check
-                            className="w-2.5 h-2.5 text-[#a57865]"
+                            className="w-2.5 h-2.5"
+                            style={{ color: "var(--brand)" }}
                             aria-hidden="true"
                           />
                         )}
@@ -184,8 +212,11 @@ export function SitePicker() {
         </div>
 
         {/* footer */}
-        <div className="flex items-center justify-between px-4 py-3.5 border-t border-[#0f2039]">
-          <span className="text-[11px] text-[#8e7065]">
+        <div
+          className="flex items-center justify-between px-4 py-3.5"
+          style={{ borderTop: "1px solid var(--bg-border)" }}
+        >
+          <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
             {selectedSite ? `${selectedSite.name} selected` : "No site selected"}
           </span>
           <button
@@ -197,7 +228,13 @@ export function SitePicker() {
                 ? `Enter platform at ${selectedSite.name}`
                 : "Select a site to continue"
             }
-            className="flex items-center gap-1.5 rounded-lg px-5 py-2.5 text-[12px] font-semibold transition-colors duration-150 enabled:bg-[#a57865] enabled:text-white enabled:hover:bg-[#8a6050] disabled:bg-[#6b5349] disabled:text-[#8e7065] disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 rounded-lg px-5 py-2.5 text-[12px] font-semibold transition-colors duration-150 disabled:cursor-not-allowed"
+            style={{
+              background: selectedSite ? "var(--brand)" : "var(--bg-border)",
+              color: selectedSite ? "#ffffff" : "var(--text-muted)",
+              border: "none",
+              cursor: selectedSite ? "pointer" : "not-allowed",
+            }}
           >
             Enter platform
             <ArrowRight className="w-[13px] h-[13px]" aria-hidden="true" />

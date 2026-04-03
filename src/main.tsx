@@ -18,9 +18,9 @@ document.documentElement.setAttribute("data-theme", savedTheme);
 
 const savedColorTheme = (() => {
   try {
-    return localStorage.getItem("glimmora-color-theme") ?? "terracotta";
+    return localStorage.getItem("glimmora-color-theme") ?? "coffee-brown";
   } catch {
-    return "terracotta";
+    return "coffee-brown";
   }
 })();
 document.documentElement.setAttribute("data-color-theme", savedColorTheme);

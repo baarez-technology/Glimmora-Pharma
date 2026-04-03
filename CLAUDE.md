@@ -1303,6 +1303,6 @@ import { chartDefaults, CHART_COLORS } from "@/lib/chartColors";
 - Never use any chart library other than recharts
 - Never build any module before Settings is complete
 - Never hardcode colours — always CSS variables
-- Never let sidebar adapt to light mode — always `#071526`
+- Sidebar uses `--sidebar-*` CSS variables — adapts to both light (white) and dark themes
 - Never use `<div>` for buttons, nav, tables, forms — use semantic elements
 - Never leave interactive elements without an accessible label

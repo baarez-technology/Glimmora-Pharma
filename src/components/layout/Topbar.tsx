@@ -1,4 +1,4 @@
-import { Bell, Search, HelpCircle, Calendar, Clock } from "lucide-react";
+import { Bell, Search, HelpCircle, Calendar, Clock, Menu } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole, ROLE_LABELS } from "@/hooks/useRole";
@@ -30,28 +30,39 @@ function DateTimeBlock() {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 8,
-        padding: "0 12px",
-        height: 36,
-        borderRadius: 8,
-        background: "var(--bg-elevated)",
-        border: "1px solid var(--bg-border)",
+        gap: 10,
         flexShrink: 0,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <Calendar size={12} aria-hidden="true" style={{ color: "var(--text-muted)" }} />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 12px",
+          borderRadius: 8,
+          background: "var(--bg-elevated)",
+          border: "1px solid var(--bg-border)",
+        }}
+      >
+        <Calendar size={13} aria-hidden="true" style={{ color: "var(--text-muted)" }} />
         <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>Date</span>
         <span style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600 }}>
           {now.format("DD MMM YYYY")}
         </span>
       </div>
       <div
-        aria-hidden="true"
-        style={{ width: 1, height: 14, background: "var(--bg-border)" }}
-      />
-      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <Clock size={12} aria-hidden="true" style={{ color: "var(--text-muted)" }} />
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 12px",
+          borderRadius: 8,
+          background: "var(--bg-elevated)",
+          border: "1px solid var(--bg-border)",
+        }}
+      >
+        <Clock size={13} aria-hidden="true" style={{ color: "var(--text-muted)" }} />
         <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>Time</span>
         <span style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600 }}>
           {now.format("h:mm A")}
@@ -62,7 +73,6 @@ function DateTimeBlock() {
 }
 
 export function Topbar() {
-  const companyName = useAppSelector((s) => s.settings.org.companyName);
   const user = useAppSelector((s) => s.auth.user);
   const { role } = useRole();
 
@@ -78,39 +88,39 @@ export function Topbar() {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: 12,
         padding: "0 20px",
-        height: 56,
+        height: 64,
         flexShrink: 0,
         background: "var(--bg-surface)",
         borderBottom: "1px solid var(--bg-border)",
       }}
     >
-      {/* ── Left: company + env ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
-          {companyName || "Pharma Glimmora"}
-        </span>
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.04em",
-            padding: "2px 8px",
-            borderRadius: 20,
-            background: "var(--success-bg)",
-            color: "var(--success)",
-            whiteSpace: "nowrap",
-          }}
-        >
-          GxP Live
-        </span>
-      </div>
+      {/* Hamburger */}
+      <button
+        type="button"
+        aria-label="Toggle sidebar"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 34,
+          height: 34,
+          borderRadius: 8,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: "var(--text-secondary)",
+          flexShrink: 0,
+        }}
+      >
+        <Menu size={18} aria-hidden="true" />
+      </button>
 
-      {/* ── Date / Time ── */}
+      {/* Date / Time */}
       <DateTimeBlock />
 
-      {/* ── Centre: search ── */}
+      {/* Search */}
       <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
         <label
           style={{
@@ -118,7 +128,7 @@ export function Topbar() {
             alignItems: "center",
             gap: 8,
             width: "100%",
-            maxWidth: 440,
+            maxWidth: 420,
             padding: "0 12px",
             height: 36,
             borderRadius: 8,
@@ -170,7 +180,7 @@ export function Topbar() {
         </label>
       </div>
 
-      {/* ── Right: actions ── */}
+      {/* Right actions */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
         <ColorThemePicker />
         <ThemeToggle />
@@ -183,23 +193,20 @@ export function Topbar() {
             display: "inline-flex",
             alignItems: "center",
             gap: 5,
-            padding: "5px 10px",
+            padding: "6px 12px",
             borderRadius: 8,
             fontSize: 12,
             fontWeight: 500,
             cursor: "pointer",
             transition: "all 0.15s",
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--bg-border)",
-            color: "var(--text-secondary)",
+            background: "var(--brand)",
+            border: "none",
+            color: "#ffffff",
           }}
         >
           <HelpCircle size={13} aria-hidden="true" />
           Help
         </button>
-
-        {/* Divider */}
-        <div aria-hidden="true" style={{ width: 1, height: 22, background: "var(--bg-border)", margin: "0 2px" }} />
 
         {/* Notifications */}
         <button
@@ -236,24 +243,24 @@ export function Topbar() {
         </button>
 
         {/* Divider */}
-        <div aria-hidden="true" style={{ width: 1, height: 22, background: "var(--bg-border)", margin: "0 2px" }} />
+        <div aria-hidden="true" style={{ width: 1, height: 28, background: "var(--bg-border)", margin: "0 4px" }} />
 
-        {/* User — avatar LEFT, name+role RIGHT (matches live site) */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {/* User avatar + name + role */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div
             aria-label={user?.name ?? "User avatar"}
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 34,
-              height: 34,
+              width: 36,
+              height: 36,
               borderRadius: "50%",
               fontSize: 12,
               fontWeight: 700,
-              background: "var(--brand-muted)",
-              color: "var(--brand)",
-              border: "2px solid var(--brand-border)",
+              background: badge.bg,
+              color: badge.color,
+              border: `2px solid ${badge.color}30`,
               letterSpacing: "0.02em",
               flexShrink: 0,
             }}
@@ -261,18 +268,13 @@ export function Topbar() {
             {initials}
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3 }}>
               {user?.name ?? "—"}
             </span>
             <span
               style={{
-                fontSize: 10,
-                fontWeight: 600,
-                padding: "1px 6px",
-                borderRadius: 20,
-                background: badge.bg,
-                color: badge.color,
-                letterSpacing: "0.02em",
+                fontSize: 11,
+                color: "var(--text-secondary)",
               }}
             >
               {ROLE_LABELS[role as UserRole]}

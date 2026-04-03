@@ -29,10 +29,10 @@ function getInitialTheme(): Theme {
 function getInitialColorTheme(): ColorTheme {
   try {
     return (
-      (localStorage.getItem("glimmora-color-theme") as ColorTheme) ?? "terracotta"
+      (localStorage.getItem("glimmora-color-theme") as ColorTheme) ?? "coffee-brown"
     );
   } catch {
-    return "terracotta";
+    return "coffee-brown";
   }
 }
 
