@@ -33,8 +33,8 @@ import { Modal } from "@/components/ui/Modal";
 const SYSTEM_TYPES: SystemType[] = ["QMS", "LIMS", "ERP", "CDS", "SCADA", "MES", "CMMS", "Other"];
 
 const ACTIVITY_COLORS: Record<string, string> = {
-  IQ: "#0ea5e9", OQ: "#6366f1", PQ: "#10b981", PV: "#f59e0b",
-  UAT: "#a78bfa", "Risk Assessment": "#ef4444", "Periodic Review": "#64748b",
+  IQ: "#a57865", OQ: "#4a8fa8", PQ: "#4a5e3a", PV: "#c9a84c",
+  UAT: "#a78bfa", "Risk Assessment": "#c0392b", "Periodic Review": "#8e7065",
 };
 
 type TabId = "inventory" | "detail" | "roadmap";
@@ -56,14 +56,14 @@ const DETAIL_TABS: { id: DetailTab; label: string }[] = [
 type LucideIcon = React.ComponentType<{ className?: string; style?: React.CSSProperties; "aria-hidden"?: boolean | "true" | "false" }>;
 
 const SYS_ICONS: Record<SystemType, { icon: LucideIcon; color: string }> = {
-  LIMS: { icon: FlaskConical, color: "#0ea5e9" },
-  ERP: { icon: BarChart2, color: "#6366f1" },
-  CDS: { icon: Activity, color: "#f59e0b" },
-  QMS: { icon: ClipboardCheck, color: "#10b981" },
-  SCADA: { icon: Cpu, color: "#ef4444" },
+  LIMS: { icon: FlaskConical, color: "#a57865" },
+  ERP: { icon: BarChart2, color: "#4a8fa8" },
+  CDS: { icon: Activity, color: "#c9a84c" },
+  QMS: { icon: ClipboardCheck, color: "#4a5e3a" },
+  SCADA: { icon: Cpu, color: "#c0392b" },
   MES: { icon: Factory, color: "#a78bfa" },
-  CMMS: { icon: Wrench, color: "#64748b" },
-  Other: { icon: Server, color: "#94a3b8" },
+  CMMS: { icon: Wrench, color: "#8e7065" },
+  Other: { icon: Server, color: "#d5bfb2" },
 };
 
 function getSystemIcon(type: SystemType) {
@@ -315,12 +315,12 @@ export function CSVPage() {
     return (
       <form onSubmit={handleSubmit(onSubmit)} aria-label="System form" noValidate>
         {/* Section 1 — Identity */}
-        {sec("#0ea5e9", "System identity")}
+        {sec("#a57865", "System identity")}
         <div className="grid grid-cols-2 gap-3 mb-5">
           <div className="col-span-2">
             <label htmlFor="sys-name" className={lbl} style={{ color: "var(--text-muted)" }}>System name <span aria-hidden="true">*</span></label>
             <input id="sys-name" className="input text-[12px]" placeholder="e.g. LIMS \u2014 LabVantage 8.7" {...register("name")} />
-            {errors.name && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{errors.name.message}</p>}
+            {errors.name && <p role="alert" className="text-[11px] text-[#c0392b] mt-1">{errors.name.message}</p>}
           </div>
           <div>
             <label className={lbl} style={{ color: "var(--text-muted)" }}>System type *</label>
@@ -337,7 +337,7 @@ export function CSVPage() {
           <div>
             <label className={lbl} style={{ color: "var(--text-muted)" }}>Site *</label>
             <Controller name="siteId" control={control} render={({ field }) => (<Dropdown value={field.value} onChange={field.onChange} placeholder="Select site" width="w-full" options={activeSites.map((s) => ({ value: s.id, label: s.name }))} />)} />
-            {errors.siteId && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{errors.siteId.message}</p>}
+            {errors.siteId && <p role="alert" className="text-[11px] text-[#c0392b] mt-1">{errors.siteId.message}</p>}
           </div>
           <div>
             <label className={lbl} style={{ color: "var(--text-muted)" }}>System owner *</label>
@@ -346,7 +346,7 @@ export function CSVPage() {
         </div>
 
         {/* Section 2 — Classification */}
-        {sec("#6366f1", "Risk & compliance classification")}
+        {sec("#4a8fa8", "Risk & compliance classification")}
         <div className="grid grid-cols-2 gap-3 mb-5">
           <div>
             <label className={lbl} style={{ color: "var(--text-muted)" }}>GxP relevance *</label>
@@ -384,12 +384,12 @@ export function CSVPage() {
         </div>
 
         {/* Section 3 — Detail */}
-        {sec("#f59e0b", "System detail")}
+        {sec("#c9a84c", "System detail")}
         <div className="grid grid-cols-2 gap-3 mb-5">
           <div className="col-span-2">
             <label htmlFor="sys-use" className={lbl} style={{ color: "var(--text-muted)" }}>Intended use *</label>
             <textarea id="sys-use" rows={2} className="input text-[12px] resize-none" placeholder="Describe what this system is used for in GxP operations..." {...register("intendedUse")} />
-            {errors.intendedUse && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{errors.intendedUse.message}</p>}
+            {errors.intendedUse && <p role="alert" className="text-[11px] text-[#c0392b] mt-1">{errors.intendedUse.message}</p>}
           </div>
           <div className="col-span-2">
             <label htmlFor="sys-scope" className={lbl} style={{ color: "var(--text-muted)" }}>GxP scope</label>
@@ -402,7 +402,7 @@ export function CSVPage() {
         </div>
 
         {/* Section 4 — Risk & validation plan */}
-        {sec("#10b981", "Risk & validation plan")}
+        {sec("#4a5e3a", "Risk & validation plan")}
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <label htmlFor="sys-rf" className={lbl} style={{ color: "var(--text-muted)" }}>Risk factors</label>
@@ -453,9 +453,9 @@ export function CSVPage() {
       {/* Framework banner */}
       {!showPart11 && !showAnnex11 && !showGAMP5 && (
         <div className={clsx("flex items-start gap-2 p-3 rounded-xl border", isDark ? "bg-[rgba(245,158,11,0.06)] border-[rgba(245,158,11,0.15)]" : "bg-[#fffbeb] border-[#fde68a]")}>
-          <Info className="w-4 h-4 text-[#f59e0b] flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <Info className="w-4 h-4 text-[#c9a84c] flex-shrink-0 mt-0.5" aria-hidden="true" />
           <div className="flex-1">
-            <p className="text-[12px] font-medium text-[#f59e0b]">No compliance frameworks active</p>
+            <p className="text-[12px] font-medium text-[#c9a84c]">No compliance frameworks active</p>
             <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>Enable Part 11, Annex 11, or GAMP 5 in Settings &rarr; Frameworks to show compliance columns.</p>
           </div>
           <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>Go to Settings</Button>
@@ -478,29 +478,29 @@ export function CSVPage() {
         {/* Tiles */}
         <section aria-label="System statistics" className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="stat-card" role="region" aria-label="Total systems">
-            <div className="flex items-center gap-2 mb-2"><Database className="w-5 h-5 text-[#0ea5e9]" aria-hidden="true" /><span className="stat-label mb-0">Total systems</span></div>
+            <div className="flex items-center gap-2 mb-2"><Database className="w-5 h-5 text-[#a57865]" aria-hidden="true" /><span className="stat-label mb-0">Total systems</span></div>
             <div className="stat-value">{systems.length}</div>
             <div className="stat-sub">{systems.length === 0 ? "Add your first GxP system to get started" : `across ${[...new Set(systems.map((s) => s.siteId))].length} sites`}</div>
           </div>
           <div className="stat-card" role="region" aria-label="High risk systems">
-            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-[#ef4444]" aria-hidden="true" /><span className="stat-label mb-0">High risk</span></div>
-            <div className={clsx("stat-value", highRisk > 0 ? "text-[#ef4444]" : "text-[#10b981]")}>{highRisk}</div>
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-[#c0392b]" aria-hidden="true" /><span className="stat-label mb-0">High risk</span></div>
+            <div className={clsx("stat-value", highRisk > 0 ? "text-[#c0392b]" : "text-[#4a5e3a]")}>{highRisk}</div>
             <div className="stat-sub">{systems.length === 0 ? "No systems registered" : "Require immediate attention"}</div>
           </div>
           <div className="stat-card" role="region" aria-label="Validation overdue">
-            <div className="flex items-center gap-2 mb-2"><Clock className="w-5 h-5 text-[#f59e0b]" aria-hidden="true" /><span className="stat-label mb-0">Validation overdue</span></div>
-            <div className={clsx("stat-value", valOverdue > 0 ? "text-[#ef4444]" : "text-[#10b981]")}>{valOverdue}</div>
+            <div className="flex items-center gap-2 mb-2"><Clock className="w-5 h-5 text-[#c9a84c]" aria-hidden="true" /><span className="stat-label mb-0">Validation overdue</span></div>
+            <div className={clsx("stat-value", valOverdue > 0 ? "text-[#c0392b]" : "text-[#4a5e3a]")}>{valOverdue}</div>
             <div className="stat-sub">{systems.length === 0 ? "No systems registered" : "Past revalidation date"}</div>
           </div>
           <div className="stat-card" role="region" aria-label="Non-compliant systems">
-            <div className="flex items-center gap-2 mb-2"><ShieldAlert className="w-5 h-5 text-[#ef4444]" aria-hidden="true" /><span className="stat-label mb-0">Non-compliant</span></div>
-            <div className={clsx("stat-value", nonCompliant > 0 ? "text-[#ef4444]" : "text-[#10b981]")}>{nonCompliant}</div>
+            <div className="flex items-center gap-2 mb-2"><ShieldAlert className="w-5 h-5 text-[#c0392b]" aria-hidden="true" /><span className="stat-label mb-0">Non-compliant</span></div>
+            <div className={clsx("stat-value", nonCompliant > 0 ? "text-[#c0392b]" : "text-[#4a5e3a]")}>{nonCompliant}</div>
             <div className="stat-sub">{systems.length === 0 ? "No systems registered" : "Part 11 or Annex 11 gap"}</div>
           </div>
         </section>
 
         {/* Filters */}
-        <section aria-label="System filters" className={clsx("flex items-center gap-3 flex-wrap mb-4 p-4 rounded-xl border", isDark ? "bg-[#0a1f38] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+        <section aria-label="System filters" className={clsx("flex items-center gap-3 flex-wrap mb-4 p-4 rounded-xl border", isDark ? "bg-[#503e37] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
           <Filter className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
           <span className="text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>Filters</span>
           <Dropdown placeholder="All sites" value={siteFilter} onChange={setSiteFilter} width="w-36" options={[{ value: "", label: "All sites" }, ...sites.map((s) => ({ value: s.id, label: s.name }))]} />
@@ -517,7 +517,7 @@ export function CSVPage() {
         {/* Table */}
         {systems.length === 0 ? (
           <div className="card p-10 text-center">
-            <Database className="w-12 h-12 mx-auto mb-3" style={{ color: "#334155" }} aria-hidden="true" />
+            <Database className="w-12 h-12 mx-auto mb-3" style={{ color: "#6b5349" }} aria-hidden="true" />
             <p className="text-[13px] font-medium mb-1" style={{ color: "var(--text-primary)" }}>No systems registered yet</p>
             <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>Add your GxP computerised systems to track validation status and compliance.</p>
             {!isViewOnly && <Button variant="primary" size="sm" icon={Plus} className="mt-3" onClick={() => setAddOpen(true)}>Add first system</Button>}
@@ -576,7 +576,7 @@ export function CSVPage() {
                         {sys.nextReview ? (
                           <>
                             <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(sys.nextReview).tz(timezone).format(dateFormat)}</div>
-                            {dayjs.utc(sys.nextReview).isBefore(dayjs()) && <div className="text-[10px] text-[#ef4444] font-medium">Overdue</div>}
+                            {dayjs.utc(sys.nextReview).isBefore(dayjs()) && <div className="text-[10px] text-[#c0392b] font-medium">Overdue</div>}
                           </>
                         ) : <span className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>&mdash;</span>}
                       </td>
@@ -603,7 +603,7 @@ export function CSVPage() {
       <div role="tabpanel" id="panel-detail" aria-labelledby="tab-detail" tabIndex={0} hidden={activeTab !== "detail"}>
         {!selectedSystem ? (
           <div className="card p-10 text-center">
-            <Server className="w-12 h-12 mx-auto mb-3" style={{ color: "#334155" }} aria-hidden="true" />
+            <Server className="w-12 h-12 mx-auto mb-3" style={{ color: "#6b5349" }} aria-hidden="true" />
             <p className="text-[13px] font-medium mb-1" style={{ color: "var(--text-primary)" }}>{systems.length === 0 ? "No systems registered yet" : "Select a system from the inventory"}</p>
             <p className="text-[12px] mb-3" style={{ color: "var(--text-secondary)" }}>{systems.length === 0 ? "Add systems in the System Inventory tab to view detailed compliance information here." : "Click any row in the System Inventory tab to view its full detail here."}</p>
             <Button variant="ghost" size="sm" onClick={() => setActiveTab("inventory")}>Go to System Inventory</Button>
@@ -612,7 +612,7 @@ export function CSVPage() {
           <>
             {/* System header */}
             {(() => { const si = getSystemIcon(selectedSystem.type); return (
-            <div className={clsx("rounded-xl p-4 mb-4 border", isDark ? "bg-[#0a1f38] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+            <div className={clsx("rounded-xl p-4 mb-4 border", isDark ? "bg-[#503e37] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
               <div className="flex items-start justify-between flex-wrap gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: si.color + "18" }}>
@@ -650,10 +650,10 @@ export function CSVPage() {
             {/* Overview */}
             <div role="tabpanel" id="dpanel-overview" aria-labelledby="dtab-overview" tabIndex={0} hidden={detailTab !== "overview"}>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="card col-span-full"><div className="card-header"><div className="flex items-center gap-2"><Target className="w-4 h-4 text-[#0ea5e9]" aria-hidden="true" /><span className="card-title">Intended use</span></div></div><div className="card-body"><p className="text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedSystem.intendedUse || <span className="italic" style={{ color: "var(--text-muted)" }}>Not documented</span>}</p></div></div>
-                <div className="card"><div className="card-header"><div className="flex items-center gap-2"><Shield className="w-4 h-4 text-[#6366f1]" aria-hidden="true" /><span className="card-title">GxP scope</span></div></div><div className="card-body"><p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>{selectedSystem.gxpScope || <span className="italic" style={{ color: "var(--text-muted)" }}>Not documented</span>}</p></div></div>
-                <div className="card"><div className="card-header"><div className="flex items-center gap-2"><Zap className="w-4 h-4 text-[#f59e0b]" aria-hidden="true" /><span className="card-title">Critical GxP functions</span></div></div><div className="card-body"><p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>{selectedSystem.criticalFunctions || <span className="italic" style={{ color: "var(--text-muted)" }}>Not documented</span>}</p></div></div>
-                <div className="card col-span-full"><div className="card-header"><div className="flex items-center gap-2"><Server className="w-4 h-4" style={{ color: "#64748b" }} aria-hidden="true" /><span className="card-title">System information</span></div></div><div className="card-body">
+                <div className="card col-span-full"><div className="card-header"><div className="flex items-center gap-2"><Target className="w-4 h-4 text-[#a57865]" aria-hidden="true" /><span className="card-title">Intended use</span></div></div><div className="card-body"><p className="text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedSystem.intendedUse || <span className="italic" style={{ color: "var(--text-muted)" }}>Not documented</span>}</p></div></div>
+                <div className="card"><div className="card-header"><div className="flex items-center gap-2"><Shield className="w-4 h-4 text-[#4a8fa8]" aria-hidden="true" /><span className="card-title">GxP scope</span></div></div><div className="card-body"><p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>{selectedSystem.gxpScope || <span className="italic" style={{ color: "var(--text-muted)" }}>Not documented</span>}</p></div></div>
+                <div className="card"><div className="card-header"><div className="flex items-center gap-2"><Zap className="w-4 h-4 text-[#c9a84c]" aria-hidden="true" /><span className="card-title">Critical GxP functions</span></div></div><div className="card-body"><p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>{selectedSystem.criticalFunctions || <span className="italic" style={{ color: "var(--text-muted)" }}>Not documented</span>}</p></div></div>
+                <div className="card col-span-full"><div className="card-header"><div className="flex items-center gap-2"><Server className="w-4 h-4" style={{ color: "#8e7065" }} aria-hidden="true" /><span className="card-title">System information</span></div></div><div className="card-body">
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-y-3 gap-x-6 text-[12px]">
                     {([
                       ["Vendor", selectedSystem.vendor], ["Version", selectedSystem.version],
@@ -675,7 +675,7 @@ export function CSVPage() {
             <div role="tabpanel" id="dpanel-risk" aria-labelledby="dtab-risk" tabIndex={0} hidden={detailTab !== "risk"}>
               <div className="space-y-4">
                 <section aria-labelledby="rbc-sys-heading" className="card">
-                  <div className="card-header"><div className="flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-[#ef4444]" aria-hidden="true" /><h3 id="rbc-sys-heading" className="card-title">Risk-based classification</h3></div></div>
+                  <div className="card-header"><div className="flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-[#c0392b]" aria-hidden="true" /><h3 id="rbc-sys-heading" className="card-title">Risk-based classification</h3></div></div>
                   <div className="card-body space-y-0">
                     {[
                       { label: "Patient safety risk", level: selectedSystem.gxpRelevance === "Critical" ? "HIGH" : selectedSystem.gxpRelevance === "Major" ? "MEDIUM" : "LOW" },
@@ -692,11 +692,11 @@ export function CSVPage() {
                 </section>
                 <div className="card">
                   <div className="card-header">
-                    <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-[#f59e0b]" aria-hidden="true" /><span className="card-title">Risk factors</span></div>
+                    <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-[#c9a84c]" aria-hidden="true" /><span className="card-title">Risk factors</span></div>
                     {role !== "viewer" && (
                       <button type="button" onClick={() => { if (editingRiskFactors) setRiskFactorsText(selectedSystem.riskFactors ?? ""); setEditingRiskFactors((v) => !v); }}
                         aria-label={editingRiskFactors ? "Cancel editing risk factors" : "Edit risk factors"}
-                        className={clsx("ml-auto flex items-center gap-1.5 text-[11px] border-none bg-transparent cursor-pointer transition-opacity", editingRiskFactors ? "text-[#64748b] hover:text-[#94a3b8]" : "text-[#0ea5e9] hover:opacity-80")}>
+                        className={clsx("ml-auto flex items-center gap-1.5 text-[11px] border-none bg-transparent cursor-pointer transition-opacity", editingRiskFactors ? "text-[#8e7065] hover:text-[#d5bfb2]" : "text-[#a57865] hover:opacity-80")}>
                         {editingRiskFactors ? <X className="w-3.5 h-3.5" aria-hidden="true" /> : <Pencil className="w-3.5 h-3.5" aria-hidden="true" />}
                         <span>{editingRiskFactors ? "Cancel" : "Edit"}</span>
                       </button>
@@ -725,9 +725,9 @@ export function CSVPage() {
                       <p className="text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedSystem.riskFactors}</p>
                     ) : (
                       <div className={clsx("flex items-start gap-2 p-3 rounded-lg", isDark ? "bg-[rgba(245,158,11,0.06)] border border-[rgba(245,158,11,0.15)]" : "bg-[#fffbeb] border border-[#fde68a]")}>
-                        <AlertTriangle className="w-4 h-4 text-[#f59e0b] flex-shrink-0" aria-hidden="true" />
+                        <AlertTriangle className="w-4 h-4 text-[#c9a84c] flex-shrink-0" aria-hidden="true" />
                         <div>
-                          <p className="text-[12px] font-medium text-[#f59e0b]">Risk factors not documented</p>
+                          <p className="text-[12px] font-medium text-[#c9a84c]">Risk factors not documented</p>
                           <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>Click Edit above to document patient safety, product quality and DI risk factors.</p>
                         </div>
                       </div>
@@ -735,24 +735,24 @@ export function CSVPage() {
                   </div>
                 </div>
                 {(showPart11 || showAnnex11 || showGAMP5) ? (
-                  <div className="card"><div className="card-header"><div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-[#10b981]" aria-hidden="true" /><span className="card-title">Compliance status</span></div></div><div className="card-body">
+                  <div className="card"><div className="card-header"><div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-[#4a5e3a]" aria-hidden="true" /><span className="card-title">Compliance status</span></div></div><div className="card-body">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                       {showPart11 && (
-                        <div className={clsx("rounded-lg p-3 border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+                        <div className={clsx("rounded-lg p-3 border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
                           <span className="text-[11px] font-semibold uppercase tracking-wider block mb-2" style={{ color: "var(--text-muted)" }}>21 CFR Part 11</span>
                           {complianceBadge(selectedSystem.part11Status)}
                           <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>{selectedSystem.part11Status === "Compliant" ? "Audit trail and e-sig validated" : selectedSystem.part11Status === "Non-Compliant" ? "Remediation required \u2014 raise CAPA" : selectedSystem.part11Status === "In Progress" ? "Remediation in progress" : "Not applicable for this system"}</p>
                         </div>
                       )}
                       {showAnnex11 && (
-                        <div className={clsx("rounded-lg p-3 border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+                        <div className={clsx("rounded-lg p-3 border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
                           <span className="text-[11px] font-semibold uppercase tracking-wider block mb-2" style={{ color: "var(--text-muted)" }}>EU GMP Annex 11</span>
                           {complianceBadge(selectedSystem.annex11Status)}
                           <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>{selectedSystem.annex11Status === "Compliant" ? "Computerised system validated" : selectedSystem.annex11Status === "Non-Compliant" ? "Lifecycle validation required" : selectedSystem.annex11Status === "In Progress" ? "Validation in progress" : "Not applicable"}</p>
                         </div>
                       )}
                       {showGAMP5 && (
-                        <div className={clsx("rounded-lg p-3 border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+                        <div className={clsx("rounded-lg p-3 border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
                           <span className="text-[11px] font-semibold uppercase tracking-wider block mb-2" style={{ color: "var(--text-muted)" }}>GAMP 5 Category</span>
                           {gampBadge(selectedSystem.gamp5Category)}
                           <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>{selectedSystem.gamp5Category === "5" ? "Custom software \u2014 full IQ/OQ/PQ required" : selectedSystem.gamp5Category === "4" ? "Configured software \u2014 configured items tested" : selectedSystem.gamp5Category === "3" ? "Non-configured \u2014 standard testing applies" : "Infrastructure \u2014 minimal testing required"}</p>
@@ -762,9 +762,9 @@ export function CSVPage() {
                   </div></div>
                 ) : (
                   <div className={clsx("flex items-start gap-2 p-3 rounded-xl border", isDark ? "bg-[rgba(245,158,11,0.06)] border-[rgba(245,158,11,0.15)]" : "bg-[#fffbeb] border-[#fde68a]")}>
-                    <Info className="w-4 h-4 text-[#f59e0b] flex-shrink-0 mt-0.5" aria-hidden="true" />
+                    <Info className="w-4 h-4 text-[#c9a84c] flex-shrink-0 mt-0.5" aria-hidden="true" />
                     <div className="flex-1">
-                      <p className="text-[12px] font-medium text-[#f59e0b]">No compliance frameworks active</p>
+                      <p className="text-[12px] font-medium text-[#c9a84c]">No compliance frameworks active</p>
                       <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>Enable Part 11, Annex 11 or GAMP 5 in Settings &rarr; Frameworks to see compliance status.</p>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>Settings</Button>
@@ -785,18 +785,18 @@ export function CSVPage() {
                     {selectedSystem.nextReview && (
                       <div className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
                         Next review: {dayjs.utc(selectedSystem.nextReview).tz(timezone).format(dateFormat)}
-                        {dayjs.utc(selectedSystem.nextReview).isBefore(dayjs()) && <span className="text-[#ef4444] ml-1 font-medium">(Overdue)</span>}
+                        {dayjs.utc(selectedSystem.nextReview).isBefore(dayjs()) && <span className="text-[#c0392b] ml-1 font-medium">(Overdue)</span>}
                       </div>
                     )}
                   </div>
                 </div></div>
                 <div className="card">
                   <div className="card-header">
-                    <div className="flex items-center gap-2"><ClipboardList className="w-4 h-4 text-[#6366f1]" aria-hidden="true" /><span className="card-title">Planned validation actions</span></div>
+                    <div className="flex items-center gap-2"><ClipboardList className="w-4 h-4 text-[#4a8fa8]" aria-hidden="true" /><span className="card-title">Planned validation actions</span></div>
                     {role !== "viewer" && (
                       <button type="button" onClick={() => { if (editingActions) setActionsText(selectedSystem.plannedActions ?? ""); setEditingActions((v) => !v); }}
                         aria-label={editingActions ? "Cancel editing planned actions" : "Edit planned actions"}
-                        className={clsx("ml-auto flex items-center gap-1.5 text-[11px] border-none bg-transparent cursor-pointer transition-opacity", editingActions ? "text-[#64748b] hover:text-[#94a3b8]" : "text-[#0ea5e9] hover:opacity-80")}>
+                        className={clsx("ml-auto flex items-center gap-1.5 text-[11px] border-none bg-transparent cursor-pointer transition-opacity", editingActions ? "text-[#8e7065] hover:text-[#d5bfb2]" : "text-[#a57865] hover:opacity-80")}>
                         {editingActions ? <X className="w-3.5 h-3.5" aria-hidden="true" /> : <Pencil className="w-3.5 h-3.5" aria-hidden="true" />}
                         <span>{editingActions ? "Cancel" : "Edit"}</span>
                       </button>
@@ -868,7 +868,7 @@ export function CSVPage() {
                     <div className="flex items-start gap-2 p-3 rounded-lg text-[12px]" style={{ background: bg, border: `1px solid ${border}` }}>
                       {icon}
                       <div>
-                        <span className="font-semibold block" style={{ color: isBadS ? "#ef4444" : isAmberS ? "#f59e0b" : "#10b981" }}>{label}</span>
+                        <span className="font-semibold block" style={{ color: isBadS ? "#c0392b" : isAmberS ? "#c9a84c" : "#4a5e3a" }}>{label}</span>
                         <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>{desc}</p>
                       </div>
                     </div>
@@ -877,19 +877,19 @@ export function CSVPage() {
 
                 return (
                   <div className="space-y-4">
-                    <div className="card"><div className="card-header"><div className="flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-[#ef4444]" aria-hidden="true" /><span className="card-title">Data integrity status</span></div></div><div className="card-body space-y-2">
+                    <div className="card"><div className="card-header"><div className="flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-[#c0392b]" aria-hidden="true" /><span className="card-title">Data integrity status</span></div></div><div className="card-body space-y-2">
                       {statusPanel(isBad, isAmber,
-                        isBad ? <AlertCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0 mt-0.5" aria-hidden="true" /> : isAmber ? <AlertCircle className="w-4 h-4 text-[#f59e0b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] flex-shrink-0 mt-0.5" aria-hidden="true" />,
+                        isBad ? <AlertCircle className="w-4 h-4 text-[#c0392b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : isAmber ? <AlertCircle className="w-4 h-4 text-[#c9a84c] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#4a5e3a] flex-shrink-0 mt-0.5" aria-hidden="true" />,
                         isBad ? "Audit trail non-compliant" : isAmber ? "Audit trail remediation in progress" : isGood ? "Audit trail compliant" : "Audit trail status not applicable",
                         isBad ? "Part 11 / Annex 11 gap \u2014 CAPA required" : isAmber ? "Linked CAPA in progress" : isGood ? "Audit trail controls verified and validated" : "Not applicable for this system"
                       )}
                       {statusPanel(isBad, isAmber,
-                        isBad ? <AlertCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0 mt-0.5" aria-hidden="true" /> : isAmber ? <AlertCircle className="w-4 h-4 text-[#f59e0b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] flex-shrink-0 mt-0.5" aria-hidden="true" />,
+                        isBad ? <AlertCircle className="w-4 h-4 text-[#c0392b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : isAmber ? <AlertCircle className="w-4 h-4 text-[#c9a84c] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#4a5e3a] flex-shrink-0 mt-0.5" aria-hidden="true" />,
                         isBad ? "E-signature non-compliant" : isAmber ? "E-signature remediation in progress" : isGood ? "E-signature compliant" : "E-signature status not applicable",
                         isBad ? "E-sig not cryptographically bound to records" : isAmber ? "E-sig binding remediation in progress" : isGood ? "E-sig binding validated under Part 11 / Annex 11" : "Not applicable"
                       )}
                       {statusPanel(openDIGateCAPAs.length > 0, false,
-                        openDIGateCAPAs.length > 0 ? <AlertCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] flex-shrink-0 mt-0.5" aria-hidden="true" />,
+                        openDIGateCAPAs.length > 0 ? <AlertCircle className="w-4 h-4 text-[#c0392b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#4a5e3a] flex-shrink-0 mt-0.5" aria-hidden="true" />,
                         openDIGateCAPAs.length > 0 ? `DI gate open \u2014 ${openDIGateCAPAs.length} CAPA(s) pending` : "DI gate cleared",
                         openDIGateCAPAs.length > 0 ? "Data integrity review must complete before closure" : "No open data integrity issues for this system"
                       )}
@@ -901,9 +901,9 @@ export function CSVPage() {
                       ) : (
                         <div className="space-y-2">{linkedFindings.map((f) => (
                           <div key={f.id} onClick={() => navigate("/gap-assessment", { state: { openFindingId: f.id } })} role="button" aria-label={`Open finding ${f.id} in Gap Assessment`}
-                            className={clsx("flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors hover:border-[#0ea5e9]", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+                            className={clsx("flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors hover:border-[#a57865]", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <span className="font-mono text-[11px] font-semibold text-[#0ea5e9] flex-shrink-0">{f.id}</span>
+                              <span className="font-mono text-[11px] font-semibold text-[#a57865] flex-shrink-0">{f.id}</span>
                               <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>{f.requirement}</span>
                             </div>
                             <div className="flex items-center gap-2 ml-2 flex-shrink-0">
@@ -915,15 +915,15 @@ export function CSVPage() {
                       )}
                     </div></div>
 
-                    <div className="card"><div className="card-header"><div className="flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-[#0ea5e9]" aria-hidden="true" /><span className="card-title">Linked CAPAs</span>{linkedCAPAs.length > 0 && <Badge variant={linkedCAPAs.some((c) => c.status !== "Closed" && c.diGate) ? "red" : "blue"}>{linkedCAPAs.length}</Badge>}</div></div><div className="card-body">
+                    <div className="card"><div className="card-header"><div className="flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-[#a57865]" aria-hidden="true" /><span className="card-title">Linked CAPAs</span>{linkedCAPAs.length > 0 && <Badge variant={linkedCAPAs.some((c) => c.status !== "Closed" && c.diGate) ? "red" : "blue"}>{linkedCAPAs.length}</Badge>}</div></div><div className="card-body">
                       {linkedCAPAs.length === 0 ? (
                         <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No CAPAs linked to CSV/IT findings yet. Raise a CAPA from a Gap Assessment finding to see it tracked here.</p>
                       ) : (
                         <div className="space-y-2">{linkedCAPAs.map((c) => (
                           <div key={c.id} onClick={() => navigate("/capa", { state: { openCapaId: c.id } })} role="button" aria-label={`Open ${c.id} in CAPA Tracker`}
-                            className={clsx("flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors hover:border-[#0ea5e9]", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+                            className={clsx("flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors hover:border-[#a57865]", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <span className="font-mono text-[11px] font-semibold text-[#0ea5e9] flex-shrink-0">{c.id}</span>
+                              <span className="font-mono text-[11px] font-semibold text-[#a57865] flex-shrink-0">{c.id}</span>
                               <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>{c.description}</span>
                             </div>
                             <div className="flex items-center gap-2 ml-2 flex-shrink-0">
@@ -967,7 +967,7 @@ export function CSVPage() {
         {/* Grouped timeline */}
         {roadmapGrouped.length === 0 ? (
           <div className="card p-10 text-center">
-            <GitBranch className="w-12 h-12 mx-auto mb-3" style={{ color: "#334155" }} aria-hidden="true" />
+            <GitBranch className="w-12 h-12 mx-auto mb-3" style={{ color: "#6b5349" }} aria-hidden="true" />
             {systems.length === 0 ? (
               <>
                 <p className="text-[13px] font-medium mb-1" style={{ color: "var(--text-primary)" }}>No roadmap activities yet</p>
@@ -999,9 +999,9 @@ export function CSVPage() {
                   {activities.map((a) => {
                     const pct = activityProgress(a);
                     return (
-                      <div key={a.id} className={clsx("p-3 rounded-lg border", isDark ? "bg-[#0a1f38] border-[#1e3a5a]" : "bg-white border-[#e2e8f0]")}>
+                      <div key={a.id} className={clsx("p-3 rounded-lg border", isDark ? "bg-[#503e37] border-[#6b5349]" : "bg-white border-[#e2e8f0]")}>
                         <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: ACTIVITY_COLORS[a.type] ?? "#64748b" }} />
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: ACTIVITY_COLORS[a.type] ?? "#8e7065" }} />
                           <div className="flex-1 min-w-0">
                             <div className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{a.title}</div>
                             <div className="flex items-center gap-2 mt-0.5">
@@ -1012,8 +1012,8 @@ export function CSVPage() {
                           {actStatusBadge(a.status)}
                           <span className="text-[11px] flex-shrink-0" style={{ color: "var(--text-secondary)" }}>{ownerName(a.owner, users)}</span>
                         </div>
-                        <div className={clsx("h-1 rounded-full mt-2", isDark ? "bg-[#1e3a5a]" : "bg-[#e2e8f0]")}>
-                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: a.status === "Overdue" ? "#ef4444" : a.status === "Complete" ? "#10b981" : a.status === "In Progress" ? "#f59e0b" : "#0ea5e9" }} />
+                        <div className={clsx("h-1 rounded-full mt-2", isDark ? "bg-[#6b5349]" : "bg-[#e2e8f0]")}>
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: a.status === "Overdue" ? "#c0392b" : a.status === "Complete" ? "#4a5e3a" : a.status === "In Progress" ? "#c9a84c" : "#a57865" }} />
                         </div>
                       </div>
                     );
@@ -1051,12 +1051,12 @@ export function CSVPage() {
               <Controller name="systemId" control={activityForm.control} render={({ field }) => (
                 <Dropdown value={field.value} onChange={field.onChange} placeholder="Select system..." width="w-full" options={systems.map((s) => ({ value: s.id, label: s.name }))} />
               )} />
-              {activityForm.formState.errors.systemId && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{activityForm.formState.errors.systemId.message}</p>}
+              {activityForm.formState.errors.systemId && <p role="alert" className="text-[11px] text-[#c0392b] mt-1">{activityForm.formState.errors.systemId.message}</p>}
             </div>
             <div className="col-span-2">
               <label htmlFor="act-title" className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>Activity title <span aria-hidden="true">*</span></label>
               <input id="act-title" className="input text-[12px]" placeholder="e.g. LIMS IQ protocol execution" {...activityForm.register("title")} />
-              {activityForm.formState.errors.title && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{activityForm.formState.errors.title.message}</p>}
+              {activityForm.formState.errors.title && <p role="alert" className="text-[11px] text-[#c0392b] mt-1">{activityForm.formState.errors.title.message}</p>}
             </div>
             <div>
               <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>Activity type *</label>
@@ -1086,19 +1086,19 @@ export function CSVPage() {
             <div>
               <label htmlFor="act-start" className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>Start date *</label>
               <input id="act-start" type="date" className="input text-[12px]" {...activityForm.register("startDate")} />
-              {activityForm.formState.errors.startDate && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{activityForm.formState.errors.startDate.message}</p>}
+              {activityForm.formState.errors.startDate && <p role="alert" className="text-[11px] text-[#c0392b] mt-1">{activityForm.formState.errors.startDate.message}</p>}
             </div>
             <div>
               <label htmlFor="act-end" className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>End date *</label>
               <input id="act-end" type="date" className="input text-[12px]" {...activityForm.register("endDate")} />
-              {activityForm.formState.errors.endDate && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{activityForm.formState.errors.endDate.message}</p>}
+              {activityForm.formState.errors.endDate && <p role="alert" className="text-[11px] text-[#c0392b] mt-1">{activityForm.formState.errors.endDate.message}</p>}
             </div>
             <div className="col-span-2">
               <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>Owner *</label>
               <Controller name="owner" control={activityForm.control} render={({ field }) => (
                 <Dropdown value={field.value} onChange={field.onChange} placeholder="Select owner..." width="w-full" options={users.filter((u) => u.status === "Active").map((u) => ({ value: u.id, label: u.name }))} />
               )} />
-              {activityForm.formState.errors.owner && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{activityForm.formState.errors.owner.message}</p>}
+              {activityForm.formState.errors.owner && <p role="alert" className="text-[11px] text-[#c0392b] mt-1">{activityForm.formState.errors.owner.message}</p>}
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">

@@ -1,10 +1,18 @@
 export const CHART_COLORS = {
-  brand: "#0ea5e9",
-  success: "#10b981",
-  warning: "#f59e0b",
-  danger: "#ef4444",
-  info: "#6366f1",
-  muted: "#475569",
+  brand: "#a57865",
+  success: "#4a5e3a",
+  warning: "#c9a84c",
+  danger: "#c0392b",
+  info: "#4a8fa8",
+  muted: "#8e7065",
+  chart1: "#a57865",
+  chart2: "#4a5e3a",
+  chart3: "#4a8fa8",
+  chart4: "#c9a84c",
+  chart5: "#d4b5a0",
+  chart6: "#6e4c3e",
+  chart7: "#7a9e6e",
+  chart8: "#c0392b",
 };
 
 export const chartDefaults = {

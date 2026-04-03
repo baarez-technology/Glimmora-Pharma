@@ -392,11 +392,11 @@ export function FDA483Page() {
           role="alert"
         >
           <AlertCircle
-            className="w-5 h-5 text-[#ef4444] flex-shrink-0 mt-0.5"
+            className="w-5 h-5 text-[#c0392b] flex-shrink-0 mt-0.5"
             aria-hidden="true"
           />
           <div className="flex-1">
-            <p className="text-[13px] font-semibold text-[#ef4444]">
+            <p className="text-[13px] font-semibold text-[#c0392b]">
               {urgentEvents.length} response deadline
               {urgentEvents.length > 1 ? "s" : ""} within 5 days
             </p>
@@ -466,7 +466,7 @@ export function FDA483Page() {
           <div className="stat-card" role="region" aria-label="Total events">
             <div className="flex items-center gap-2 mb-2">
               <FileWarning
-                className="w-5 h-5 text-[#0ea5e9]"
+                className="w-5 h-5 text-[#a57865]"
                 aria-hidden="true"
               />
               <span className="stat-label mb-0">Total events</span>
@@ -482,14 +482,14 @@ export function FDA483Page() {
             <div className="flex items-center gap-2 mb-2">
               <Clock
                 className="w-5 h-5"
-                style={{ color: openCount > 0 ? "#f59e0b" : "#10b981" }}
+                style={{ color: openCount > 0 ? "#c9a84c" : "#4a5e3a" }}
                 aria-hidden="true"
               />
               <span className="stat-label mb-0">Open</span>
             </div>
             <div
               className="stat-value"
-              style={{ color: openCount > 0 ? "#f59e0b" : "#10b981" }}
+              style={{ color: openCount > 0 ? "#c9a84c" : "#4a5e3a" }}
             >
               {openCount}
             </div>
@@ -499,14 +499,14 @@ export function FDA483Page() {
             <div className="flex items-center gap-2 mb-2">
               <AlertCircle
                 className="w-5 h-5"
-                style={{ color: dueCount > 0 ? "#ef4444" : "#10b981" }}
+                style={{ color: dueCount > 0 ? "#c0392b" : "#4a5e3a" }}
                 aria-hidden="true"
               />
               <span className="stat-label mb-0">Response due</span>
             </div>
             <div
               className="stat-value"
-              style={{ color: dueCount > 0 ? "#ef4444" : "#10b981" }}
+              style={{ color: dueCount > 0 ? "#c0392b" : "#4a5e3a" }}
             >
               {dueCount}
             </div>
@@ -521,12 +521,12 @@ export function FDA483Page() {
           >
             <div className="flex items-center gap-2 mb-2">
               <ClipboardList
-                className="w-5 h-5 text-[#6366f1]"
+                className="w-5 h-5 text-[#4a8fa8]"
                 aria-hidden="true"
               />
               <span className="stat-label mb-0">Total observations</span>
             </div>
-            <div className="stat-value text-[#6366f1]">
+            <div className="stat-value text-[#4a8fa8]">
               {events.reduce((s, e) => s + e.observations.length, 0)}
             </div>
             <div className="stat-sub">Across all events</div>
@@ -585,7 +585,7 @@ export function FDA483Page() {
           <div className="card p-10 text-center">
             <FileWarning
               className="w-12 h-12 mx-auto mb-3"
-              style={{ color: "#334155" }}
+              style={{ color: "#6b5349" }}
               aria-hidden="true"
             />
             <p
@@ -649,11 +649,11 @@ export function FDA483Page() {
                 <div
                   key={ev.id}
                   className={clsx(
-                    "card cursor-pointer transition-all duration-150 hover:border-[#0ea5e9]",
+                    "card cursor-pointer transition-all duration-150 hover:border-[#a57865]",
                     selectedEvent?.id === ev.id &&
                       (isDark
-                        ? "border-[#0ea5e9] bg-[#071e38]"
-                        : "border-[#0ea5e9] bg-[#eff6ff]"),
+                        ? "border-[#a57865] bg-[#071e38]"
+                        : "border-[#a57865] bg-[#eff6ff]"),
                   )}
                   onClick={() => selectEvent(ev)}
                   role="button"
@@ -666,7 +666,7 @@ export function FDA483Page() {
                       <div className="flex items-center gap-2 flex-wrap">
                         {eventTypeBadge(ev.type)}
                         {eventStatusBadge(getEffectiveStatus(ev))}
-                        <span className="font-mono text-[11px] font-semibold text-[#0ea5e9]">
+                        <span className="font-mono text-[11px] font-semibold text-[#a57865]">
                           {ev.referenceNumber}
                         </span>
                       </div>
@@ -674,10 +674,10 @@ export function FDA483Page() {
                         className={clsx(
                           "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium",
                           isOverdue
-                            ? "bg-[rgba(239,68,68,0.12)] text-[#ef4444]"
+                            ? "bg-[rgba(239,68,68,0.12)] text-[#c0392b]"
                             : isUrgent
-                              ? "bg-[rgba(245,158,11,0.12)] text-[#f59e0b]"
-                              : "bg-[rgba(16,185,129,0.12)] text-[#10b981]",
+                              ? "bg-[rgba(245,158,11,0.12)] text-[#c9a84c]"
+                              : "bg-[rgba(16,185,129,0.12)] text-[#4a5e3a]",
                         )}
                       >
                         <Clock className="w-3 h-3" aria-hidden="true" />
@@ -781,7 +781,7 @@ export function FDA483Page() {
           <div className="card p-8 text-center">
             <ClipboardList
               className="w-10 h-10 mx-auto mb-2"
-              style={{ color: "#334155" }}
+              style={{ color: "#6b5349" }}
               aria-hidden="true"
             />
             <p
@@ -809,7 +809,7 @@ export function FDA483Page() {
                     <div className="flex items-center gap-2 flex-wrap mb-2">
                       {eventTypeBadge(liveEvent.type)}
                       {eventStatusBadge(getEffectiveStatus(liveEvent))}
-                      <span className="font-mono text-[12px] font-semibold text-[#0ea5e9]">
+                      <span className="font-mono text-[12px] font-semibold text-[#a57865]">
                         {liveEvent.referenceNumber}
                       </span>
                     </div>
@@ -972,7 +972,7 @@ export function FDA483Page() {
                                     state: { openCapaId: obs.capaId },
                                   })
                                 }
-                                className="font-mono text-[11px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer"
+                                className="font-mono text-[11px] text-[#a57865] hover:underline border-none bg-transparent cursor-pointer"
                                 aria-label={`Open ${obs.capaId}`}
                               >
                                 {obs.capaId}
@@ -1022,7 +1022,7 @@ export function FDA483Page() {
               <div className="card-header">
                 <div className="flex items-center gap-2">
                   <CheckSquare
-                    className="w-4 h-4 text-[#10b981]"
+                    className="w-4 h-4 text-[#4a5e3a]"
                     aria-hidden="true"
                   />
                   <span className="card-title">Commitments</span>
@@ -1083,7 +1083,7 @@ export function FDA483Page() {
                               .format(dateFormat)}
                             {dayjs.utc(c.dueDate).isBefore(dayjs()) &&
                               c.status !== "Complete" && (
-                                <span className="text-[#ef4444] ml-1">
+                                <span className="text-[#c0392b] ml-1">
                                   &mdash; Overdue
                                 </span>
                               )}
@@ -1125,7 +1125,7 @@ export function FDA483Page() {
                   <div className="card-header">
                     <div className="flex items-center gap-2">
                       <ClipboardCheck
-                        className="w-4 h-4 text-[#0ea5e9]"
+                        className="w-4 h-4 text-[#a57865]"
                         aria-hidden="true"
                       />
                       <span className="card-title">CAPA set</span>
@@ -1161,7 +1161,7 @@ export function FDA483Page() {
                           aria-label={`Open ${c.id}`}
                         >
                           <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <span className="font-mono text-[11px] font-semibold text-[#0ea5e9] flex-shrink-0">
+                            <span className="font-mono text-[11px] font-semibold text-[#a57865] flex-shrink-0">
                               {c.id}
                             </span>
                             <span
@@ -1220,7 +1220,7 @@ export function FDA483Page() {
           <div className="card p-8 text-center">
             <FileText
               className="w-10 h-10 mx-auto mb-2"
-              style={{ color: "#334155" }}
+              style={{ color: "#6b5349" }}
               aria-hidden="true"
             />
             <p
@@ -1245,13 +1245,13 @@ export function FDA483Page() {
               className={clsx(
                 "flex items-center justify-between p-4 rounded-xl mb-4 border flex-wrap gap-3",
                 isDark
-                  ? "bg-[#0a1f38] border-[#1e3a5a]"
+                  ? "bg-[#503e37] border-[#6b5349]"
                   : "bg-[#f8fafc] border-[#e2e8f0]",
               )}
             >
               <div className="flex items-center gap-2 flex-wrap">
                 {eventTypeBadge(liveEvent.type)}
-                <span className="font-mono text-[12px] text-[#0ea5e9]">
+                <span className="font-mono text-[12px] text-[#a57865]">
                   {liveEvent.referenceNumber}
                 </span>
                 {eventStatusBadge(getEffectiveStatus(liveEvent))}
@@ -1270,10 +1270,10 @@ export function FDA483Page() {
                       className={clsx(
                         "text-[15px] font-bold",
                         d <= 0
-                          ? "text-[#ef4444]"
+                          ? "text-[#c0392b]"
                           : d <= 5
-                            ? "text-[#f59e0b]"
-                            : "text-[#10b981]",
+                            ? "text-[#c9a84c]"
+                            : "text-[#4a5e3a]",
                       )}
                     >
                       {d < 0
@@ -1332,7 +1332,7 @@ export function FDA483Page() {
                   <div className="card-header">
                     <div className="flex items-center gap-2">
                       <TrendingUp
-                        className="w-4 h-4 text-[#0ea5e9]"
+                        className="w-4 h-4 text-[#a57865]"
                         aria-hidden="true"
                       />
                       <span className="card-title">Response readiness</span>
@@ -1342,10 +1342,10 @@ export function FDA483Page() {
                       style={{
                         color:
                           score === 100
-                            ? "#10b981"
+                            ? "#4a5e3a"
                             : score >= 60
-                              ? "#f59e0b"
-                              : "#ef4444",
+                              ? "#c9a84c"
+                              : "#c0392b",
                       }}
                     >
                       {score}%
@@ -1359,13 +1359,13 @@ export function FDA483Page() {
                       >
                         {c.done ? (
                           <CheckCircle2
-                            className="w-4 h-4 text-[#10b981] flex-shrink-0"
+                            className="w-4 h-4 text-[#4a5e3a] flex-shrink-0"
                             aria-hidden="true"
                           />
                         ) : (
                           <div
                             className="w-4 h-4 rounded-full border-2 flex-shrink-0"
-                            style={{ borderColor: "#334155" }}
+                            style={{ borderColor: "#6b5349" }}
                           />
                         )}
                         <span
@@ -1390,7 +1390,7 @@ export function FDA483Page() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Bot
-                      className="w-4 h-4 text-[#6366f1]"
+                      className="w-4 h-4 text-[#4a8fa8]"
                       aria-hidden="true"
                     />
                     <span
@@ -1474,7 +1474,7 @@ export function FDA483Page() {
               <div className="card-header">
                 <div className="flex items-center gap-2">
                   <FileText
-                    className="w-4 h-4 text-[#0ea5e9]"
+                    className="w-4 h-4 text-[#a57865]"
                     aria-hidden="true"
                   />
                   <span className="card-title">Response draft</span>
@@ -1488,7 +1488,7 @@ export function FDA483Page() {
                       setEditingResponse((v) => !v);
                     }}
                     className="ml-auto flex items-center gap-1.5 text-[11px] border-none bg-transparent cursor-pointer"
-                    style={{ color: editingResponse ? "#64748b" : "#0ea5e9" }}
+                    style={{ color: editingResponse ? "#64748b" : "#a57865" }}
                     aria-label={
                       editingResponse ? "Cancel editing" : "Edit response"
                     }
@@ -1615,7 +1615,7 @@ export function FDA483Page() {
           <div className="card p-8 text-center">
             <GitBranch
               className="w-10 h-10 mx-auto mb-2"
-              style={{ color: "#334155" }}
+              style={{ color: "#6b5349" }}
               aria-hidden="true"
             />
             <p
@@ -1679,7 +1679,7 @@ export function FDA483Page() {
                   <div className="card-header">
                     <div className="flex items-center gap-2">
                       <GitBranch
-                        className="w-4 h-4 text-[#6366f1]"
+                        className="w-4 h-4 text-[#4a8fa8]"
                         aria-hidden="true"
                       />
                       <span className="card-title">
@@ -1716,10 +1716,10 @@ export function FDA483Page() {
                           className={clsx(
                             "px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-all",
                             selectedObs.rcaMethod === m
-                              ? "bg-[#6366f1] text-white border-[#6366f1]"
+                              ? "bg-[#4a8fa8] text-white border-[#4a8fa8]"
                               : isDark
-                                ? "bg-transparent border-[#1e3a5a] text-[#94a3b8] hover:border-[#6366f1]"
-                                : "bg-transparent border-[#e2e8f0] text-[#64748b] hover:border-[#6366f1]",
+                                ? "bg-transparent border-[#6b5349] text-[#d5bfb2] hover:border-[#4a8fa8]"
+                                : "bg-transparent border-[#e2e8f0] text-[#64748b] hover:border-[#4a8fa8]",
                           )}
                         >
                           {m}
@@ -1740,7 +1740,7 @@ export function FDA483Page() {
                         className={clsx(
                           "p-3 rounded-lg",
                           isDark
-                            ? "bg-[#071526] border border-[#1e3a5a]"
+                            ? "bg-[#3a2d28] border border-[#6b5349]"
                             : "bg-[#f8fafc] border border-[#e2e8f0]",
                         )}
                       >
@@ -1759,7 +1759,7 @@ export function FDA483Page() {
                       </div>
                       {[1, 2, 3, 4, 5].map((n) => (
                         <div key={n} className="flex items-start gap-3">
-                          <div className="w-6 h-6 rounded-full flex-shrink-0 mt-2 flex items-center justify-center text-[10px] font-bold bg-[rgba(99,102,241,0.12)] text-[#6366f1]">
+                          <div className="w-6 h-6 rounded-full flex-shrink-0 mt-2 flex items-center justify-center text-[10px] font-bold bg-[rgba(99,102,241,0.12)] text-[#4a8fa8]">
                             {n}
                           </div>
                           <div className="flex-1">
@@ -1795,7 +1795,7 @@ export function FDA483Page() {
                             : "bg-[#f5f3ff] border-[#a5b4fc]",
                         )}
                       >
-                        <p className="text-[11px] font-semibold text-[#6366f1] mb-1">
+                        <p className="text-[11px] font-semibold text-[#4a8fa8] mb-1">
                           Root cause (Why 5)
                         </p>
                         <p
@@ -1853,7 +1853,7 @@ export function FDA483Page() {
                         className={clsx(
                           "p-3 rounded-lg",
                           isDark
-                            ? "bg-[#071526] border border-[#1e3a5a]"
+                            ? "bg-[#3a2d28] border border-[#6b5349]"
                             : "bg-[#f8fafc] border border-[#e2e8f0]",
                         )}
                       >
@@ -1964,7 +1964,7 @@ export function FDA483Page() {
                         className={clsx(
                           "p-3 rounded-lg",
                           isDark
-                            ? "bg-[#071526] border border-[#1e3a5a]"
+                            ? "bg-[#3a2d28] border border-[#6b5349]"
                             : "bg-[#f8fafc] border border-[#e2e8f0]",
                         )}
                       >
@@ -2032,7 +2032,7 @@ export function FDA483Page() {
                           state: { openCapaId: selectedObs.capaId },
                         })
                       }
-                      className="font-mono text-[12px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer"
+                      className="font-mono text-[12px] text-[#a57865] hover:underline border-none bg-transparent cursor-pointer"
                     >
                       {selectedObs.capaId}
                     </button>
@@ -2148,7 +2148,7 @@ export function FDA483Page() {
                 {...eventForm.register("referenceNumber")}
               />
               {eventForm.formState.errors.referenceNumber && (
-                <p role="alert" className="text-[11px] text-[#ef4444] mt-1">
+                <p role="alert" className="text-[11px] text-[#c0392b] mt-1">
                   {eventForm.formState.errors.referenceNumber.message}
                 </p>
               )}
@@ -2191,7 +2191,7 @@ export function FDA483Page() {
                 )}
               />
               {eventForm.formState.errors.siteId && (
-                <p role="alert" className="text-[11px] text-[#ef4444] mt-1">
+                <p role="alert" className="text-[11px] text-[#c0392b] mt-1">
                   {eventForm.formState.errors.siteId.message}
                 </p>
               )}
@@ -2378,7 +2378,7 @@ export function FDA483Page() {
                 {...obsForm.register("text")}
               />
               {obsForm.formState.errors.text && (
-                <p role="alert" className="text-[11px] text-[#ef4444] mt-1">
+                <p role="alert" className="text-[11px] text-[#c0392b] mt-1">
                   {obsForm.formState.errors.text.message}
                 </p>
               )}
@@ -2459,7 +2459,7 @@ export function FDA483Page() {
                 {...commitForm.register("text")}
               />
               {commitForm.formState.errors.text && (
-                <p role="alert" className="text-[11px] text-[#ef4444] mt-1">
+                <p role="alert" className="text-[11px] text-[#c0392b] mt-1">
                   {commitForm.formState.errors.text.message}
                 </p>
               )}
@@ -2593,13 +2593,13 @@ export function FDA483Page() {
             className={clsx(
               "rounded-lg p-3 mb-4",
               isDark
-                ? "bg-[#071526] border border-[#1e3a5a]"
+                ? "bg-[#3a2d28] border border-[#6b5349]"
                 : "bg-[#f8fafc] border border-[#e2e8f0]",
             )}
           >
             <div className="flex items-center gap-2 flex-wrap">
               {eventTypeBadge(liveEvent.type)}
-              <span className="font-mono text-[11px] text-[#0ea5e9]">
+              <span className="font-mono text-[11px] text-[#a57865]">
                 {liveEvent.referenceNumber}
               </span>
             </div>

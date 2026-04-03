@@ -205,9 +205,9 @@ export function GapPage() {
 
   const severityData = useMemo(
     () => [
-      { name: "Critical", value: criticalCount, fill: "#ef4444" },
-      { name: "Major", value: majorCount, fill: "#f59e0b" },
-      { name: "Minor", value: minorCount, fill: "#10b981" },
+      { name: "Critical", value: criticalCount, fill: "#c0392b" },
+      { name: "Major", value: majorCount, fill: "#c9a84c" },
+      { name: "Minor", value: minorCount, fill: "#4a5e3a" },
     ].filter((d) => d.value > 0),
     [criticalCount, majorCount, minorCount],
   );
@@ -316,7 +316,7 @@ export function GapPage() {
       <div role="tabpanel" id="panel-summary" aria-labelledby="tab-summary" tabIndex={0} hidden={activeTab !== "summary"}>
         {/* Filters */}
         <section aria-label="Finding filters" className="flex items-center gap-3 flex-wrap mb-6 p-4 rounded-xl border"
-          style={{ background: isDark ? "#0a1f38" : "#f8fafc", borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
+          style={{ background: isDark ? "#503e37" : "#f8fafc", borderColor: isDark ? "#6b5349" : "#e2e8f0" }}>
           <Filter className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
           <span className="text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>Filters</span>
           {renderFilters()}
@@ -325,11 +325,11 @@ export function GapPage() {
         {/* Tiles */}
         <section aria-label="Finding statistics" className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           {[
-            { icon: ClipboardList, iconCls: "text-[#0ea5e9]", label: "Total findings", value: baseFindings.length, color: "", sub: findings.length === 0 ? "Log your first finding to get started" : `${openCount} open \u00b7 ${closedCount} closed` },
-            { icon: AlertCircle, iconCls: "text-[#ef4444]", label: "Critical", value: criticalCount, color: "text-[#ef4444]", sub: criticalCount > 0 ? "Immediate action required" : "None" },
-            { icon: AlertTriangle, iconCls: "text-[#f59e0b]", label: "Major", value: majorCount, color: "text-[#f59e0b]", sub: "Prompt attention needed" },
-            { icon: Info, iconCls: "text-[#10b981]", label: "Minor", value: minorCount, color: "text-[#10b981]", sub: "Low inspection risk" },
-            { icon: Clock, iconCls: overdueCount > 0 ? "text-[#ef4444]" : "text-[#10b981]", label: "Overdue", value: overdueCount, color: overdueCount > 0 ? "text-[#ef4444]" : "text-[#10b981]", sub: overdueCount > 0 ? "Past target date" : "All on track" },
+            { icon: ClipboardList, iconCls: "text-[#a57865]", label: "Total findings", value: baseFindings.length, color: "", sub: findings.length === 0 ? "Log your first finding to get started" : `${openCount} open \u00b7 ${closedCount} closed` },
+            { icon: AlertCircle, iconCls: "text-[#c0392b]", label: "Critical", value: criticalCount, color: "text-[#c0392b]", sub: criticalCount > 0 ? "Immediate action required" : "None" },
+            { icon: AlertTriangle, iconCls: "text-[#c9a84c]", label: "Major", value: majorCount, color: "text-[#c9a84c]", sub: "Prompt attention needed" },
+            { icon: Info, iconCls: "text-[#4a5e3a]", label: "Minor", value: minorCount, color: "text-[#4a5e3a]", sub: "Low inspection risk" },
+            { icon: Clock, iconCls: overdueCount > 0 ? "text-[#c0392b]" : "text-[#4a5e3a]", label: "Overdue", value: overdueCount, color: overdueCount > 0 ? "text-[#c0392b]" : "text-[#4a5e3a]", sub: overdueCount > 0 ? "Past target date" : "All on track" },
           ].map((tile) => (
             <div key={tile.label} className="stat-card" role="region" aria-label={tile.label}>
               <div className="flex items-center gap-2 mb-2">
@@ -349,7 +349,7 @@ export function GapPage() {
             <div className="card-body">
               {topDrivers.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 gap-2">
-                  <BarChart3 className="w-8 h-8 text-[#334155]" aria-hidden="true" />
+                  <BarChart3 className="w-8 h-8 text-[#6b5349]" aria-hidden="true" />
                   <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No open findings</p>
                 </div>
               ) : (
@@ -359,8 +359,8 @@ export function GapPage() {
                     <XAxis type="number" {...chartDefaults.xAxis} allowDecimals={false} />
                     <YAxis type="category" dataKey="name" width={110} tick={{ fill: "var(--text-secondary)", fontSize: 11 }} axisLine={false} tickLine={false} />
                     <Tooltip {...chartDefaults.tooltip} />
-                    <Bar dataKey="critical" name="Critical" stackId="a" fill="#ef4444" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="major" name="Major" stackId="a" fill="#f59e0b" radius={[0, 3, 3, 0]} />
+                    <Bar dataKey="critical" name="Critical" stackId="a" fill="#c0392b" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="major" name="Major" stackId="a" fill="#c9a84c" radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -372,7 +372,7 @@ export function GapPage() {
             <div className="card-body">
               {severityData.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 gap-2">
-                  <ClipboardList className="w-8 h-8 text-[#334155]" aria-hidden="true" />
+                  <ClipboardList className="w-8 h-8 text-[#6b5349]" aria-hidden="true" />
                   <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No findings yet</p>
                 </div>
               ) : (
@@ -413,7 +413,7 @@ export function GapPage() {
           <div className={clsx(selectedFinding ? "lg:col-span-2" : "", "overflow-x-auto")}>
             {filteredFindings.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 gap-3">
-                <ClipboardList className="w-12 h-12 text-[#334155]" aria-hidden="true" />
+                <ClipboardList className="w-12 h-12 text-[#6b5349]" aria-hidden="true" />
                 {findings.length === 0 ? (
                   <>
                     <p className="text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>No findings logged yet</p>
@@ -442,7 +442,7 @@ export function GapPage() {
                       style={selectedFinding?.id === f.id ? { background: isDark ? "#0c2f5a" : "#eff6ff" } : {}}>
                       <th scope="row">
                         <div className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{f.id}</div>
-                        {f.capaId && <div className="flex items-center gap-1 mt-0.5"><Link2 className="w-3 h-3 text-[#0ea5e9]" aria-hidden="true" /><span className="text-[10px] text-[#0ea5e9]">{f.capaId}</span></div>}
+                        {f.capaId && <div className="flex items-center gap-1 mt-0.5"><Link2 className="w-3 h-3 text-[#a57865]" aria-hidden="true" /><span className="text-[10px] text-[#a57865]">{f.capaId}</span></div>}
                       </th>
                       <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{f.area}</td>
                       <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 200, color: "var(--text-primary)" }}>{f.requirement}</span></td>
@@ -452,9 +452,9 @@ export function GapPage() {
                       <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{ownerName(f.owner)}</td>
                       <td className="whitespace-nowrap">
                         <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(f.targetDate).tz(timezone).format(dateFormat)}</div>
-                        {f.status !== "Closed" && dayjs.utc(f.targetDate).isBefore(dayjs()) && <div className="text-[10px] text-[#ef4444]">Overdue</div>}
+                        {f.status !== "Closed" && dayjs.utc(f.targetDate).isBefore(dayjs()) && <div className="text-[10px] text-[#c0392b]">Overdue</div>}
                       </td>
-                      <td>{f.evidenceLink ? <span className="text-[11px] text-[#0ea5e9]">{f.evidenceLink}</span> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
+                      <td>{f.evidenceLink ? <span className="text-[11px] text-[#a57865]">{f.evidenceLink}</span> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
                       <td><Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View detail for ${f.id}`} /></td>
                     </tr>
                   ))}
@@ -467,29 +467,29 @@ export function GapPage() {
           {selectedFinding && (
             <aside aria-label="Finding detail" className="card lg:col-span-1">
               <div className="card-header">
-                <span className="font-mono text-[12px] text-[#0ea5e9] font-semibold">{selectedFinding.id}</span>
+                <span className="font-mono text-[12px] text-[#a57865] font-semibold">{selectedFinding.id}</span>
                 <Button variant="ghost" size="xs" icon={X} aria-label="Close detail panel" onClick={() => setSelectedFinding(null)} />
               </div>
               <div className="card-body space-y-4 overflow-y-auto" style={{ maxHeight: 600 }}>
                 <div className="flex gap-2 flex-wrap">{severityBadge(selectedFinding.severity)}{statusBadge(selectedFinding.status)}</div>
 
                 <div>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#475569] mb-1">Requirement</h3>
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#8e7065] mb-1">Requirement</h3>
                   <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedFinding.requirement}</p>
                 </div>
 
                 <div>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#475569] mb-1">Area &amp; Framework</h3>
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#8e7065] mb-1">Area &amp; Framework</h3>
                   <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{selectedFinding.area} &middot; {FRAMEWORK_LABELS[selectedFinding.framework] ?? selectedFinding.framework}</p>
                 </div>
 
                 <div>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#475569] mb-1">Owner</h3>
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#8e7065] mb-1">Owner</h3>
                   <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{ownerName(selectedFinding.owner)}</p>
                 </div>
 
                 <div>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#475569] mb-1">Target date</h3>
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#8e7065] mb-1">Target date</h3>
                   <p className="text-[12px]" style={{ color: "var(--text-primary)" }}>
                     {dayjs.utc(selectedFinding.targetDate).tz(timezone).format(dateFormat)}
                     {selectedFinding.status !== "Closed" && dayjs.utc(selectedFinding.targetDate).isBefore(dayjs()) && <span className="badge badge-red text-[10px] ml-2">Overdue</span>}
@@ -499,7 +499,7 @@ export function GapPage() {
                 {selectedFinding.agiSummary && agiMode !== "manual" && agiCapa && (
                   <div className="agi-panel" role="status" aria-live="polite">
                     <div className="flex items-center gap-2 mb-2">
-                      <Bot className="w-4 h-4 text-[#6366f1]" aria-hidden="true" />
+                      <Bot className="w-4 h-4 text-[#4a8fa8]" aria-hidden="true" />
                       <span className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>AGI Risk Analysis</span>
                     </div>
                     <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedFinding.agiSummary}</p>
@@ -509,13 +509,13 @@ export function GapPage() {
                 {/* CAPA link or Raise button */}
                 {selectedFinding.capaId ? (
                   <div>
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#475569] mb-1">Linked CAPA</h3>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#8e7065] mb-1">Linked CAPA</h3>
                     {(() => {
                       const lc = capas.find((c) => c.id === selectedFinding.capaId);
                       return (
                         <>
                           <div className="flex items-center gap-2 mt-1">
-                            <button type="button" onClick={() => navigate("/capa", { state: { openCapaId: selectedFinding.capaId } })} className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0">
+                            <button type="button" onClick={() => navigate("/capa", { state: { openCapaId: selectedFinding.capaId } })} className="flex items-center gap-1.5 text-[12px] text-[#a57865] hover:underline bg-transparent border-none cursor-pointer p-0">
                               <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{selectedFinding.capaId}
                             </button>
                             {lc && capaStatusBadge(lc.status)}
@@ -535,7 +535,7 @@ export function GapPage() {
                 {/* Status update */}
                 {!isViewOnly && selectedFinding.status !== "Closed" && (
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#475569] mb-1.5">Update status</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8e7065] mb-1.5">Update status</p>
                     <Dropdown value={selectedFinding.status} onChange={(val) => {
                       dispatch(updateFinding({ id: selectedFinding.id, patch: { status: val as FindingStatus } }));
                       auditLog({ action: "FINDING_STATUS_UPDATED", module: "gap-assessment", recordId: selectedFinding.id, oldValue: selectedFinding.status, newValue: val });
@@ -558,7 +558,7 @@ export function GapPage() {
 
         {allEvidenceRows.length === 0 ? (
           <div className="card p-10 text-center">
-            <FolderOpen className="w-12 h-12 mx-auto mb-3" style={{ color: "#334155" }} aria-hidden="true" />
+            <FolderOpen className="w-12 h-12 mx-auto mb-3" style={{ color: "#6b5349" }} aria-hidden="true" />
             <p className="text-[13px] font-medium mb-1" style={{ color: "var(--text-primary)" }}>No evidence to show yet</p>
             <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>Log findings in the Findings Register tab. Each finding will appear here as an evidence row.</p>
             <Button variant="ghost" size="sm" className="mt-3" onClick={() => setActiveTab("register")}>Go to Findings Register</Button>
@@ -580,7 +580,7 @@ export function GapPage() {
                   <div key={area}>
                     <button type="button" onClick={() => toggleArea(area)} aria-expanded={isExp} aria-controls={`evidence-area-${areaKey}`}
                       className={clsx("w-full flex items-center justify-between p-4 rounded-xl border cursor-pointer text-left transition-all duration-150",
-                        isDark ? "bg-[#0a1f38] border-[#1e3a5a] hover:bg-[#0d2a4a]" : "bg-white border-[#e2e8f0] hover:bg-[#f8fafc]")}>
+                        isDark ? "bg-[#503e37] border-[#6b5349] hover:bg-[#503e37]" : "bg-white border-[#e2e8f0] hover:bg-[#f8fafc]")}>
                       <span className="flex items-center gap-2">
                         <ChevronDown className={clsx("w-4 h-4 transition-transform duration-150 shrink-0", isExp && "rotate-180")} style={{ color: "var(--text-muted)" }} aria-hidden="true" />
                         <span className="font-semibold text-[13px]" style={{ color: "var(--text-primary)" }}>{area}</span>
@@ -605,7 +605,7 @@ export function GapPage() {
                                   <tr key={row.findingId}>
                                     <th scope="row">
                                       <button type="button" onClick={() => { setActiveTab("register"); const f = findings.find((x) => x.id === row.findingId); if (f) setSelectedFinding(f); }}
-                                        className="font-mono text-[11px] font-semibold text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer p-0"
+                                        className="font-mono text-[11px] font-semibold text-[#a57865] hover:underline border-none bg-transparent cursor-pointer p-0"
                                         aria-label={`Open ${row.findingId} in register`}>{row.findingId}</button>
                                     </th>
                                     <td><Badge variant="gray">{row.docType}</Badge></td>
@@ -613,7 +613,7 @@ export function GapPage() {
                                     <td><Badge variant={row.severity === "Critical" ? "red" : row.severity === "Major" ? "amber" : "gray"}>{row.severity}</Badge></td>
                                     <td>
                                       {row.evidenceLink ? (
-                                        <div className="flex items-center gap-1.5"><FileCheck className="w-3.5 h-3.5 text-[#10b981]" aria-hidden="true" /><span className="text-[11px] text-[#0ea5e9]">{row.evidenceLink}</span></div>
+                                        <div className="flex items-center gap-1.5"><FileCheck className="w-3.5 h-3.5 text-[#4a5e3a]" aria-hidden="true" /><span className="text-[11px] text-[#a57865]">{row.evidenceLink}</span></div>
                                       ) : (
                                         <span className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No document linked</span>
                                       )}
@@ -710,9 +710,9 @@ export function GapPage() {
 
       {/* ── Link evidence modal ── */}
       <Modal open={evidenceModalOpen} onClose={() => { setEvidenceModalOpen(false); setEvidenceFindingId(""); setEvidenceInput(""); }} title={evidenceInput ? "Update evidence document" : "Link evidence document"}>
-        <div className={clsx("rounded-lg p-3 mb-4 border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+        <div className={clsx("rounded-lg p-3 mb-4 border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
           <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Linking evidence for</p>
-          <p className="font-mono text-[12px] font-semibold text-[#0ea5e9] mt-0.5">{evidenceFindingId}</p>
+          <p className="font-mono text-[12px] font-semibold text-[#a57865] mt-0.5">{evidenceFindingId}</p>
           {(() => { const f = findings.find((x) => x.id === evidenceFindingId); return f ? <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>{f.requirement}</p> : null; })()}
         </div>
         <label htmlFor="evidence-input" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Document reference or link <span className="text-(--danger)">*</span></label>
