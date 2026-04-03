@@ -9,18 +9,18 @@ import "./index.css";
 
 const savedTheme = (() => {
   try {
-    return localStorage.getItem("glimmora-theme") ?? "dark";
+    return localStorage.getItem("glimmora-theme") ?? "light";
   } catch {
-    return "dark";
+    return "light";
   }
 })();
 document.documentElement.setAttribute("data-theme", savedTheme);
 
 const savedColorTheme = (() => {
   try {
-    return localStorage.getItem("glimmora-color-theme") ?? "amber-gold";
+    return localStorage.getItem("glimmora-color-theme") ?? "terracotta";
   } catch {
-    return "sky-blue";
+    return "terracotta";
   }
 })();
 document.documentElement.setAttribute("data-color-theme", savedColorTheme);

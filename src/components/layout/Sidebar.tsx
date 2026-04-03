@@ -133,7 +133,7 @@ export function Sidebar() {
     <aside
       aria-label="Application navigation"
       className="w-60 min-h-screen flex flex-col shrink-0"
-      style={{ background: "var(--bg-surface)", borderRight: "1px solid var(--bg-border)" }}
+      style={{ background: "var(--sidebar-bg)", borderRight: "1px solid var(--sidebar-border)" }}
     >
       {/* ── Logo ── */}
       <div
@@ -142,7 +142,7 @@ export function Sidebar() {
           alignItems: "center",
           gap: 10,
           padding: "16px 16px 14px",
-          borderBottom: "1px solid var(--bg-border)",
+          borderBottom: "1px solid var(--sidebar-border)",
         }}
       >
         <div
@@ -167,7 +167,7 @@ export function Sidebar() {
           </div>
           <div
             style={{
-              color: "var(--text-muted)",
+              color: "var(--sidebar-text-muted)",
               fontSize: 11,
               marginTop: 2,
               overflow: "hidden",
@@ -204,13 +204,13 @@ export function Sidebar() {
                     border: "none",
                     cursor: "pointer",
                     transition: "background 0.15s",
-                    color: "#64748b",
+                    color: "var(--sidebar-text-muted)",
                     fontSize: 12,
                     fontWeight: 600,
                     letterSpacing: "0.02em",
                     textTransform: "uppercase" as const,
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)"; }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--sidebar-accent)"; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
                 >
                   <group.icon size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
@@ -234,7 +234,7 @@ export function Sidebar() {
                       listStyle: "none",
                       margin: "2px 0 4px 0",
                       padding: 0,
-                      borderLeft: "1px solid var(--bg-border)",
+                      borderLeft: "1px solid var(--sidebar-border)",
                       marginLeft: 24,
                     }}
                   >
@@ -270,7 +270,7 @@ export function Sidebar() {
       </nav>
 
       {/* ── Footer ── */}
-      <div style={{ borderTop: "1px solid var(--bg-border)" }}>
+      <div style={{ borderTop: "1px solid var(--sidebar-border)" }}>
         <div style={{ padding: "8px 8px 4px" }}>
           <button
             type="button"
@@ -289,7 +289,7 @@ export function Sidebar() {
             justifyContent: "space-between",
             padding: "6px 16px 10px",
             fontSize: 10,
-            color: "var(--text-muted)",
+            color: "var(--sidebar-text-muted)",
           }}
         >
           <span>© 2025 Glimmora International</span>

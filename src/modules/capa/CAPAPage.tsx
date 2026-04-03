@@ -42,9 +42,9 @@ const TABS: { id: TabId; label: string; Icon: typeof BarChart3 }[] = [
 ];
 
 const QMS_PROCESSES = [
-  { title: "Deviation Management", Icon: AlertTriangle, color: "#f59e0b", sourceKey: "Deviation" as const, targetState: "Risk-based classification within 24h. DI gate check for all deviations. Trend monitoring for recurrence.", currentGap: "Recurrence detection is manual \u2014 AGI deviation intelligence not yet active." },
-  { title: "Change Control", Icon: GitBranch, color: "#6366f1", sourceKey: "Change Control" as const, targetState: "Impact assessment before any GMP change. CSV review for system changes. QA approval mandatory.", currentGap: "Change control SOP last reviewed 2023 \u2014 update required for Annex 11 alignment." },
-  { title: "Complaint Handling", Icon: MessageSquare, color: "#0ea5e9", sourceKey: "Complaint" as const, targetState: "Complaint triage within 24h. Serious complaints trigger CAPA automatically. Monthly trend analysis.", currentGap: "Complaint data not yet integrated. Manual review process in place." },
+  { title: "Deviation Management", Icon: AlertTriangle, color: "#c9a84c", sourceKey: "Deviation" as const, targetState: "Risk-based classification within 24h. DI gate check for all deviations. Trend monitoring for recurrence.", currentGap: "Recurrence detection is manual \u2014 AGI deviation intelligence not yet active." },
+  { title: "Change Control", Icon: GitBranch, color: "#4a8fa8", sourceKey: "Change Control" as const, targetState: "Impact assessment before any GMP change. CSV review for system changes. QA approval mandatory.", currentGap: "Change control SOP last reviewed 2023 \u2014 update required for Annex 11 alignment." },
+  { title: "Complaint Handling", Icon: MessageSquare, color: "#a57865", sourceKey: "Complaint" as const, targetState: "Complaint triage within 24h. Serious complaints trigger CAPA automatically. Monthly trend analysis.", currentGap: "Complaint data not yet integrated. Manual review process in place." },
 ];
 
 /* ── Helpers ── */
@@ -158,13 +158,13 @@ export function CAPAPage() {
   }
 
   const LIFECYCLE_STEPS = [
-    { step: 1, label: "Finding", Icon: Search, color: "#ef4444", desc: "Gap identified and logged", targetState: "All findings logged within 24h of discovery with severity classification.", currentGap: "Manual logging only \u2014 no automated detection from LIMS or SAP yet." },
-    { step: 2, label: "CAPA Raised", Icon: Plus, color: "#f59e0b", desc: "Owner assigned, due date set", targetState: "CAPA raised within 48h for Critical, 5 days for Major findings.", currentGap: criticalOpenCount > 0 ? `${criticalOpenCount} Critical CAPA${criticalOpenCount > 1 ? "s" : ""} open \u2014 verify raise time is within 48h` : "No Critical CAPAs open currently \u2713" },
-    { step: 3, label: "RCA", Icon: GitBranch, color: "#6366f1", desc: "Root cause analysis", targetState: "5 Why or Fishbone for Critical/Major. Documented with evidence.", currentGap: noRCACount > 0 ? `${noRCACount} open CAPA${noRCACount > 1 ? "s" : ""} have no RCA documented \u2014 beyond 7-day threshold` : "All open CAPAs have RCA documented \u2713" },
-    { step: 4, label: "Corrective Action", Icon: Wrench, color: "#0ea5e9", desc: "Fix implemented", targetState: "Action documented, evidence linked, change control raised if system change.", currentGap: "Evidence linking consistency \u2014 verify all In Progress CAPAs have document references." },
-    { step: 5, label: "QA Review", Icon: Shield, color: "#10b981", desc: "Independent verification", targetState: "QA Head reviews within 3 working days of submission.", currentGap: pendingReviewCount > 0 ? `${pendingReviewCount} CAPA${pendingReviewCount > 1 ? "s" : ""} awaiting QA review \u2014 check elapsed time` : "No CAPAs pending QA review \u2713" },
-    { step: 6, label: "Sign & Close", Icon: CheckCircle2, color: "#10b981", desc: "GxP e-signature closure", targetState: "E-signature with meaning, identity verification, content hash \u2014 21 CFR Part 11.", currentGap: pendingReviewCount > 0 ? `${pendingReviewCount} CAPA${pendingReviewCount > 1 ? "s" : ""} pending QA sign-off` : "No CAPAs pending sign-off \u2713" },
-    { step: 7, label: "Effectiveness", Icon: TrendingUp, color: "#6366f1", desc: "90-day recurrence check", targetState: "Effectiveness check at 30, 60, 90 days. Recurrence monitoring active.", currentGap: "No formal effectiveness scoring \u2014 AGI monitoring planned for future phase." },
+    { step: 1, label: "Finding", Icon: Search, color: "#c0392b", desc: "Gap identified and logged", targetState: "All findings logged within 24h of discovery with severity classification.", currentGap: "Manual logging only \u2014 no automated detection from LIMS or SAP yet." },
+    { step: 2, label: "CAPA Raised", Icon: Plus, color: "#c9a84c", desc: "Owner assigned, due date set", targetState: "CAPA raised within 48h for Critical, 5 days for Major findings.", currentGap: criticalOpenCount > 0 ? `${criticalOpenCount} Critical CAPA${criticalOpenCount > 1 ? "s" : ""} open \u2014 verify raise time is within 48h` : "No Critical CAPAs open currently \u2713" },
+    { step: 3, label: "RCA", Icon: GitBranch, color: "#4a8fa8", desc: "Root cause analysis", targetState: "5 Why or Fishbone for Critical/Major. Documented with evidence.", currentGap: noRCACount > 0 ? `${noRCACount} open CAPA${noRCACount > 1 ? "s" : ""} have no RCA documented \u2014 beyond 7-day threshold` : "All open CAPAs have RCA documented \u2713" },
+    { step: 4, label: "Corrective Action", Icon: Wrench, color: "#a57865", desc: "Fix implemented", targetState: "Action documented, evidence linked, change control raised if system change.", currentGap: "Evidence linking consistency \u2014 verify all In Progress CAPAs have document references." },
+    { step: 5, label: "QA Review", Icon: Shield, color: "#4a5e3a", desc: "Independent verification", targetState: "QA Head reviews within 3 working days of submission.", currentGap: pendingReviewCount > 0 ? `${pendingReviewCount} CAPA${pendingReviewCount > 1 ? "s" : ""} awaiting QA review \u2014 check elapsed time` : "No CAPAs pending QA review \u2713" },
+    { step: 6, label: "Sign & Close", Icon: CheckCircle2, color: "#4a5e3a", desc: "GxP e-signature closure", targetState: "E-signature with meaning, identity verification, content hash \u2014 21 CFR Part 11.", currentGap: pendingReviewCount > 0 ? `${pendingReviewCount} CAPA${pendingReviewCount > 1 ? "s" : ""} pending QA sign-off` : "No CAPAs pending sign-off \u2713" },
+    { step: 7, label: "Effectiveness", Icon: TrendingUp, color: "#4a8fa8", desc: "90-day recurrence check", targetState: "Effectiveness check at 30, 60, 90 days. Recurrence monitoring active.", currentGap: "No formal effectiveness scoring \u2014 AGI monitoring planned for future phase." },
   ];
 
   /* ── Metrics ── */
@@ -187,10 +187,10 @@ export function CAPAPage() {
 
   const statusDonut = useMemo(() =>
     ([
-      { name: "Open", value: capas.filter((c) => c.status === "Open").length, fill: "#0ea5e9" },
-      { name: "In Progress", value: capas.filter((c) => c.status === "In Progress").length, fill: "#f59e0b" },
-      { name: "Pending QA", value: capas.filter((c) => c.status === "Pending QA Review").length, fill: "#6366f1" },
-      { name: "Closed", value: capas.filter((c) => c.status === "Closed").length, fill: "#10b981" },
+      { name: "Open", value: capas.filter((c) => c.status === "Open").length, fill: "#a57865" },
+      { name: "In Progress", value: capas.filter((c) => c.status === "In Progress").length, fill: "#c9a84c" },
+      { name: "Pending QA", value: capas.filter((c) => c.status === "Pending QA Review").length, fill: "#4a8fa8" },
+      { name: "Closed", value: capas.filter((c) => c.status === "Closed").length, fill: "#4a5e3a" },
     ] as const).filter((d) => d.value > 0),
   [capas]);
 
@@ -304,22 +304,22 @@ export function CAPAPage() {
               <button type="button" role="button" aria-expanded={selectedStep === step.step}
                 onClick={() => setSelectedStep(selectedStep === step.step ? null : step.step)}
                 className={clsx("flex-shrink-0 w-[148px] rounded-xl overflow-hidden border-t-2 p-3 text-left bg-transparent outline-none cursor-pointer transition-all duration-150",
-                  isDark ? "border border-[#1e3a5a]" : "border border-[#e2e8f0]",
+                  isDark ? "border border-[#6b5349]" : "border border-[#e2e8f0]",
                   selectedStep === step.step && "ring-2 ring-offset-1")}
-                style={{ borderTopColor: step.color, background: isDark ? "#0a1f38" : "#ffffff", ...(selectedStep === step.step ? { boxShadow: `0 0 0 2px ${step.color}` } : {}) }}>
+                style={{ borderTopColor: step.color, background: isDark ? "#503e37" : "#ffffff", ...(selectedStep === step.step ? { boxShadow: `0 0 0 2px ${step.color}` } : {}) }}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: step.color + "18" }}>
                     <step.Icon className="w-4 h-4" style={{ color: step.color }} aria-hidden="true" />
                   </div>
                   <span className="flex items-center gap-1">
-                    {stepHasProblem(step.step) && <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] shrink-0" aria-label="Needs attention" />}
+                    {stepHasProblem(step.step) && <span className="w-1.5 h-1.5 rounded-full bg-[#c9a84c] shrink-0" aria-label="Needs attention" />}
                     <span className="text-[10px] font-bold" style={{ color: step.color }}>Step {step.step}</span>
                   </span>
                 </div>
                 <p className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>{step.label}</p>
                 <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{step.desc}</p>
               </button>
-              {i < LIFECYCLE_STEPS.length - 1 && <div className="flex-shrink-0 self-center mx-0.5" aria-hidden="true"><ChevronRight className="w-4 h-4" style={{ color: "#1e3a5a" }} /></div>}
+              {i < LIFECYCLE_STEPS.length - 1 && <div className="flex-shrink-0 self-center mx-0.5" aria-hidden="true"><ChevronRight className="w-4 h-4" style={{ color: "#6b5349" }} /></div>}
             </div>
           ))}
         </div>
@@ -334,8 +334,8 @@ export function CAPAPage() {
                 <span className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>Step {s.step}: {s.label}</span>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div><p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#10b981" }}>Target state</p><p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{s.targetState}</p></div>
-                <div><p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#f59e0b" }}>Current gap</p><p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{s.currentGap}</p></div>
+                <div><p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#4a5e3a" }}>Target state</p><p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{s.targetState}</p></div>
+                <div><p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#c9a84c" }}>Current gap</p><p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{s.currentGap}</p></div>
               </div>
             </div>
           );
@@ -355,15 +355,15 @@ export function CAPAPage() {
                   </div>
                 </div>
                 <div className="card-body space-y-3">
-                  <div><p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "#10b981" }}>Target state</p><p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{proc.targetState}</p></div>
+                  <div><p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "#4a5e3a" }}>Target state</p><p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{proc.targetState}</p></div>
                   <div className="border-t" style={{ borderColor: isDark ? "#0f2039" : "#f1f5f9" }} />
-                  <div><p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "#f59e0b" }}>Current gap</p><p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{proc.currentGap}</p></div>
+                  <div><p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "#c9a84c" }}>Current gap</p><p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{proc.currentGap}</p></div>
                   {hasData ? (
                     <div className="flex gap-6 pt-2">
                       {[
-                        { label: "Open", value: metrics.open, color: metrics.open > 0 ? "#f59e0b" : "#10b981" },
+                        { label: "Open", value: metrics.open, color: metrics.open > 0 ? "#c9a84c" : "#4a5e3a" },
                         { label: "This month", value: metrics.thisMonth, color: "var(--text-primary)" },
-                        { label: "Overdue", value: metrics.overdue, color: metrics.overdue > 0 ? "#ef4444" : "#10b981" },
+                        { label: "Overdue", value: metrics.overdue, color: metrics.overdue > 0 ? "#c0392b" : "#4a5e3a" },
                       ].map((m) => (
                         <div key={m.label} className="flex flex-col">
                           <span className="text-[18px] font-bold" style={{ color: m.color }}>{m.value}</span>
@@ -401,7 +401,7 @@ export function CAPAPage() {
           <div className={clsx(selectedCAPA ? "lg:col-span-2" : "", "overflow-x-auto")}>
             {filteredCAPAs.length === 0 ? (
               <div className="card p-8 text-center">
-                <ClipboardCheck className="w-12 h-12 mx-auto mb-3" style={{ color: "#334155" }} aria-hidden="true" />
+                <ClipboardCheck className="w-12 h-12 mx-auto mb-3" style={{ color: "#6b5349" }} aria-hidden="true" />
                 {capas.length === 0 ? (
                   <>
                     <p className="text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>No CAPAs raised yet</p>
@@ -432,7 +432,7 @@ export function CAPAPage() {
                       style={selectedCAPA?.id === c.id ? { background: isDark ? "#0c2f5a" : "#eff6ff" } : {}}>
                       <th scope="row">
                         <div className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{c.id}</div>
-                        {c.findingId && <div className="flex items-center gap-1 mt-0.5"><Link2 className="w-3 h-3 text-[#0ea5e9]" aria-hidden="true" /><span className="text-[10px] text-[#0ea5e9]">{c.findingId}</span></div>}
+                        {c.findingId && <div className="flex items-center gap-1 mt-0.5"><Link2 className="w-3 h-3 text-[#a57865]" aria-hidden="true" /><span className="text-[10px] text-[#a57865]">{c.findingId}</span></div>}
                       </th>
                       <td><Badge variant="gray">{c.source}</Badge></td>
                       <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 200, color: "var(--text-primary)" }}>{c.description}</span></td>
@@ -441,9 +441,9 @@ export function CAPAPage() {
                       <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{ownerName(c.owner, users)}</td>
                       <td className="whitespace-nowrap">
                         <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(c.dueDate).tz(timezone).format(dateFormat)}</div>
-                        {c.status !== "Closed" && dayjs.utc(c.dueDate).isBefore(dayjs()) && <div className="text-[10px] text-[#ef4444] font-medium">Overdue</div>}
+                        {c.status !== "Closed" && dayjs.utc(c.dueDate).isBefore(dayjs()) && <div className="text-[10px] text-[#c0392b] font-medium">Overdue</div>}
                       </td>
-                      <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4 text-[#10b981]" aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
+                      <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4 text-[#4a5e3a]" aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
                       <td><Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${c.id} detail`} /></td>
                     </tr>
                   ))}
@@ -456,13 +456,13 @@ export function CAPAPage() {
           {selectedCAPA && (
             <aside aria-label="CAPA detail" className="card lg:col-span-1">
               <div className="card-header">
-                <span className="font-mono text-[12px] font-semibold text-[#0ea5e9]">{selectedCAPA.id}</span>
+                <span className="font-mono text-[12px] font-semibold text-[#a57865]">{selectedCAPA.id}</span>
                 <div className="flex items-center gap-1 ml-auto">
                   {!isViewOnly && selectedCAPA.status !== "Closed" && (
                     <Button variant="ghost" size="xs" icon={Pencil} aria-label={`Edit ${selectedCAPA.id}`} onClick={() => setEditModalOpen(true)} />
                   )}
                   <button type="button" onClick={() => setSelectedCAPA(null)} aria-label="Close CAPA detail" className="w-5 h-5 flex items-center justify-center shrink-0 border-none bg-transparent outline-none cursor-pointer opacity-40 hover:opacity-100 transition-opacity">
-                    <X className="w-3.5 h-3.5" style={{ stroke: isDark ? "#94a3b8" : "#374151" }} strokeWidth={2.5} />
+                    <X className="w-3.5 h-3.5" style={{ stroke: isDark ? "#d5bfb2" : "#374151" }} strokeWidth={2.5} />
                   </button>
                 </div>
               </div>
@@ -491,7 +491,7 @@ export function CAPAPage() {
                   {selectedCAPA.findingId && (
                     <div className="mt-2">
                       <p className="text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Linked finding</p>
-                      <button type="button" onClick={() => navigate("/gap-assessment", { state: { openFindingId: selectedCAPA.findingId } })} className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0">
+                      <button type="button" onClick={() => navigate("/gap-assessment", { state: { openFindingId: selectedCAPA.findingId } })} className="flex items-center gap-1.5 text-[12px] text-[#a57865] hover:underline bg-transparent border-none cursor-pointer p-0">
                         <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{selectedCAPA.findingId}
                       </button>
                     </div>
@@ -506,9 +506,9 @@ export function CAPAPage() {
                     <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedCAPA.rca}</p>
                   ) : (
                     <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: isDark ? "1px solid rgba(245,158,11,0.2)" : "1px solid #fde68a" }}>
-                      <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0" aria-hidden="true" />
+                      <AlertTriangle className="w-4 h-4 text-[#c9a84c] shrink-0" aria-hidden="true" />
                       <div>
-                        <p className="text-[12px] font-medium text-[#f59e0b]">RCA not yet documented</p>
+                        <p className="text-[12px] font-medium text-[#c9a84c]">RCA not yet documented</p>
                         <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>Click the edit button above to add root cause analysis</p>
                       </div>
                     </div>
@@ -518,9 +518,9 @@ export function CAPAPage() {
 
                 {/* DI Gate */}
                 <div className={clsx("flex items-start gap-2 p-3 rounded-lg text-[12px] border", selectedCAPA.diGate ? (isDark ? "bg-[rgba(239,68,68,0.08)] border-[rgba(239,68,68,0.2)]" : "bg-[#fef2f2] border-[#fca5a5]") : (isDark ? "bg-[rgba(16,185,129,0.08)] border-[rgba(16,185,129,0.2)]" : "bg-[#f0fdf4] border-[#a7f3d0]"))}>
-                  {selectedCAPA.diGate ? <AlertCircle className="w-4 h-4 text-[#ef4444] shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] shrink-0 mt-0.5" aria-hidden="true" />}
+                  {selectedCAPA.diGate ? <AlertCircle className="w-4 h-4 text-[#c0392b] shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#4a5e3a] shrink-0 mt-0.5" aria-hidden="true" />}
                   <div>
-                    <span className="font-semibold block" style={{ color: selectedCAPA.diGate ? "#ef4444" : "#10b981" }}>{selectedCAPA.diGate ? "DI gate required" : "DI gate cleared"}</span>
+                    <span className="font-semibold block" style={{ color: selectedCAPA.diGate ? "#c0392b" : "#4a5e3a" }}>{selectedCAPA.diGate ? "DI gate required" : "DI gate cleared"}</span>
                     <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>{selectedCAPA.diGate ? "Data integrity review must be completed before QA can close" : "No data integrity issues identified"}</p>
                   </div>
                 </div>
@@ -529,14 +529,14 @@ export function CAPAPage() {
                 <div>
                   <h3 className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>Evidence</h3>
                   {selectedCAPA.evidenceLinks.length > 0
-                    ? <ul className="space-y-1 list-none p-0">{selectedCAPA.evidenceLinks.map((l, i) => <li key={i} className="flex items-center gap-2"><FileText className="w-3.5 h-3.5 text-[#0ea5e9] shrink-0" aria-hidden="true" /><span className="text-[11px] text-[#0ea5e9]">{l}</span></li>)}</ul>
+                    ? <ul className="space-y-1 list-none p-0">{selectedCAPA.evidenceLinks.map((l, i) => <li key={i} className="flex items-center gap-2"><FileText className="w-3.5 h-3.5 text-[#a57865] shrink-0" aria-hidden="true" /><span className="text-[11px] text-[#a57865]">{l}</span></li>)}</ul>
                     : <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No evidence linked yet</p>}
                 </div>
 
                 {/* Effectiveness */}
                 {selectedCAPA.effectivenessCheck && selectedCAPA.status === "Closed" && selectedCAPA.effectivenessDate && (
                   <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                    <TrendingUp className="w-4 h-4 text-[#6366f1]" aria-hidden="true" />
+                    <TrendingUp className="w-4 h-4 text-[#4a8fa8]" aria-hidden="true" />
                     <span>Effectiveness check: {dayjs.utc(selectedCAPA.effectivenessDate).format(dateFormat)}</span>
                   </div>
                 )}
@@ -561,9 +561,9 @@ export function CAPAPage() {
                     }}>Submit for QA review</Button>
                   ) : (
                     <div className="flex items-start gap-2 p-3 rounded-lg" style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: isDark ? "1px solid rgba(245,158,11,0.2)" : "1px solid #fde68a" }}>
-                      <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" aria-hidden="true" />
+                      <AlertTriangle className="w-4 h-4 text-[#c9a84c] shrink-0 mt-0.5" aria-hidden="true" />
                       <div>
-                        <p className="text-[12px] font-medium text-[#f59e0b]">RCA required to submit</p>
+                        <p className="text-[12px] font-medium text-[#c9a84c]">RCA required to submit</p>
                         <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>Click the edit button above to add root cause analysis</p>
                       </div>
                     </div>
@@ -597,10 +597,10 @@ export function CAPAPage() {
         {/* KPIs */}
         <section aria-label="CAPA metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {[
-            { icon: Clock, label: "On-time closure", value: capas.length === 0 ? "\u2014" : closedCAPAs.length === 0 ? "N/A" : `${onTimeRate}%`, color: capas.length === 0 ? "var(--text-muted)" : closedCAPAs.length === 0 ? "var(--text-muted)" : onTimeRate >= 90 ? "#10b981" : onTimeRate >= 70 ? "#f59e0b" : "#ef4444", sub: capas.length === 0 ? "No CAPAs yet" : `${closedCAPAs.length} CAPAs closed` },
-            { icon: AlertTriangle, label: "Overdue rate", value: capas.length === 0 ? "\u2014" : `${overdueRate}%`, color: capas.length === 0 ? "var(--text-muted)" : overdueRate === 0 ? "#10b981" : "#ef4444", sub: capas.length === 0 ? "No CAPAs yet" : `${overdueCAPAs.length} past due date` },
-            { icon: AlertCircle, label: "DI exceptions", value: String(diExceptions), color: diExceptions > 0 ? "#ef4444" : "#10b981", sub: "Open CAPAs with DI gate" },
-            { icon: TrendingUp, label: "Effectiveness checks", value: String(effectivenessCount), color: "#6366f1", sub: "CAPAs with check planned" },
+            { icon: Clock, label: "On-time closure", value: capas.length === 0 ? "\u2014" : closedCAPAs.length === 0 ? "N/A" : `${onTimeRate}%`, color: capas.length === 0 ? "var(--text-muted)" : closedCAPAs.length === 0 ? "var(--text-muted)" : onTimeRate >= 90 ? "#4a5e3a" : onTimeRate >= 70 ? "#c9a84c" : "#c0392b", sub: capas.length === 0 ? "No CAPAs yet" : `${closedCAPAs.length} CAPAs closed` },
+            { icon: AlertTriangle, label: "Overdue rate", value: capas.length === 0 ? "\u2014" : `${overdueRate}%`, color: capas.length === 0 ? "var(--text-muted)" : overdueRate === 0 ? "#4a5e3a" : "#c0392b", sub: capas.length === 0 ? "No CAPAs yet" : `${overdueCAPAs.length} past due date` },
+            { icon: AlertCircle, label: "DI exceptions", value: String(diExceptions), color: diExceptions > 0 ? "#c0392b" : "#4a5e3a", sub: "Open CAPAs with DI gate" },
+            { icon: TrendingUp, label: "Effectiveness checks", value: String(effectivenessCount), color: "#4a8fa8", sub: "CAPAs with check planned" },
           ].map((kpi) => (
             <div key={kpi.label} className="stat-card" role="region" aria-label={kpi.label}>
               <div className="flex items-center gap-2 mb-2"><kpi.icon className="w-5 h-5" style={{ color: kpi.color }} aria-hidden="true" /><span className="stat-label mb-0">{kpi.label}</span></div>
@@ -619,11 +619,11 @@ export function CAPAPage() {
                 <BarChart data={riskSignalData} barSize={14} barGap={2}>
                   <CartesianGrid {...chartDefaults.cartesianGrid} /><XAxis dataKey="month" {...chartDefaults.xAxis} /><YAxis {...chartDefaults.yAxis} allowDecimals={false} /><Tooltip {...chartDefaults.tooltip} />
                   <Legend iconType="circle" iconSize={8} formatter={(v) => <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{v as string}</span>} />
-                  <Bar dataKey="483" name="483" fill="#ef4444" stackId="a" /><Bar dataKey="Internal Audit" name="Internal Audit" fill="#f59e0b" stackId="a" /><Bar dataKey="Deviation" name="Deviation" fill="#6366f1" stackId="a" /><Bar dataKey="Gap Assessment" name="Gap Assessment" fill="#0ea5e9" stackId="a" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="483" name="483" fill="#c0392b" stackId="a" /><Bar dataKey="Internal Audit" name="Internal Audit" fill="#c9a84c" stackId="a" /><Bar dataKey="Deviation" name="Deviation" fill="#4a8fa8" stackId="a" /><Bar dataKey="Gap Assessment" name="Gap Assessment" fill="#a57865" stackId="a" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex flex-col items-center justify-center py-10 gap-2"><BarChart3 className="w-8 h-8 text-[#334155]" aria-hidden="true" /><p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No CAPAs created yet</p></div>
+              <div className="flex flex-col items-center justify-center py-10 gap-2"><BarChart3 className="w-8 h-8 text-[#6b5349]" aria-hidden="true" /><p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No CAPAs created yet</p></div>
             )}
           </div>
         </section>
@@ -633,7 +633,7 @@ export function CAPAPage() {
           <section aria-labelledby="status-donut-title" className="card">
             <div className="card-header"><h2 id="status-donut-title" className="card-title">CAPA status breakdown</h2></div>
             <div className="card-body">
-              {statusDonut.length === 0 ? <div className="text-center py-10"><ClipboardCheck className="w-8 h-8 mx-auto mb-2 text-[#334155]" /><p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No CAPAs yet</p></div> : (
+              {statusDonut.length === 0 ? <div className="text-center py-10"><ClipboardCheck className="w-8 h-8 mx-auto mb-2 text-[#6b5349]" /><p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No CAPAs yet</p></div> : (
                 <>
                   <ResponsiveContainer width="100%" height={200}><PieChart><Pie data={statusDonut} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">{statusDonut.map((e, i) => <Cell key={i} fill={e.fill} />)}</Pie><Tooltip {...chartDefaults.tooltip} /></PieChart></ResponsiveContainer>
                   <div className="flex flex-wrap gap-3 justify-center mt-2">{statusDonut.map((s) => <span key={s.name} className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}><span className="w-2 h-2 rounded-full inline-block" style={{ background: s.fill }} />{s.value} {s.name}</span>)}</div>
@@ -645,12 +645,12 @@ export function CAPAPage() {
           <section aria-labelledby="source-title" className="card">
             <div className="card-header"><h2 id="source-title" className="card-title">CAPAs by source</h2></div>
             <div className="card-body p-0">
-              {sourceBreakdown.length === 0 ? <div className="text-center py-10"><ClipboardCheck className="w-8 h-8 mx-auto mb-2 text-[#334155]" /><p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No CAPAs yet</p></div> : (
+              {sourceBreakdown.length === 0 ? <div className="text-center py-10"><ClipboardCheck className="w-8 h-8 mx-auto mb-2 text-[#6b5349]" /><p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No CAPAs yet</p></div> : (
                 <table className="w-full text-[12px]"><tbody>{sourceBreakdown.map((s) => (
                   <tr key={s.source} className="border-b" style={{ borderColor: isDark ? "#0f2039" : "#f1f5f9" }}>
                     <td className="py-3 px-4" style={{ color: "var(--text-secondary)" }}>{s.source}</td>
                     <td className="py-3 px-2"><Badge variant="gray">{s.count}</Badge></td>
-                    <td className="py-3 px-4 w-32"><div className="h-1.5 rounded-full overflow-hidden" style={{ background: isDark ? "#1e3a5a" : "#e2e8f0" }}><div className="h-full bg-[#0ea5e9] rounded-full transition-all duration-300" style={{ width: `${(s.count / maxSrcCount) * 100}%` }} /></div></td>
+                    <td className="py-3 px-4 w-32"><div className="h-1.5 rounded-full overflow-hidden" style={{ background: isDark ? "#6b5349" : "#e2e8f0" }}><div className="h-full bg-[#a57865] rounded-full transition-all duration-300" style={{ width: `${(s.count / maxSrcCount) * 100}%` }} /></div></td>
                   </tr>
                 ))}</tbody></table>
               )}
@@ -672,10 +672,10 @@ export function CAPAPage() {
             <div><label htmlFor="capa-finding" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Linked finding (optional)</label><input id="capa-finding" type="text" className="input text-[12px]" placeholder="FIND-001" {...reg("findingId")} /></div>
 
             {/* Toggles */}
-            <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+            <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
               <Controller name="effectivenessCheck" control={control} render={({ field }) => <Toggle id="eff-toggle" checked={field.value} onChange={field.onChange} label="Effectiveness check" description="90-day post-closure monitoring" />} />
             </div>
-            <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+            <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
               <Controller name="diGate" control={control} render={({ field }) => <Toggle id="di-toggle" checked={field.value} onChange={field.onChange} label="DI gate required" description="Data integrity review needed" />} />
             </div>
           </div>
@@ -691,15 +691,15 @@ export function CAPAPage() {
         <Modal open={signOpen} onClose={() => setSignOpen(false)} title="Sign & Close CAPA">
           <div>
             <div id="sign-part11-notice" className="alert alert-info mb-4">This is a GxP electronic signature under 21 CFR Part 11. Your identity, the meaning of this signature, and a content hash will be recorded and cannot be altered.</div>
-            <div className={clsx("rounded-lg p-3 mb-4 border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
-              <div className="flex items-center gap-2"><span className="font-mono text-[12px] text-[#0ea5e9] font-semibold">{selectedCAPA.id}</span>{riskBadge(selectedCAPA.risk)}{capaStatusBadge(selectedCAPA.status)}</div>
+            <div className={clsx("rounded-lg p-3 mb-4 border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+              <div className="flex items-center gap-2"><span className="font-mono text-[12px] text-[#a57865] font-semibold">{selectedCAPA.id}</span>{riskBadge(selectedCAPA.risk)}{capaStatusBadge(selectedCAPA.status)}</div>
               <p className="text-[12px] mt-1 line-clamp-2" style={{ color: "var(--text-secondary)" }}>{selectedCAPA.description}</p>
             </div>
             <div className="space-y-4">
               <div><p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Signature meaning <span className="text-(--danger)">*</span></p><Dropdown value={signMeaning} onChange={setSignMeaning} placeholder="Select meaning..." width="w-full" options={[{ value: "approve", label: "I approve the corrective actions as complete and effective" }, { value: "verify", label: "I verify the root cause analysis is adequate" }, { value: "confirm", label: "I confirm evidence is sufficient for closure" }]} /></div>
               <div><label htmlFor="sign-password" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Confirm your password <span className="text-(--danger)">*</span></label><input id="sign-password" type="password" className="input text-[12px]" value={signPassword} onChange={(e) => setSignPassword(e.target.value)} placeholder="Re-enter your password" /><p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>Required for identity verification under 21 CFR Part 11</p></div>
               {selectedCAPA.effectivenessCheck && (
-                <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+                <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
                   <Toggle id="eff-confirm" checked={effectivenessConfirmed} onChange={setEffectivenessConfirmed} label="Effectiveness check confirmed" description="90-day monitoring will be scheduled" />
                 </div>
               )}
@@ -742,19 +742,19 @@ export function CAPAPage() {
                 <label htmlFor="edit-due" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Due date <span className="text-(--danger)">*</span></label>
                 <input id="edit-due" type="date" className="input text-[12px]" {...editForm.register("dueDate")} />
               </div>
-              <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+              <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
                 <Controller name="diGate" control={editForm.control} render={({ field }) => <Toggle id="edit-di" checked={field.value} onChange={field.onChange} label="DI gate required" description="Data integrity review needed" />} />
               </div>
             </div>
 
-            <div className="border-t pt-4" style={{ borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>
+            <div className="border-t pt-4" style={{ borderColor: isDark ? "#6b5349" : "#f1f5f9" }}>
               <p className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Root cause analysis</p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">RCA method</p>
                   <Controller name="rcaMethod" control={editForm.control} render={({ field }) => <Dropdown value={field.value ?? ""} onChange={field.onChange} placeholder="Select method..." width="w-full" options={[{ value: "5 Why", label: "5 Why" }, { value: "Fishbone", label: "Fishbone" }, { value: "Fault Tree", label: "Fault Tree" }, { value: "Other", label: "Other" }]} />} />
                 </div>
-                <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+                <div className={clsx("flex items-center justify-between p-3 rounded-lg border", isDark ? "bg-[#3a2d28] border-[#6b5349]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
                   <Controller name="effectivenessCheck" control={editForm.control} render={({ field }) => <Toggle id="edit-eff" checked={field.value} onChange={field.onChange} label="Effectiveness check" description="90-day monitoring planned" />} />
                 </div>
                 <div className="col-span-2">
