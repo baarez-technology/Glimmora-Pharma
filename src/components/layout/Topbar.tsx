@@ -8,14 +8,14 @@ import { ColorThemePicker } from "@/components/ui/ColorThemePicker";
 import dayjs from "@/lib/dayjs";
 
 const roleBadge: Record<UserRole, { bg: string; color: string }> = {
-  super_admin:        { bg: "rgba(192,57,43,0.12)",   color: "#c0392b" },
-  qa_head:            { bg: "rgba(123,104,165,0.12)", color: "#7b68a5" },
-  qc_lab_director:    { bg: "rgba(74,94,58,0.12)",    color: "#4a5e3a" },
-  regulatory_affairs: { bg: "rgba(165,120,101,0.12)", color: "#a57865" },
-  csv_val_lead:       { bg: "rgba(74,143,168,0.12)",  color: "#4a8fa8" },
-  it_cdo:             { bg: "rgba(110,76,62,0.12)",   color: "#6e4c3e" },
-  operations_head:    { bg: "rgba(201,168,76,0.12)",  color: "#c9a84c" },
-  viewer:             { bg: "rgba(142,112,101,0.10)", color: "#8e7065" },
+  super_admin:        { bg: "rgba(239,68,68,0.12)",   color: "#ef4444" },
+  qa_head:            { bg: "rgba(139,92,246,0.12)",  color: "#a78bfa" },
+  qc_lab_director:    { bg: "rgba(16,185,129,0.12)",  color: "#10b981" },
+  regulatory_affairs: { bg: "rgba(236,72,153,0.12)",  color: "#f472b6" },
+  csv_val_lead:       { bg: "rgba(14,165,233,0.12)",  color: "#38bdf8" },
+  it_cdo:             { bg: "rgba(20,184,166,0.12)",  color: "#2dd4bf" },
+  operations_head:    { bg: "rgba(245,158,11,0.12)",  color: "#f59e0b" },
+  viewer:             { bg: "rgba(148,163,184,0.1)",   color: "#94a3b8" },
 };
 
 function DateTimeBlock() {

@@ -63,14 +63,14 @@ const MOCK_ACCOUNTS: Record<string, { password: string; user: AuthUser }> = {
 };
 
 const CRED_ROWS: [string, string, string, string][] = [
-  ["Super Admin", "admin@pharmaglimmora.com", "Admin@123", "#c0392b"],
+  ["Super Admin", "admin@pharmaglimmora.com", "Admin@123", "#ef4444"],
   ["QA Head", "qa@pharmaglimmora.com", "QaHead@123", "#a78bfa"],
   ["Regulatory Affairs", "ra@pharmaglimmora.com", "RegAff@123", "#f472b6"],
   ["CSV/Val Lead", "csv@pharmaglimmora.com", "CsvVal@123", "#38bdf8"],
-  ["QC/Lab Director", "qc@pharmaglimmora.com", "QcLab@123", "#4a5e3a"],
+  ["QC/Lab Director", "qc@pharmaglimmora.com", "QcLab@123", "#10b981"],
   ["IT/CDO", "it@pharmaglimmora.com", "ItCdo@123", "#2dd4bf"],
-  ["Operations Head", "ops@pharmaglimmora.com", "OpsHead@123", "#c9a84c"],
-  ["Viewer", "viewer@pharmaglimmora.com", "Viewer@123", "#d5bfb2"],
+  ["Operations Head", "ops@pharmaglimmora.com", "OpsHead@123", "#f59e0b"],
+  ["Viewer", "viewer@pharmaglimmora.com", "Viewer@123", "#94a3b8"],
 ];
 
 export function LoginPage() {
@@ -115,19 +115,19 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#28201c] px-4">
-      <div className="fixed top-0 left-0 right-0 h-[3px] bg-[#a57865]" />
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#040e1e] px-4">
+      <div className="fixed top-0 left-0 right-0 h-[3px] bg-[#0ea5e9]" />
 
       <div className="w-full max-w-[400px] pt-12 pb-10 px-10">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5 bg-[rgba(14,165,233,0.15)] border border-[rgba(14,165,233,0.3)]">
-            <Shield className="w-[22px] h-[22px] text-[#a57865]" aria-hidden="true" />
+            <Shield className="w-[22px] h-[22px] text-[#0ea5e9]" aria-hidden="true" />
           </div>
           <h1 className="text-[22px] font-bold text-[#e2e8f0] tracking-tight mb-1 text-center">
             Pharma Glimmora
           </h1>
-          <p className="text-[13px] text-[#8e7065] text-center">
+          <p className="text-[13px] text-[#64748b] text-center">
             GxP Compliance Command Center
           </p>
         </div>
@@ -141,7 +141,7 @@ export function LoginPage() {
         >
           {/* Root error */}
           {errors.root && (
-            <div className="rounded-lg px-3 py-2 bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-[12px] text-[#c0392b]">
+            <div className="rounded-lg px-3 py-2 bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-[12px] text-[#ef4444]">
               {errors.root.message}
             </div>
           )}
@@ -161,13 +161,13 @@ export function LoginPage() {
           {/* Password */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
-              <label htmlFor="password" className="text-[11px] font-medium text-[#d5bfb2]">
-                Password <span className="text-[#c0392b]" aria-hidden="true">*</span>
+              <label htmlFor="password" className="text-[11px] font-medium text-[#94a3b8]">
+                Password <span className="text-[#ef4444]" aria-hidden="true">*</span>
               </label>
-              <span className="text-[11px] text-[#a57865] cursor-pointer">Forgot password?</span>
+              <span className="text-[11px] text-[#0ea5e9] cursor-pointer">Forgot password?</span>
             </div>
             <div className="relative">
-              <Lock className="w-3.5 h-3.5 text-[#8e7065] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+              <Lock className="w-3.5 h-3.5 text-[#475569] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
               <input
                 id="password"
                 type="password"
@@ -178,11 +178,11 @@ export function LoginPage() {
                 aria-invalid={errors.password ? true : undefined}
                 aria-describedby={errors.password ? "password-error" : undefined}
                 {...register("password")}
-                className="w-full bg-[#3a2d28] border border-[#6b5349] rounded-lg pl-9.5 pr-3 py-2.5 text-[13px] text-[#e2e8f0] placeholder:text-[#6b5349] outline-none focus:border-[#a57865] focus:ring-[3px] focus:ring-[rgba(14,165,233,0.12)] transition-all duration-150"
+                className="w-full bg-[#071526] border border-[#1e3a5a] rounded-lg pl-9.5 pr-3 py-2.5 text-[13px] text-[#e2e8f0] placeholder:text-[#334155] outline-none focus:border-[#0ea5e9] focus:ring-[3px] focus:ring-[rgba(14,165,233,0.12)] transition-all duration-150"
               />
             </div>
             {errors.password && (
-              <p id="password-error" role="alert" className="text-[11px] text-[#c0392b] mt-1">{errors.password.message}</p>
+              <p id="password-error" role="alert" className="text-[11px] text-[#ef4444] mt-1">{errors.password.message}</p>
             )}
           </div>
 
@@ -192,9 +192,9 @@ export function LoginPage() {
 
           {/* Divider */}
           <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 h-px bg-[#6b5349]" />
-            <span className="text-[11px] text-[#8e7065]">or continue with</span>
-            <div className="flex-1 h-px bg-[#6b5349]" />
+            <div className="flex-1 h-px bg-[#1e3a5a]" />
+            <span className="text-[11px] text-[#475569]">or continue with</span>
+            <div className="flex-1 h-px bg-[#1e3a5a]" />
           </div>
 
           <Button variant="secondary" icon={Building2} fullWidth>
@@ -204,11 +204,11 @@ export function LoginPage() {
 
         {/* Footer */}
         <div className="flex items-center justify-between mt-8 pt-5 border-t border-[#0f2039]">
-          <div className="flex items-center gap-1.5 text-[11px] text-[#6b5349]">
+          <div className="flex items-center gap-1.5 text-[11px] text-[#334155]">
             <Shield className="w-3 h-3" aria-hidden="true" />
             21 CFR Part 11 compliant
           </div>
-          <span className="text-[11px] text-[#8e7065]">Privacy · Terms</span>
+          <span className="text-[11px] text-[#475569]">Privacy · Terms</span>
         </div>
 
         {/* Dev credentials toggle */}
@@ -221,8 +221,8 @@ export function LoginPage() {
               "py-2 rounded-lg text-[11px] font-medium",
               "border transition-all duration-150 bg-transparent",
               isDark
-                ? "border-[#6b5349] text-[#8e7065] hover:text-[#d5bfb2] hover:border-[#2a4a6a]"
-                : "border-[#e2e8f0] text-[#d5bfb2] hover:text-[#8e7065]",
+                ? "border-[#1e3a5a] text-[#475569] hover:text-[#94a3b8] hover:border-[#2a4a6a]"
+                : "border-[#e2e8f0] text-[#94a3b8] hover:text-[#475569]",
             )}
           >
             <ChevronDown
@@ -236,15 +236,15 @@ export function LoginPage() {
             <div
               className={clsx(
                 "mt-2 rounded-xl overflow-hidden border",
-                isDark ? "border-[#6b5349] bg-[#3a2d28]" : "border-[#e2e8f0] bg-white",
+                isDark ? "border-[#1e3a5a] bg-[#071526]" : "border-[#e2e8f0] bg-white",
               )}
             >
               <table className="w-full border-collapse text-[11px]">
                 <thead>
-                  <tr className={isDark ? "border-b border-[#6b5349]" : "border-b border-[#f1f5f9]"}>
-                    <th className="px-2.5 py-2 text-left text-[#8e7065] font-semibold">Role</th>
-                    <th className="px-2.5 py-2 text-left text-[#8e7065] font-semibold">Email</th>
-                    <th className="px-2.5 py-2 text-left text-[#8e7065] font-semibold">Password</th>
+                  <tr className={isDark ? "border-b border-[#1e3a5a]" : "border-b border-[#f1f5f9]"}>
+                    <th className="px-2.5 py-2 text-left text-[#475569] font-semibold">Role</th>
+                    <th className="px-2.5 py-2 text-left text-[#475569] font-semibold">Email</th>
+                    <th className="px-2.5 py-2 text-left text-[#475569] font-semibold">Password</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -258,7 +258,7 @@ export function LoginPage() {
                       }}
                       className={clsx(
                         "cursor-pointer transition-colors",
-                        isDark ? "hover:bg-[#503e37]" : "hover:bg-[#f8fafc]",
+                        isDark ? "hover:bg-[#0a1f38]" : "hover:bg-[#f8fafc]",
                         i < CRED_ROWS.length - 1 && (isDark ? "border-b border-[#0f2039]" : "border-b border-[#f8fafc]"),
                       )}
                     >
@@ -270,10 +270,10 @@ export function LoginPage() {
                           {role}
                         </span>
                       </td>
-                      <td className={clsx("px-2.5 py-2 font-mono", isDark ? "text-[#8e7065]" : "text-[#d5bfb2]")}>
+                      <td className={clsx("px-2.5 py-2 font-mono", isDark ? "text-[#64748b]" : "text-[#94a3b8]")}>
                         {email}
                       </td>
-                      <td className={clsx("px-2.5 py-2 font-mono", isDark ? "text-[#8e7065]" : "text-[#d5bfb2]")}>
+                      <td className={clsx("px-2.5 py-2 font-mono", isDark ? "text-[#64748b]" : "text-[#94a3b8]")}>
                         {pass}
                       </td>
                     </tr>
@@ -281,7 +281,7 @@ export function LoginPage() {
                 </tbody>
               </table>
               <div className={clsx(
-                "px-2.5 py-1.5 text-[10px] text-[#8e7065]",
+                "px-2.5 py-1.5 text-[10px] text-[#475569]",
                 isDark ? "border-t border-[#0f2039]" : "border-t border-[#f1f5f9]",
               )}>
                 Click any row to auto-fill

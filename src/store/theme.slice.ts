@@ -20,19 +20,19 @@ export type ColorTheme =
 
 function getInitialTheme(): Theme {
   try {
-    return (localStorage.getItem("glimmora-theme") as Theme) ?? "light";
+    return (localStorage.getItem("glimmora-theme") as Theme) ?? "dark";
   } catch {
-    return "light";
+    return "dark";
   }
 }
 
 function getInitialColorTheme(): ColorTheme {
   try {
     return (
-      (localStorage.getItem("glimmora-color-theme") as ColorTheme) ?? "terracotta"
+      (localStorage.getItem("glimmora-color-theme") as ColorTheme) ?? "amber-gold"
     );
   } catch {
-    return "terracotta";
+    return "sky-blue";
   }
 }
 
