@@ -58,6 +58,7 @@ export function EvidencePage() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { findings, capas, systems, fda483Events, evidenceDocs, evidencePacks, tenantId } = useTenantData();
+  const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const evidence = { documents: evidenceDocs, packs: evidencePacks };
   const { org, users } = useTenantConfig();
   const timezone = org.timezone;
@@ -72,19 +73,19 @@ export function EvidencePage() {
     const docs: EvidenceDocument[] = [...evidence.documents];
     findings.forEach((f) => {
       if (f.evidenceLink?.trim() && !docs.find((d) => d.reference === f.evidenceLink)) {
-        docs.push({ id: `finding-${f.id}`, title: f.requirement, reference: f.evidenceLink, type: "Record", area: (f.area as DocArea) || "QMS", findingId: f.id, version: "1.0", status: f.status === "Closed" ? "Current" : "Under Review", author: f.owner, effectiveDate: f.createdAt, tags: [f.framework, f.severity].filter(Boolean), complianceTags: [f.framework], createdAt: f.createdAt, tenantId: f.tenantId ?? "" });
+        docs.push({ id: `finding-${f.id}`, title: f.requirement, reference: f.evidenceLink, type: "Record", area: (f.area as DocArea) || "QMS", findingId: f.id, version: "1.0", status: f.status === "Closed" ? "Current" : "Under Review", author: f.owner, effectiveDate: f.createdAt, tags: [f.framework, f.severity].filter(Boolean), complianceTags: [f.framework], createdAt: f.createdAt, tenantId: f.tenantId ?? "", siteId: "" });
       }
     });
     capas.forEach((c) => {
       c.evidenceLinks.forEach((link, i) => {
         if (!docs.find((d) => d.reference === link)) {
-          docs.push({ id: `capa-${c.id}-${i}`, title: `${c.id} \u2014 Evidence ${i + 1}`, reference: link, type: "Record", area: "QMS", capaId: c.id, version: "1.0", status: c.status === "Closed" ? "Current" : "Under Review", author: c.owner, effectiveDate: c.createdAt, tags: ["CAPA", c.source], complianceTags: [c.source], createdAt: c.createdAt, tenantId: c.tenantId ?? "" });
+          docs.push({ id: `capa-${c.id}-${i}`, title: `${c.id} \u2014 Evidence ${i + 1}`, reference: link, type: "Record", area: "QMS", capaId: c.id, version: "1.0", status: c.status === "Closed" ? "Current" : "Under Review", author: c.owner, effectiveDate: c.createdAt, tags: ["CAPA", c.source], complianceTags: [c.source], createdAt: c.createdAt, tenantId: c.tenantId ?? "", siteId: "" });
         }
       });
     });
     fda483Events.forEach((e) => {
       if (e.responseDraft?.trim() && !docs.find((d) => d.eventId === e.id)) {
-        docs.push({ id: `event-${e.id}`, title: `${e.referenceNumber} \u2014 Response Draft`, reference: e.referenceNumber, type: "Record", area: "Regulatory", eventId: e.id, version: "1.0", status: e.status === "Response Submitted" ? "Current" : "Draft", author: "", effectiveDate: e.createdAt, tags: [e.type, e.agency], complianceTags: [e.type], createdAt: e.createdAt, tenantId: e.tenantId ?? "" });
+        docs.push({ id: `event-${e.id}`, title: `${e.referenceNumber} \u2014 Response Draft`, reference: e.referenceNumber, type: "Record", area: "Regulatory", eventId: e.id, version: "1.0", status: e.status === "Response Submitted" ? "Current" : "Draft", author: "", effectiveDate: e.createdAt, tags: [e.type, e.agency], complianceTags: [e.type], createdAt: e.createdAt, tenantId: e.tenantId ?? "", siteId: "" });
       }
     });
     return docs;
@@ -167,7 +168,7 @@ export function EvidencePage() {
     if (data.type === "Audit Trail") complianceTags.push("ALCOA+");
     if (data.type === "Validation") complianceTags.push("GAMP 5");
     const tagsList = data.tags ? data.tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
-    dispatch(addDocument({ ...data, id, tenantId: tenantId ?? "", complianceTags, tags: tagsList, effectiveDate: dayjs(data.effectiveDate).utc().toISOString(), expiryDate: data.expiryDate ? dayjs(data.expiryDate).utc().toISOString() : undefined, systemId: data.systemId || undefined, findingId: data.findingId || undefined, capaId: data.capaId || undefined, url: data.url || undefined, createdAt: "" }));
+    dispatch(addDocument({ ...data, id, tenantId: tenantId ?? "", siteId: selectedSiteId ?? "", complianceTags, tags: tagsList, effectiveDate: dayjs(data.effectiveDate).utc().toISOString(), expiryDate: data.expiryDate ? dayjs(data.expiryDate).utc().toISOString() : undefined, systemId: data.systemId || undefined, findingId: data.findingId || undefined, capaId: data.capaId || undefined, url: data.url || undefined, createdAt: "" }));
     auditLog({ action: "EVIDENCE_DOCUMENT_ADDED", module: "evidence", recordId: id, newValue: data });
     setAddDocOpen(false); setAddedPopup(true); docForm.reset();
   }

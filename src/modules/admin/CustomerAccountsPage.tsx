@@ -678,6 +678,7 @@ export function CustomerAccountsPage() {
           adminEmail: data.email,
           createdAt: new Date().toISOString(),
           active: data.active,
+          subscriptionPlans: [],
           config: {
             org: {
               companyName: data.customerName,
