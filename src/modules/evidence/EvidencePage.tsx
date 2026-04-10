@@ -5,9 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import clsx from "clsx";
 import {
-  FolderOpen, Package, Plus, Download,
-  FileText, ClipboardList, Shield, CheckSquare, BarChart3, GitBranch,
-  Award, BookOpen, File, ClipboardCheck,
+  FolderOpen, Package, Plus, Download, ClipboardCheck,
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
