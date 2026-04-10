@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import clsx from "clsx";
 import {
   ShieldCheck, AlertTriangle, Clock, Database, GraduationCap, TrendingUp,
-  Grid3x3, Calendar, Bot, Activity, ChevronRight, Info, ArrowRight,
+  Grid3x3, Calendar, Bot, Activity, ChevronRight, Info,
   CheckCircle2, Search, ClipboardCheck, FileWarning, BarChart3, ClipboardList,
   MapPin,
 } from "lucide-react";
@@ -11,13 +11,12 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import dayjs from "@/lib/dayjs";
 import { chartDefaults } from "@/lib/chartColors";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import { useRole } from "@/hooks/useRole";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
-import { StatCard, CardSection, SetupChecklist, DataTable } from "@/components/shared";
+import { StatCard, CardSection, SetupChecklist } from "@/components/shared";
 
 /* ══════════════════════════════════════ */
 
@@ -31,8 +30,6 @@ export function DashboardPage() {
   const companyName = org.companyName;
   const tenants = useAppSelector((s) => s.auth.tenants);
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
-  const { role } = useRole();
-
   const currentTenant = tenants.find((t) => t.id === tenantId);
   function ownerName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
 
@@ -104,7 +101,6 @@ export function DashboardPage() {
     if (criticalCount === 0 && overdueCAPAs.length === 0) insights.push({ type: "success", text: "No critical findings or overdue CAPAs. Maintain current trajectory." });
   }
 
-  const noData = findings.length === 0 && capas.length === 0;
   const rsCol = readinessScore === null ? "#64748b" : readinessScore >= 80 ? "#10b981" : readinessScore >= 60 ? "#f59e0b" : "#ef4444";
 
   /* ══════════════════════════════════════ */

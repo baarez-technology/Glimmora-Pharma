@@ -14,7 +14,6 @@ import type {
   FDA483Event,
   EventType,
   EventStatus,
-  ObservationSeverity,
 } from "@/store/fda483.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";

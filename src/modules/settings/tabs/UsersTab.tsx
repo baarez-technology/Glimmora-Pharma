@@ -8,7 +8,7 @@ import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { usePlanLimits } from "@/hooks/usePlanLimits";
-import { PlanLimitUsageBar, PlanLimitPopup, EmptyState, DataTable, type Column } from "@/components/shared";
+import { PlanLimitUsageBar, PlanLimitPopup, EmptyState, DataTable } from "@/components/shared";
 import { addTenantUser, updateTenantUser, type TenantUserConfig } from "@/store/auth.slice";
 import { Popup } from "@/components/ui/Popup";
 import { Button } from "@/components/ui/Button";
@@ -247,7 +247,6 @@ function UserForm({
 
 export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
   const dispatch = useAppDispatch();
-  const isDark = useAppSelector((s) => s.theme.mode) === "dark";
   const { users, tenantId } = useTenantConfig();
   const { isAtLimit, isNearLimit, getCount, getLimit, tenantPlan } = usePlanLimits();
 

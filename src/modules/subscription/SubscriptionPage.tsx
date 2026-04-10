@@ -79,8 +79,8 @@ export function SubscriptionPage() {
   const dispatch = useAppDispatch();
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
   const tenants = useAppSelector((s) => s.auth.tenants);
-  const { org, allSites: sites, users, tenantId, tenantName, tenantPlan } = useTenantConfig();
-  const { findings, capas, systems } = useTenantData();
+  const { allSites: sites, users, tenantId, tenantName, tenantPlan } = useTenantConfig();
+  const { findings } = useTenantData();
   const { role } = useRole();
 
   const currentTenant = tenants.find((t) => t.id === tenantId);

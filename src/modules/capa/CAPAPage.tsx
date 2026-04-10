@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router";
 import clsx from "clsx";
 import {
   ClipboardCheck, GitBranch, BarChart3, Plus, Search,
-  AlertTriangle, CheckCircle2, TrendingUp, Clock, Wrench, Shield, MessageSquare,
+  AlertTriangle, CheckCircle2, TrendingUp, Wrench, Shield, MessageSquare,
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
@@ -50,7 +50,7 @@ export function CAPAPage() {
   const dispatch = useAppDispatch();
   const { canSign, canCloseCapa, isViewOnly } = useRole();
 
-  const { capas, findings, tenantId } = useTenantData();
+  const { capas, tenantId } = useTenantData();
   const { org, users } = useTenantConfig();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
@@ -221,7 +221,7 @@ export function CAPAPage() {
       {/* Tab panels */}
       {activeTab === "blueprint" && (
         <QMSBlueprintTab
-          capas={capas} openCAPAs={openCAPAs} noRCACount={noRCACount} pendingReviewCount={pendingReviewCount}
+          openCAPAs={openCAPAs} noRCACount={noRCACount} pendingReviewCount={pendingReviewCount}
           isDark={isDark} selectedStep={selectedStep} onSelectStep={setSelectedStep}
           lifecycleSteps={LIFECYCLE_STEPS} qmsProcesses={QMS_PROCESSES}
           stepHasProblem={stepHasProblem} getProcessMetrics={getProcessMetrics}

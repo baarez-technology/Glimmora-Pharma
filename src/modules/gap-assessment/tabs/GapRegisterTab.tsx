@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import {
-  ClipboardList, Plus, Search, ChevronRight, Link2, Bot, AlertTriangle, Pencil,
+  ClipboardList, Plus, Search, ChevronRight, Link2, Bot,
 } from "lucide-react";
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
@@ -9,7 +9,6 @@ import type { CAPA } from "@/store/capa.slice";
 import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
-import { Badge } from "@/components/ui/Badge";
 
 /* ── Helpers ── */
 

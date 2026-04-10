@@ -1,4 +1,4 @@
-import { HelpCircle, Calendar, Clock, Globe, X, Menu } from "lucide-react";
+import { Calendar, Clock, Globe, X, Menu } from "lucide-react";
 import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { useAppSelector } from "@/hooks/useAppSelector";
