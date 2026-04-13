@@ -93,7 +93,7 @@ const authSlice = createSlice({
           ],
           users: [
             { id: "u-001", name: "System Administrator", email: "admin@pharmaglimmora.com", role: "super_admin", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
-            { id: "u-009", name: "Customer Administrator", email: "custadmin@pharmaglimmora.com", role: "customer_admin", gxpSignatory: false, status: "Active", assignedSites: [], allSites: true },
+            { id: "u-009", name: "Customer Administrator", email: "custadmin@pharmaglimmora.com", role: "customer_admin", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
             { id: "u-002", name: "Dr. Priya Sharma", email: "qa@pharmaglimmora.com", role: "qa_head", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
             { id: "u-003", name: "Rahul Mehta", email: "ra@pharmaglimmora.com", role: "regulatory_affairs", gxpSignatory: true, status: "Active", assignedSites: ["site-gl-1", "site-gl-2"], allSites: false },
             { id: "u-004", name: "Anita Patel", email: "csv@pharmaglimmora.com", role: "csv_val_lead", gxpSignatory: true, status: "Active", assignedSites: ["site-gl-1", "site-gl-3"], allSites: false },
@@ -119,7 +119,7 @@ const authSlice = createSlice({
           ],
           users: [
             { id: "u-abc-001", name: "ABC Admin", email: "admin@abcpharma.com", role: "super_admin", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
-            { id: "u-cust-abc", name: "ABC Customer Admin", email: "custadmin@abcpharma.com", role: "customer_admin", gxpSignatory: false, status: "Active", assignedSites: [], allSites: true },
+            { id: "u-cust-abc", name: "ABC Customer Admin", email: "custadmin@abcpharma.com", role: "customer_admin", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
             { id: "u-abc-002", name: "Dr. Sunita Rao", email: "qa@abcpharma.com", role: "qa_head", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
             { id: "u-abc-003", name: "Kiran Mehta", email: "csv@abcpharma.com", role: "csv_val_lead", gxpSignatory: false, status: "Active", assignedSites: ["site-abc-1"], allSites: false },
           ],
@@ -139,7 +139,7 @@ const authSlice = createSlice({
           ],
           users: [
             { id: "u-xyz-001", name: "XYZ Admin", email: "admin@xyzbiotech.com", role: "super_admin", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
-            { id: "u-cust-xyz", name: "XYZ Customer Admin", email: "custadmin@xyzbiotech.com", role: "customer_admin", gxpSignatory: false, status: "Active", assignedSites: [], allSites: true },
+            { id: "u-cust-xyz", name: "XYZ Customer Admin", email: "custadmin@xyzbiotech.com", role: "customer_admin", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
             { id: "u-xyz-002", name: "Dr. Arjun Das", email: "qa@xyzbiotech.com", role: "qa_head", gxpSignatory: true, status: "Active", assignedSites: [], allSites: true },
           ],
         },

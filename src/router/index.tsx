@@ -22,6 +22,12 @@ export const router = createBrowserRouter([
           Component: (await import("@/modules/admin/CustomerAccountsPage")).CustomerAccountsPage,
         }),
       },
+      {
+        path: "customer/:id",
+        lazy: async () => ({
+          Component: (await import("@/modules/admin/CustomerDetailPage")).CustomerDetailPage,
+        }),
+      },
     ],
   },
   {

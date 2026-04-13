@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Link } from "react-router";
 import {
   Plus,
   Pencil,
@@ -825,10 +826,14 @@ export function CustomerAccountsPage() {
               {filtered.map((tenant) => (
                 <tr key={tenant.id}>
                   <td>
-                    <div className="flex items-center gap-2">
+                    <Link
+                      to={`/admin/customer/${tenant.id}`}
+                      className="flex items-center gap-2 hover:underline"
+                      style={{ color: "var(--brand)" }}
+                    >
                       <Building2 className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-                      <span className="font-medium" style={{ color: "var(--brand)" }}>{tenant.name}</span>
-                    </div>
+                      <span className="font-medium">{tenant.name}</span>
+                    </Link>
                   </td>
                   <td>
                     <span className="text-[12px] font-mono" style={{ color: "var(--text-secondary)" }}>
