@@ -1,7 +1,7 @@
 import { useState } from "react";
 import clsx from "clsx";
 import { ShieldAlert, AlertTriangle, CheckCircle2, Info, Pencil, X, Save } from "lucide-react";
-import type { GxPSystem } from "@/store/systems.slice";
+import type { GxPSystem, RiskLevel } from "@/store/systems.slice";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 
@@ -20,6 +20,13 @@ function gampBadge(c: GAMP5Category) {
 
 /* ── Props ── */
 
+export interface RiskClassificationPatch {
+  patientSafetyRisk: RiskLevel;
+  productQualityImpact: RiskLevel;
+  regulatoryExposure: RiskLevel;
+  diImpact: RiskLevel;
+}
+
 export interface RiskControlsPanelProps {
   system: GxPSystem;
   isDark: boolean;
@@ -29,15 +36,27 @@ export interface RiskControlsPanelProps {
   showGAMP5: boolean;
   onNavigateSettings: () => void;
   onSaveRiskFactors: (text: string) => void;
+  onSaveRiskClassification: (patch: RiskClassificationPatch) => void;
 }
 
 export function RiskControlsPanel({
   system, isDark, role, showPart11, showAnnex11, showGAMP5,
-  onNavigateSettings, onSaveRiskFactors,
+  onNavigateSettings, onSaveRiskFactors, onSaveRiskClassification,
 }: RiskControlsPanelProps) {
+  // Default fallback based on GxP relevance for systems that don't yet have risk fields set
+  const defaultLevel: RiskLevel = system.gxpRelevance === "Critical" ? "HIGH"
+    : system.gxpRelevance === "Major" ? "MEDIUM" : "LOW";
+
   /* Local editing state */
   const [editingRiskFactors, setEditingRiskFactors] = useState(false);
   const [riskFactorsText, setRiskFactorsText] = useState(system.riskFactors ?? "");
+  const [editingRiskClass, setEditingRiskClass] = useState(false);
+  const [riskForm, setRiskForm] = useState<RiskClassificationPatch>({
+    patientSafetyRisk: system.patientSafetyRisk ?? defaultLevel,
+    productQualityImpact: system.productQualityImpact ?? defaultLevel,
+    regulatoryExposure: system.regulatoryExposure ?? defaultLevel,
+    diImpact: system.diImpact ?? defaultLevel,
+  });
 
   /* Reset local state when system changes */
   const [prevId, setPrevId] = useState(system.id);
@@ -45,24 +64,87 @@ export function RiskControlsPanel({
     setPrevId(system.id);
     setRiskFactorsText(system.riskFactors ?? "");
     setEditingRiskFactors(false);
+    setEditingRiskClass(false);
+    setRiskForm({
+      patientSafetyRisk: system.patientSafetyRisk ?? defaultLevel,
+      productQualityImpact: system.productQualityImpact ?? defaultLevel,
+      regulatoryExposure: system.regulatoryExposure ?? defaultLevel,
+      diImpact: system.diImpact ?? defaultLevel,
+    });
   }
+
+  const classificationRows: { key: keyof RiskClassificationPatch; label: string; level: RiskLevel }[] = [
+    { key: "patientSafetyRisk",     label: "Patient safety risk",     level: system.patientSafetyRisk ?? defaultLevel },
+    { key: "productQualityImpact",  label: "Product quality impact", level: system.productQualityImpact ?? defaultLevel },
+    { key: "regulatoryExposure",    label: "Regulatory exposure",    level: system.regulatoryExposure ?? defaultLevel },
+    { key: "diImpact",              label: "Data integrity impact", level: system.diImpact ?? defaultLevel },
+  ];
+
+  const handleSaveRiskClass = () => {
+    onSaveRiskClassification(riskForm);
+    setEditingRiskClass(false);
+  };
+
+  const handleCancelRiskClass = () => {
+    setRiskForm({
+      patientSafetyRisk: system.patientSafetyRisk ?? defaultLevel,
+      productQualityImpact: system.productQualityImpact ?? defaultLevel,
+      regulatoryExposure: system.regulatoryExposure ?? defaultLevel,
+      diImpact: system.diImpact ?? defaultLevel,
+    });
+    setEditingRiskClass(false);
+  };
 
   return (
     <div className="space-y-4">
       <section aria-labelledby="rbc-sys-heading" className="card">
-        <div className="card-header"><div className="flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-[#ef4444]" aria-hidden="true" /><h3 id="rbc-sys-heading" className="card-title">Risk-based classification</h3></div></div>
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-[#ef4444]" aria-hidden="true" />
+            <h3 id="rbc-sys-heading" className="card-title">Risk-based classification</h3>
+          </div>
+          {role !== "viewer" && (
+            <button
+              type="button"
+              onClick={() => {
+                if (editingRiskClass) handleCancelRiskClass();
+                else setEditingRiskClass(true);
+              }}
+              aria-label={editingRiskClass ? "Cancel editing risk classification" : "Edit risk classification"}
+              className={clsx("ml-auto flex items-center gap-1.5 text-[11px] border-none bg-transparent cursor-pointer", editingRiskClass ? "text-[#64748b]" : "text-[#0ea5e9] hover:opacity-80")}
+            >
+              {editingRiskClass ? <X className="w-3.5 h-3.5" aria-hidden="true" /> : <Pencil className="w-3.5 h-3.5" aria-hidden="true" />}
+              <span>{editingRiskClass ? "Cancel" : "Edit"}</span>
+            </button>
+          )}
+        </div>
         <div className="card-body space-y-0">
-          {[
-            { label: "Patient safety risk", level: system.gxpRelevance === "Critical" ? "HIGH" : system.gxpRelevance === "Major" ? "MEDIUM" : "LOW" },
-            { label: "Product quality impact", level: system.riskLevel },
-            { label: "Regulatory exposure", level: (system.part11Status === "Non-Compliant" || system.annex11Status === "Non-Compliant") ? "HIGH" : (system.part11Status === "In Progress" || system.annex11Status === "In Progress") ? "MEDIUM" : "LOW" },
-            { label: "DI impact", level: system.gamp5Category === "5" ? "HIGH" : system.gamp5Category === "4" ? "MEDIUM" : "LOW" },
-          ].map((r, i, arr) => (
-            <div key={r.label} className={clsx("flex justify-between items-center py-3", i < arr.length - 1 && "border-b")} style={{ borderColor: isDark ? "#0f2039" : "#f1f5f9" }}>
+          {classificationRows.map((r, i, arr) => (
+            <div key={r.key} className={clsx("flex justify-between items-center py-3", i < arr.length - 1 && "border-b")} style={{ borderColor: isDark ? "#0f2039" : "#f1f5f9" }}>
               <span className="text-[12px]" style={{ color: "var(--text-primary)" }}>{r.label}</span>
-              <Badge variant={r.level === "HIGH" ? "red" : r.level === "MEDIUM" ? "amber" : "green"}>{r.level}</Badge>
+              {editingRiskClass ? (
+                <select
+                  value={riskForm[r.key]}
+                  onChange={(e) => setRiskForm((prev) => ({ ...prev, [r.key]: e.target.value as RiskLevel }))}
+                  className="select text-[11px]"
+                  style={{ minWidth: "7rem" }}
+                  aria-label={r.label}
+                >
+                  <option value="HIGH">HIGH</option>
+                  <option value="MEDIUM">MEDIUM</option>
+                  <option value="LOW">LOW</option>
+                </select>
+              ) : (
+                <Badge variant={r.level === "HIGH" ? "red" : r.level === "MEDIUM" ? "amber" : "green"}>{r.level}</Badge>
+              )}
             </div>
           ))}
+          {editingRiskClass && (
+            <div className="flex items-center justify-end gap-2 pt-3">
+              <Button variant="ghost" size="sm" type="button" onClick={handleCancelRiskClass}>Cancel</Button>
+              <Button variant="primary" size="sm" icon={Save} type="button" onClick={handleSaveRiskClass}>Save</Button>
+            </div>
+          )}
         </div>
       </section>
       <div className="card">

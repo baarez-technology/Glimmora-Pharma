@@ -15,6 +15,7 @@ export interface ValidationStage {
   status: ValidationStageStatus;
   date?: string;
   targetDate?: string;
+  documentName?: string;
 }
 
 export const VALIDATION_STAGE_LABELS: Record<ValidationStageKey, string> = {
@@ -56,6 +57,9 @@ export interface GxPSystem {
   productQualityImpact?: RiskLevel;
   regulatoryExposure?: RiskLevel;
   diImpact?: RiskLevel;
+  remediationCapaId?: string;
+  remediationTargetDate?: string;
+  remediationNotes?: string;
   createdAt: string;
 }
 

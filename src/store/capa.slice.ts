@@ -23,6 +23,8 @@ export interface CAPA {
   effectivenessDate?: string;
   evidenceLinks: string[];
   diGate: boolean;
+  linkedSystemId?: string;
+  linkedSystemName?: string;
   diGateStatus?: "open" | "cleared";
   diGateNotes?: string;
   diGateReviewedBy?: string;

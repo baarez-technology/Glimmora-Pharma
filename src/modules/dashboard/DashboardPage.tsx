@@ -78,7 +78,8 @@ export function DashboardPage() {
   const overdueCAPAs = openCAPAs.filter((c) => dayjs.utc(c.dueDate).isBefore(dayjs()));
   const criticalCount = filteredFindings.filter((f) => f.severity === "Critical" && f.status !== "Closed").length;
   const capaOverdueRate = openCAPAs.length === 0 ? null : Math.round((overdueCAPAs.length / openCAPAs.length) * 100);
-  const csvHighRisk = filteredSystems.filter((s) => s.riskLevel === "HIGH" || s.validationStatus === "Overdue" || s.part11Status === "Non-Compliant" || s.annex11Status === "Non-Compliant").length;
+  // CSV high risk = HIGH risk systems that are not yet validated (consistent with heatmap + action plan)
+  const csvHighRisk = filteredSystems.filter((s) => s.riskLevel === "HIGH" && s.validationStatus !== "Validated").length;
   const trainingCompliance = users.length === 0 ? null : Math.round((users.filter((u) => u.status === "Active").length / users.length) * 100);
 
   const readinessScore = (() => {
@@ -153,8 +154,11 @@ export function DashboardPage() {
     if (overdueCAPAs.length > 0) insights.push({ type: "warning", text: `${overdueCAPAs.length} CAPA${overdueCAPAs.length > 1 ? "s" : ""} past due. Risk of inspection finding.`, action: "View CAPAs", link: "/capa" });
     const diOpen = filteredCAPAs.filter((c) => c.diGate && c.status !== "Closed").length;
     if (diOpen > 0) insights.push({ type: "warning", text: `${diOpen} open DI gate CAPA${diOpen > 1 ? "s" : ""}. Data integrity unresolved.`, action: "View DI issues", link: "/capa" });
+    if (csvHighRisk > 0) insights.push({ type: "warning", text: `${csvHighRisk} HIGH-risk system${csvHighRisk > 1 ? "s" : ""} not yet validated \u2014 FDA inspection exposure.`, action: "View systems", link: "/csv-csa" });
     const overdueVal = filteredSystems.filter((s) => s.validationStatus === "Overdue").length;
     if (overdueVal > 0) insights.push({ type: "warning", text: `${overdueVal} system${overdueVal > 1 ? "s" : ""} with overdue validation.`, action: "View systems", link: "/csv-csa" });
+    const reviewOverdue = filteredSystems.filter((s) => s.nextReview && dayjs.utc(s.nextReview).isBefore(dayjs())).length;
+    if (reviewOverdue > 0) insights.push({ type: "warning", text: `${reviewOverdue} system${reviewOverdue > 1 ? "s" : ""} with periodic review overdue.`, action: "View systems", link: "/csv-csa" });
     const pending = filteredCAPAs.filter((c) => c.status === "Pending QA Review").length;
     if (pending > 0) insights.push({ type: "info", text: `${pending} CAPA${pending > 1 ? "s" : ""} awaiting QA sign-off.`, action: "Review", link: "/capa" });
     if (criticalCount === 0 && overdueCAPAs.length === 0) insights.push({ type: "success", text: "No critical findings or overdue CAPAs. Maintain current trajectory." });
@@ -192,7 +196,7 @@ export function DashboardPage() {
         <StatCard icon={ShieldCheck} color={rsCol} label="Overall readiness" value={readinessScore === null ? "\u2014" : `${readinessScore}%`} sub={rl.label} />
         <StatCard icon={AlertTriangle} color={criticalCount > 0 ? "#ef4444" : "#10b981"} label="Critical findings" value={String(criticalCount)} sub={filteredFindings.length === 0 ? "No findings logged yet" : `${filteredFindings.filter((f) => f.status !== "Closed").length} total open`} />
         <StatCard icon={Clock} color={capaOverdueRate === null ? "#64748b" : capaOverdueRate === 0 ? "#10b981" : capaOverdueRate <= 20 ? "#f59e0b" : "#ef4444"} label="CAPA overdue" value={capaOverdueRate === null ? "\u2014" : `${capaOverdueRate}%`} sub={openCAPAs.length === 0 ? "No open CAPAs" : `${overdueCAPAs.length} of ${openCAPAs.length} past due`} />
-        <StatCard icon={Database} color={csvHighRisk > 0 ? "#f59e0b" : "#10b981"} label="CSV high risk" value={String(csvHighRisk)} sub={filteredSystems.length === 0 ? "No systems registered" : "Overdue or non-compliant"} />
+        <StatCard icon={Database} color={csvHighRisk > 0 ? "#f59e0b" : "#10b981"} label="CSV high risk" value={String(csvHighRisk)} sub={filteredSystems.length === 0 ? "No systems registered" : "HIGH risk, not yet validated"} />
         <StatCard icon={GraduationCap} color={trainingCompliance === null ? "#64748b" : trainingCompliance >= 90 ? "#10b981" : trainingCompliance >= 70 ? "#f59e0b" : "#ef4444"} label="Training compliance" value={trainingCompliance === null ? "\u2014" : `${trainingCompliance}%`} sub={users.length === 0 ? "No users configured" : `${users.filter((u) => u.status === "Active").length} active users`} />
       </section>
 

@@ -3,6 +3,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Save } from "lucide-react";
+import dayjs from "@/lib/dayjs";
 import type { SystemType } from "@/store/systems.slice";
 import type { UserConfig, SiteConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
@@ -39,7 +40,14 @@ const systemSchema = z.object({
   owner: z.string().min(1, "Owner required"),
   lastValidated: z.string().optional(),
   nextReview: z.string().optional(),
-});
+  remediationCapaId: z.string().optional(),
+  remediationTargetDate: z.string().optional(),
+  remediationNotes: z.string().optional(),
+}).refine((data) => {
+  const needsRemediation = data.part11Status === "Non-Compliant" || data.annex11Status === "Non-Compliant";
+  if (needsRemediation && !data.remediationCapaId?.trim()) return false;
+  return true;
+}, { message: "Remediation CAPA required for non-compliant systems", path: ["remediationCapaId"] });
 export type SystemForm = z.infer<typeof systemSchema>;
 
 /* ── Props ── */
@@ -62,12 +70,17 @@ export function AddSystemModal({ open, sites, users, onSave, onClose, lockedSite
       validationStatus: "Not Started", siteId: lockedSiteId ?? "",
       patientSafetyRisk: "MEDIUM", productQualityImpact: "MEDIUM",
       regulatoryExposure: "MEDIUM", diImpact: "MEDIUM",
+      // Default next review 6 months out (not validated yet); auto-adjusts via effect below
+      nextReview: dayjs().add(6, "month").format("YYYY-MM-DD"),
     },
   });
 
   const { register, control, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = form;
   const activeSites = sites.filter((s) => s.status === "Active");
   const activeUsers = users.filter((u) => u.status === "Active");
+  const watchPart11 = watch("part11Status");
+  const watchAnnex11 = watch("annex11Status");
+  const showRemediation = watchPart11 === "Non-Compliant" || watchAnnex11 === "Non-Compliant";
 
   // Smart defaults: when GxP Relevance changes, pre-fill the 4 risk classification
   // dropdowns. User can override any individually after this runs.
@@ -79,6 +92,14 @@ export function AddSystemModal({ open, sites, users, onSave, onClose, lockedSite
     setValue("regulatoryExposure", level);
     setValue("diImpact", level);
   }, [watchGxp, setValue]);
+
+  // Smart default for Next review: 12 months if Validated, 6 months otherwise.
+  // User can override the date before saving.
+  const watchValStatus = watch("validationStatus");
+  useEffect(() => {
+    const months = watchValStatus === "Validated" ? 12 : 6;
+    setValue("nextReview", dayjs().add(months, "month").format("YYYY-MM-DD"));
+  }, [watchValStatus, setValue]);
 
   function handleSave(data: SystemForm) {
     onSave(data);
@@ -242,6 +263,28 @@ export function AddSystemModal({ open, sites, users, onSave, onClose, lockedSite
             <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>Appears in Validation tab and CSV Roadmap</p>
           </div>
         </div>
+
+        {/* Section 5 — Remediation (only when Part 11 or Annex 11 non-compliant) */}
+        {showRemediation && (
+          <>
+            {sec("#ef4444", "Remediation (non-compliant)")}
+            <div className="grid grid-cols-2 gap-3 mb-2">
+              <div>
+                <label htmlFor="rem-capa" className={lbl} style={{ color: "var(--text-muted)" }}>Remediation CAPA <span aria-hidden="true">*</span></label>
+                <input id="rem-capa" type="text" className="input text-[12px]" placeholder="e.g. CAPA-0042" {...register("remediationCapaId")} />
+                {errors.remediationCapaId && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{errors.remediationCapaId.message}</p>}
+              </div>
+              <div>
+                <label htmlFor="rem-target" className={lbl} style={{ color: "var(--text-muted)" }}>Remediation target date</label>
+                <input id="rem-target" type="date" className="input text-[12px]" {...register("remediationTargetDate")} />
+              </div>
+              <div className="col-span-2">
+                <label htmlFor="rem-notes" className={lbl} style={{ color: "var(--text-muted)" }}>Remediation notes</label>
+                <textarea id="rem-notes" rows={3} className="input text-[12px] resize-none" placeholder="Describe remediation actions in progress..." {...register("remediationNotes")} />
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="flex justify-end gap-2 pt-4">
           <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>

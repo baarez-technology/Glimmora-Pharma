@@ -29,6 +29,7 @@ const findingSchema = z.object({
   evidenceLink: z.string().optional(),
   rootCause: z.string().optional(),
   linkedSystemId: z.string().optional(),
+  linkedSystemName: z.string().optional(),
 });
 type FindingForm = z.infer<typeof findingSchema>;
 
@@ -121,7 +122,10 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
               <Dropdown
                 placeholder="Select system..."
                 value={watch("linkedSystemId") ?? ""}
-                onChange={(v) => setValue("linkedSystemId", v)}
+                onChange={(v) => {
+                  setValue("linkedSystemId", v);
+                  setValue("linkedSystemName", systems.find((s) => s.id === v)?.name ?? "");
+                }}
                 width="w-full"
                 options={[
                   { value: "", label: "\u2014 None" },

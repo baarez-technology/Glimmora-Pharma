@@ -226,6 +226,8 @@ export function GapPage() {
       effectivenessCheck: finding.severity !== "Minor",
       evidenceLinks: [], diGate: ["p11", "annex11"].includes(finding.framework), createdAt: "",
       tenantId: tenantId ?? "", siteId: finding.siteId,
+      linkedSystemId: finding.linkedSystemId,
+      linkedSystemName: finding.linkedSystemName,
     }));
     auditLog({ action: "CAPA_RAISED_FROM_FINDING", module: "gap-assessment", recordId: finding.id, newValue: { capaId, findingId: finding.id } });
     setSelectedFinding((prev) => prev ? { ...prev, capaId } : null);

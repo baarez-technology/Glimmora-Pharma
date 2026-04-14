@@ -1,6 +1,6 @@
 import { useState } from "react";
 import clsx from "clsx";
-import { ClipboardList, Pencil, X, Save } from "lucide-react";
+import { ClipboardList, Pencil, X, Save, FileText } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import type {
   GxPSystem,
@@ -83,6 +83,7 @@ export function ValidationPanel({
   const [editingStageKey, setEditingStageKey] = useState<ValidationStageKey | null>(null);
   const [draftStageStatus, setDraftStageStatus] = useState<ValidationStage["status"]>("pending");
   const [draftStageDate, setDraftStageDate] = useState("");
+  const [draftStageDoc, setDraftStageDoc] = useState("");
   const [editingNextReview, setEditingNextReview] = useState(false);
   const [draftNextReview, setDraftNextReview] = useState("");
 
@@ -105,6 +106,7 @@ export function ValidationPanel({
           ? dayjs.utc(stage.targetDate).format("YYYY-MM-DD")
           : "",
     );
+    setDraftStageDoc(stage.documentName ?? "");
   };
 
   const saveStage = () => {
@@ -115,6 +117,7 @@ export function ValidationPanel({
       if (draftStageStatus === "complete") patch.date = iso;
       else if (draftStageStatus === "in-progress") patch.targetDate = iso;
     }
+    if (draftStageDoc.trim()) patch.documentName = draftStageDoc.trim();
     onSaveStage(patch);
     setEditingStageKey(null);
   };
@@ -212,51 +215,72 @@ export function ValidationPanel({
                       )}
                     </div>
                     {isEditing ? (
-                      <div className="mt-2 flex items-end gap-2 flex-wrap">
-                        <div>
-                          <label className="text-[10px] block mb-0.5" style={{ color: "var(--text-muted)" }}>Status</label>
-                          <select
-                            value={draftStageStatus}
-                            onChange={(e) => setDraftStageStatus(e.target.value as ValidationStage["status"])}
-                            className="select text-[11px]"
-                            style={{ minWidth: "9rem" }}
-                          >
-                            <option value="pending">Not Started</option>
-                            <option value="in-progress">In Progress</option>
-                            <option value="complete">Complete</option>
-                            <option value="skipped">Skipped</option>
-                          </select>
-                        </div>
-                        {draftStageStatus !== "skipped" && draftStageStatus !== "pending" && (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex items-end gap-2 flex-wrap">
                           <div>
-                            <label className="text-[10px] block mb-0.5" style={{ color: "var(--text-muted)" }}>
-                              {draftStageStatus === "complete" ? "Completed on" : "Target date"}
-                            </label>
-                            <input
-                              type="date"
-                              value={draftStageDate}
-                              onChange={(e) => setDraftStageDate(e.target.value)}
-                              className="input text-[11px]"
-                            />
+                            <label className="text-[10px] block mb-0.5" style={{ color: "var(--text-muted)" }}>Status</label>
+                            <select
+                              value={draftStageStatus}
+                              onChange={(e) => setDraftStageStatus(e.target.value as ValidationStage["status"])}
+                              className="select text-[11px]"
+                              style={{ minWidth: "9rem" }}
+                            >
+                              <option value="pending">Not Started</option>
+                              <option value="in-progress">In Progress</option>
+                              <option value="complete">Complete</option>
+                              <option value="skipped">Skipped</option>
+                            </select>
                           </div>
-                        )}
-                        <div className="flex gap-1.5">
+                          {draftStageStatus !== "skipped" && draftStageStatus !== "pending" && (
+                            <div>
+                              <label className="text-[10px] block mb-0.5" style={{ color: "var(--text-muted)" }}>
+                                {draftStageStatus === "complete" ? "Completed on" : "Target date"}
+                              </label>
+                              <input
+                                type="date"
+                                value={draftStageDate}
+                                onChange={(e) => setDraftStageDate(e.target.value)}
+                                className="input text-[11px]"
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-[10px] block mb-0.5" style={{ color: "var(--text-muted)" }}>Evidence document (optional)</label>
+                          <input
+                            type="text"
+                            value={draftStageDoc}
+                            onChange={(e) => setDraftStageDoc(e.target.value)}
+                            placeholder={`e.g. ${s.key}_Protocol_v1.pdf`}
+                            className="input text-[11px] w-full max-w-[20rem]"
+                            aria-label={`${s.key} evidence document name`}
+                          />
+                        </div>
+                        <div className="flex gap-1.5 justify-end">
                           <Button variant="ghost" size="xs" icon={X} onClick={() => setEditingStageKey(null)} aria-label="Cancel">Cancel</Button>
                           <Button variant="primary" size="xs" icon={Save} onClick={saveStage} aria-label={`Save ${s.key}`}>Save</Button>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 mt-0.5 text-[11px]">
-                        <span className="font-medium" style={{ color }}>
-                          {label} {stageStatusGlyph(s.status)}
-                        </span>
-                        {dateStr && (
-                          <>
-                            <span style={{ color: "var(--text-muted)" }} aria-hidden="true">|</span>
-                            <span style={{ color: "var(--text-muted)" }}>{dateStr}</span>
-                          </>
+                      <>
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px]">
+                          <span className="font-medium" style={{ color }}>
+                            {label} {stageStatusGlyph(s.status)}
+                          </span>
+                          {dateStr && (
+                            <>
+                              <span style={{ color: "var(--text-muted)" }} aria-hidden="true">|</span>
+                              <span style={{ color: "var(--text-muted)" }}>{dateStr}</span>
+                            </>
+                          )}
+                        </div>
+                        {s.documentName && (
+                          <div className="flex items-center gap-1 mt-0.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                            <FileText className="w-3 h-3" aria-hidden="true" />
+                            <span>{s.documentName}</span>
+                          </div>
                         )}
-                      </div>
+                      </>
                     )}
                   </div>
                 </li>

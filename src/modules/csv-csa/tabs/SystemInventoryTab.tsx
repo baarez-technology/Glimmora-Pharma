@@ -38,6 +38,19 @@ function validationBadge(s: ValidationStatus) {
   return <Badge variant={m[s]}>{s}</Badge>;
 }
 
+function getValidationProgress(sys: GxPSystem): number {
+  const stages = sys.validationStages ?? [];
+  if (stages.length === 0) return sys.validationStatus === "Validated" ? 100 : 0;
+  const skipped = stages.filter((s) => s.status === "skipped").length;
+  const completed = stages.filter((s) => s.status === "complete").length;
+  const denominator = stages.length - skipped;
+  return denominator > 0 ? Math.round((completed / denominator) * 100) : 0;
+}
+
+function isReviewOverdue(sys: GxPSystem): boolean {
+  return !!sys.nextReview && dayjs.utc(sys.nextReview).isBefore(dayjs());
+}
+
 function complianceBadge(s: ComplianceStatus) {
   const m: Record<ComplianceStatus, "green" | "red" | "amber" | "gray"> = { Compliant: "green", "Non-Compliant": "red", "In Progress": "amber", "N/A": "gray" };
   return <Badge variant={m[s]}>{s}</Badge>;
@@ -172,6 +185,7 @@ export function SystemInventoryTab({
                   <th scope="col">GxP relevance</th>
                   <th scope="col">Risk</th>
                   <th scope="col">Validation</th>
+                  <th scope="col">Progress</th>
                   {showPart11 && <th scope="col">Part 11</th>}
                   {showAnnex11 && <th scope="col">Annex 11</th>}
                   {showGAMP5 && <th scope="col">GAMP 5</th>}
@@ -192,7 +206,10 @@ export function SystemInventoryTab({
                           <si.icon className="w-3.5 h-3.5" style={{ color: si.color }} aria-hidden="true" />
                         </div>
                         <div>
-                          <div className="font-medium text-[12px]" style={{ color: "var(--text-primary)" }}>{sys.name}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-[12px]" style={{ color: "var(--text-primary)" }}>{sys.name}</span>
+                            {isReviewOverdue(sys) && <Badge variant="red">Review overdue</Badge>}
+                          </div>
                           <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{sys.vendor} v{sys.version}</div>
                         </div>
                       </div>
@@ -201,6 +218,20 @@ export function SystemInventoryTab({
                     <td>{relevanceBadge(sys.gxpRelevance)}</td>
                     <td>{riskBadge(sys.riskLevel)}</td>
                     <td>{validationBadge(sys.validationStatus)}</td>
+                    <td>
+                      {(() => {
+                        const pct = getValidationProgress(sys);
+                        const col = pct >= 100 ? "#10b981" : pct >= 50 ? "#f59e0b" : pct > 0 ? "#ef4444" : "#64748b";
+                        return (
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-20 rounded-full" style={{ background: "var(--bg-elevated)" }}>
+                              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: col }} />
+                            </div>
+                            <span className="text-[11px] font-semibold tabular-nums" style={{ color: col }}>{pct}%</span>
+                          </div>
+                        );
+                      })()}
+                    </td>
                     {showPart11 && <td>{complianceBadge(sys.part11Status)}</td>}
                     {showAnnex11 && <td>{complianceBadge(sys.annex11Status)}</td>}
                     {showGAMP5 && <td>{gampBadge(sys.gamp5Category)}</td>}

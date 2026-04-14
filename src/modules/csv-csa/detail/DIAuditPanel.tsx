@@ -1,7 +1,9 @@
 import clsx from "clsx";
-import { ShieldAlert, AlertCircle, CheckCircle2, Search, ClipboardCheck } from "lucide-react";
+import { ShieldAlert, AlertCircle, CheckCircle2, Search, ClipboardCheck, Plus, Wrench } from "lucide-react";
+import dayjs from "@/lib/dayjs";
 import type { GxPSystem } from "@/store/systems.slice";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 
 /* ── Types ── */
 
@@ -14,6 +16,7 @@ interface Finding {
   framework: string;
   siteId: string;
   linkedSystemId?: string;
+  linkedSystemName?: string;
 }
 
 interface CAPA {
@@ -22,6 +25,8 @@ interface CAPA {
   status: string;
   findingId: string;
   diGate?: boolean;
+  linkedSystemId?: string;
+  linkedSystemName?: string;
 }
 
 /* ── Props ── */
@@ -31,34 +36,41 @@ export interface DIAuditPanelProps {
   findings: Finding[];
   capas: CAPA[];
   isDark: boolean;
+  role: string;
   onNavigateGap: (findingId: string) => void;
   onNavigateCapa: (capaId: string) => void;
+  onRaiseCapa: () => void;
 }
 
-export function DIAuditPanel({ system, findings, capas, isDark, onNavigateGap, onNavigateCapa }: DIAuditPanelProps) {
+export function DIAuditPanel({ system, findings, capas, isDark, role, onNavigateGap, onNavigateCapa, onRaiseCapa }: DIAuditPanelProps) {
   const p11 = system.part11Status;
   const a11 = system.annex11Status;
-  const isBad = p11 === "Non-Compliant" || a11 === "Non-Compliant";
-  const isAmber = !isBad && (p11 === "In Progress" || a11 === "In Progress");
-  const isGood = !isBad && !isAmber && (p11 === "Compliant" || a11 === "Compliant");
-  // Preferred link: explicit linkedSystemId set on the finding.
-  // Fallback for legacy findings that have no linkedSystemId: match by site + Part 11/Annex 11
-  // framework AND requirement text mentions the system name/type/vendor.
-  const systemNameFirst = system.name.split("\u2014")[0].trim().toLowerCase();
-  const linkedFindings = findings.filter((f) => {
-    if (f.linkedSystemId) return f.linkedSystemId === system.id;
-    if (f.siteId !== system.siteId) return false;
-    if (f.framework !== "p11" && f.framework !== "annex11") return false;
-    const reqLc = f.requirement.toLowerCase();
-    return (
-      reqLc.includes(systemNameFirst) ||
-      reqLc.includes(system.type.toLowerCase()) ||
-      reqLc.includes(system.vendor.toLowerCase())
-    );
-  });
-  // CAPAs linked to this system via any of the linked findings
+  // Audit trail status — derived from BOTH Part 11 and Annex 11 (either triggers non-compliant)
+  const atBad = p11 === "Non-Compliant" || a11 === "Non-Compliant";
+  const atAmber = !atBad && (p11 === "In Progress" || a11 === "In Progress");
+  const atGood = !atBad && !atAmber && (p11 === "Compliant" || a11 === "Compliant");
+  // E-signature status — derived from Part 11 only (21 CFR Part 11 §11.50/§11.70 govern e-sig)
+  const esBad = p11 === "Non-Compliant";
+  const esAmber = !esBad && p11 === "In Progress";
+  const esGood = !esBad && !esAmber && p11 === "Compliant";
+  // Keep isBad/isAmber aliases for unchanged downstream references
+  const isBad = atBad;
+  const isAmber = atAmber;
+  const isGood = atGood;
+  // Primary link: explicit linkedSystemId OR linkedSystemName on the finding.
+  // Name match is a resilient fallback — survives system ID churn or legacy rows
+  // that only captured the display name.
+  const linkedFindings = findings.filter(
+    (f) => f.linkedSystemId === system.id || (!!f.linkedSystemName && f.linkedSystemName === system.name),
+  );
+  // CAPAs linked to this system via any linked finding OR a direct linkedSystemId/Name on the CAPA.
   const linkedFindingIds = new Set(linkedFindings.map((f) => f.id));
-  const linkedCAPAs = capas.filter((c) => c.findingId && linkedFindingIds.has(c.findingId));
+  const linkedCAPAs = capas.filter(
+    (c) =>
+      (c.findingId && linkedFindingIds.has(c.findingId)) ||
+      c.linkedSystemId === system.id ||
+      (!!c.linkedSystemName && c.linkedSystemName === system.name),
+  );
   const openDIGateCAPAs = linkedCAPAs.filter((c) => c.diGate && c.status !== "Closed");
 
   function statusPanel(isBadS: boolean, isAmberS: boolean, icon: React.ReactNode, label: string, desc: string) {
@@ -83,21 +95,46 @@ export function DIAuditPanel({ system, findings, capas, isDark, onNavigateGap, o
           isBad ? "Audit trail non-compliant" : isAmber ? "Audit trail remediation in progress" : isGood ? "Audit trail compliant" : "Audit trail status not applicable",
           isBad ? "Part 11 / Annex 11 gap \u2014 CAPA required" : isAmber ? "Linked CAPA in progress" : isGood ? "Audit trail controls verified and validated" : "Not applicable for this system"
         )}
-        {statusPanel(isBad, isAmber,
-          isBad ? <AlertCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0 mt-0.5" aria-hidden="true" /> : isAmber ? <AlertCircle className="w-4 h-4 text-[#f59e0b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] flex-shrink-0 mt-0.5" aria-hidden="true" />,
-          isBad ? "E-signature non-compliant" : isAmber ? "E-signature remediation in progress" : isGood ? "E-signature compliant" : "E-signature status not applicable",
-          isBad ? "E-sig not cryptographically bound to records" : isAmber ? "E-sig binding remediation in progress" : isGood ? "E-sig binding validated under Part 11 / Annex 11" : "Not applicable"
+        {statusPanel(esBad, esAmber,
+          esBad ? <AlertCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0 mt-0.5" aria-hidden="true" /> : esAmber ? <AlertCircle className="w-4 h-4 text-[#f59e0b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] flex-shrink-0 mt-0.5" aria-hidden="true" />,
+          esBad ? "E-signature non-compliant" : esAmber ? "E-signature remediation in progress" : esGood ? "E-signature compliant" : "E-signature status not applicable",
+          esBad ? "E-sig not cryptographically bound to records" : esAmber ? "E-sig binding remediation in progress" : esGood ? "E-sig binding validated under Part 11" : "Not applicable"
         )}
         {statusPanel(openDIGateCAPAs.length > 0, false,
           openDIGateCAPAs.length > 0 ? <AlertCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] flex-shrink-0 mt-0.5" aria-hidden="true" />,
           openDIGateCAPAs.length > 0 ? `DI gate open \u2014 ${openDIGateCAPAs.length} CAPA(s) pending` : "DI gate cleared",
           openDIGateCAPAs.length > 0 ? "Data integrity review must complete before closure" : "No open data integrity issues for this system"
         )}
+        {(system.remediationCapaId || system.remediationNotes) && (
+          <div
+            className="flex items-start gap-2 p-3 rounded-lg"
+            style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.35)" }}
+            role="status"
+          >
+            <Wrench className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#854f0b" }} aria-hidden="true" />
+            <div className="flex-1 text-[12px]">
+              <p className="font-semibold mb-1" style={{ color: "#854f0b" }}>Remediation in progress</p>
+              {system.remediationCapaId && (
+                <p style={{ color: "var(--text-primary)" }}>
+                  <span className="font-medium">CAPA:</span> <span className="font-mono">{system.remediationCapaId}</span>
+                </p>
+              )}
+              {system.remediationTargetDate && (
+                <p style={{ color: "var(--text-primary)" }}>
+                  <span className="font-medium">Target:</span> {dayjs.utc(system.remediationTargetDate).format("DD/MM/YYYY")}
+                </p>
+              )}
+              {system.remediationNotes && (
+                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>{system.remediationNotes}</p>
+              )}
+            </div>
+          </div>
+        )}
       </div></div>
 
       <div className="card"><div className="card-header"><div className="flex items-center gap-2"><Search className="w-4 h-4 text-[#a78bfa]" aria-hidden="true" /><span className="card-title">Linked findings</span>{linkedFindings.length > 0 && <Badge variant={linkedFindings.some((f) => f.severity === "Critical") ? "red" : "amber"}>{linkedFindings.length}</Badge>}</div></div><div className="card-body">
         {linkedFindings.length === 0 ? (
-          <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No Part 11 or Annex 11 findings logged yet. Log findings in Gap Assessment with area &ldquo;CSV/IT&rdquo; to see them here.</p>
+          <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No findings linked yet. Add a finding in Gap Assessment and link it to this system.</p>
         ) : (
           <div className="space-y-2">{linkedFindings.map((f) => (
             <div key={f.id} onClick={() => onNavigateGap(f.id)} role="button" aria-label={`Open finding ${f.id} in Gap Assessment`}
@@ -115,7 +152,7 @@ export function DIAuditPanel({ system, findings, capas, isDark, onNavigateGap, o
         )}
       </div></div>
 
-      <div className="card"><div className="card-header"><div className="flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-[#0ea5e9]" aria-hidden="true" /><span className="card-title">Linked CAPAs</span>{linkedCAPAs.length > 0 && <Badge variant={linkedCAPAs.some((c) => c.status !== "Closed" && c.diGate) ? "red" : "blue"}>{linkedCAPAs.length}</Badge>}</div></div><div className="card-body">
+      <div className="card"><div className="card-header"><div className="flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-[#0ea5e9]" aria-hidden="true" /><span className="card-title">Linked CAPAs</span>{linkedCAPAs.length > 0 && <Badge variant={linkedCAPAs.some((c) => c.status !== "Closed" && c.diGate) ? "red" : "blue"}>{linkedCAPAs.length}</Badge>}</div>{role !== "viewer" && <Button variant="ghost" size="xs" icon={Plus} onClick={onRaiseCapa}>Raise CAPA</Button>}</div><div className="card-body">
         {linkedCAPAs.length === 0 ? (
           <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No CAPAs linked to CSV/IT findings yet. Raise a CAPA from a Gap Assessment finding to see it tracked here.</p>
         ) : (

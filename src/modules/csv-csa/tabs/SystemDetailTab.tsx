@@ -100,10 +100,12 @@ export interface SystemDetailTabProps {
   onNavigateSettings: () => void;
   onNavigateGap: (findingId: string) => void;
   onNavigateCapa: (capaId: string) => void;
+  onRaiseCapa: () => void;
   onSaveRiskFactors: (text: string) => void;
   onSavePlannedActions: (text: string) => void;
   onSaveStage: (stage: import("@/store/systems.slice").ValidationStage) => void;
   onSaveNextReview: (iso: string) => void;
+  onSaveRiskClassification: (patch: import("@/modules/csv-csa/detail/RiskControlsPanel").RiskClassificationPatch) => void;
 }
 
 export function SystemDetailTab({
@@ -112,8 +114,8 @@ export function SystemDetailTab({
   isViewOnly, role, showPart11, showAnnex11, showGAMP5,
   detailTab, onDetailTabChange,
   onBack, onEdit, onGoToInventory,
-  onNavigateSettings, onNavigateGap, onNavigateCapa,
-  onSaveRiskFactors, onSavePlannedActions, onSaveStage, onSaveNextReview,
+  onNavigateSettings, onNavigateGap, onNavigateCapa, onRaiseCapa,
+  onSaveRiskFactors, onSavePlannedActions, onSaveStage, onSaveNextReview, onSaveRiskClassification,
 }: SystemDetailTabProps) {
   if (!selectedSystem) {
     return (
@@ -178,6 +180,7 @@ export function SystemDetailTab({
           showPart11={showPart11} showAnnex11={showAnnex11} showGAMP5={showGAMP5}
           onNavigateSettings={onNavigateSettings}
           onSaveRiskFactors={onSaveRiskFactors}
+          onSaveRiskClassification={onSaveRiskClassification}
         />
       </div>
 
@@ -195,8 +198,8 @@ export function SystemDetailTab({
       {/* DI & Audit Trail */}
       <div role="tabpanel" id="dpanel-di" aria-labelledby="dtab-di" tabIndex={0} hidden={detailTab !== "di"}>
         <DIAuditPanel
-          system={selectedSystem} findings={findings} capas={capas} isDark={isDark}
-          onNavigateGap={onNavigateGap} onNavigateCapa={onNavigateCapa}
+          system={selectedSystem} findings={findings} capas={capas} isDark={isDark} role={role}
+          onNavigateGap={onNavigateGap} onNavigateCapa={onNavigateCapa} onRaiseCapa={onRaiseCapa}
         />
       </div>
     </>

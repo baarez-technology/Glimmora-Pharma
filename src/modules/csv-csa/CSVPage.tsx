@@ -24,6 +24,8 @@ import { CSVRoadmapTab } from "./tabs/CSVRoadmapTab";
 import { AddSystemModal, type SystemForm } from "./modals/AddSystemModal";
 import { EditSystemModal, type SystemForm as EditSystemForm } from "./modals/EditSystemModal";
 import { AddActivityModal, type ActivityForm } from "./modals/AddActivityModal";
+import { AddCAPAModal, type CAPAForm } from "@/modules/capa/modals/AddCAPAModal";
+import { addCAPA } from "@/store/capa.slice";
 
 /* ── Constants ── */
 
@@ -83,6 +85,8 @@ export function CSVPage() {
   const [riskFactorsSaved, setRiskFactorsSaved] = useState(false);
   const [actionsSaved, setActionsSaved] = useState(false);
   const [noSitesOpen, setNoSitesOpen] = useState(false);
+  const [raiseCapaOpen, setRaiseCapaOpen] = useState(false);
+  const [capaRaisedPopup, setCapaRaisedPopup] = useState(false);
 
   const location = useLocation();
   useEffect(() => {
@@ -142,7 +146,19 @@ export function CSVPage() {
   /* ── Handlers ── */
   function onAddSave(data: SystemForm) {
     const id = crypto.randomUUID();
-    dispatch(addSystem({ ...data, id, gxpScope: data.gxpScope ?? "", criticalFunctions: data.criticalFunctions ?? "", riskFactors: data.riskFactors ?? "", plannedActions: data.plannedActions ?? "", lastValidated: data.lastValidated ? dayjs(data.lastValidated).utc().toISOString() : "", nextReview: data.nextReview ? dayjs(data.nextReview).utc().toISOString() : "", createdAt: "", tenantId: tenantId ?? "" }));
+    dispatch(addSystem({
+      ...data, id,
+      gxpScope: data.gxpScope ?? "",
+      criticalFunctions: data.criticalFunctions ?? "",
+      riskFactors: data.riskFactors ?? "",
+      plannedActions: data.plannedActions ?? "",
+      lastValidated: data.lastValidated ? dayjs(data.lastValidated).utc().toISOString() : "",
+      nextReview: data.nextReview ? dayjs(data.nextReview).utc().toISOString() : "",
+      remediationCapaId: data.remediationCapaId?.trim() || undefined,
+      remediationTargetDate: data.remediationTargetDate?.trim() ? dayjs(data.remediationTargetDate).utc().toISOString() : undefined,
+      remediationNotes: data.remediationNotes?.trim() || undefined,
+      createdAt: "", tenantId: tenantId ?? "",
+    }));
     auditLog({ action: "SYSTEM_ADDED", module: "csv-csa", recordId: id, newValue: data });
     setAddOpen(false); setAddedPopup(true);
   }
@@ -164,6 +180,9 @@ export function CSVPage() {
       riskFactors: data.riskFactors ?? "", plannedActions: data.plannedActions ?? "",
       lastValidated: data.lastValidated?.trim() ? dayjs(data.lastValidated).utc().toISOString() : "",
       nextReview: data.nextReview?.trim() ? dayjs(data.nextReview).utc().toISOString() : "",
+      remediationCapaId: data.remediationCapaId?.trim() || undefined,
+      remediationTargetDate: data.remediationTargetDate?.trim() ? dayjs(data.remediationTargetDate).utc().toISOString() : undefined,
+      remediationNotes: data.remediationNotes?.trim() || undefined,
     } }));
     auditLog({ action: "SYSTEM_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: data });
     setEditOpen(false); setEditSavedPopup(true);
@@ -196,10 +215,23 @@ export function CSVPage() {
     // Replace or append; preserve order based on VALIDATION_STAGE_KEYS
     const others = existing.filter((s) => s.key !== stage.key);
     const merged = [...others, stage];
-    // Sort by canonical order
     const ORDER = ["URS", "FS", "DS", "IQ", "OQ", "PQ", "RTR"];
     merged.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
-    dispatch(updateSystem({ id: selectedSystem.id, patch: { validationStages: merged } }));
+
+    // Auto-update validationStatus based on aggregate stage state
+    const allDone = merged.length >= ORDER.length
+      && merged.every((s) => s.status === "complete" || s.status === "skipped");
+    const anyProgress = merged.some((s) => s.status === "complete" || s.status === "in-progress");
+
+    const patch: Partial<import("@/store/systems.slice").GxPSystem> = { validationStages: merged };
+    if (allDone) {
+      patch.validationStatus = "Validated";
+      patch.lastValidated = dayjs().utc().toISOString();
+    } else if (anyProgress && selectedSystem.validationStatus !== "Validated") {
+      patch.validationStatus = "In Progress";
+    }
+
+    dispatch(updateSystem({ id: selectedSystem.id, patch }));
     auditLog({ action: "SYSTEM_VALIDATION_STAGE_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: stage });
   }
 
@@ -208,6 +240,39 @@ export function CSVPage() {
     dispatch(updateSystem({ id: selectedSystem.id, patch: { nextReview: iso } }));
     auditLog({ action: "SYSTEM_NEXT_REVIEW_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: { nextReview: iso } });
   }
+
+  function handleSaveRiskClassification(patch: import("@/modules/csv-csa/detail/RiskControlsPanel").RiskClassificationPatch) {
+    if (!selectedSystem) return;
+    dispatch(updateSystem({ id: selectedSystem.id, patch }));
+    auditLog({ action: "SYSTEM_RISK_CLASSIFICATION_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: patch });
+  }
+
+  function handleRaiseCapa(data: CAPAForm) {
+    const newId = `CAPA-${String(Date.now()).slice(-4)}`;
+    dispatch(addCAPA({
+      ...data,
+      id: newId,
+      tenantId: tenantId ?? "",
+      evidenceLinks: [],
+      status: "Open",
+      createdAt: "",
+      rcaMethod: data.rcaMethod,
+      rca: undefined,
+      correctiveActions: undefined,
+      findingId: data.findingId || undefined,
+    }));
+    auditLog({ action: "CAPA_CREATED", module: "csv-csa", recordId: newId, newValue: { ...data, linkedSystemId: selectedSystem?.id } });
+    setRaiseCapaOpen(false);
+    setCapaRaisedPopup(true);
+  }
+
+  const raiseCapaDefaults = selectedSystem ? {
+    description: `CSV/CSA remediation for ${selectedSystem.name} (${selectedSystem.vendor} v${selectedSystem.version}) \u2014 address Part 11 / Annex 11 gap.`,
+    source: "Gap Assessment" as const,
+    diGate: true,
+    risk: (selectedSystem.riskLevel === "HIGH" ? "Critical" : selectedSystem.riskLevel === "MEDIUM" ? "Major" : "Minor") as "Critical" | "Major" | "Minor",
+    siteId: selectedSystem.siteId,
+  } : null;
 
   /* ══════════════════════════════════════ */
 
@@ -307,10 +372,12 @@ export function CSVPage() {
                 onNavigateSettings={() => navigate("/settings")}
                 onNavigateGap={(fid) => navigate("/gap-assessment", { state: { openFindingId: fid } })}
                 onNavigateCapa={(cid) => navigate("/capa", { state: { openCapaId: cid } })}
+                onRaiseCapa={() => setRaiseCapaOpen(true)}
                 onSaveRiskFactors={handleSaveRiskFactors}
                 onSavePlannedActions={handleSavePlannedActions}
                 onSaveStage={handleSaveStage}
                 onSaveNextReview={handleSaveNextReview}
+                onSaveRiskClassification={handleSaveRiskClassification}
               />
             </div>
           </div>
@@ -321,6 +388,19 @@ export function CSVPage() {
       <AddSystemModal open={addOpen} sites={sites} users={complianceUsers} onSave={onAddSave} onClose={() => setAddOpen(false)} lockedSiteId={selectedSiteId} />
       <EditSystemModal open={editOpen} system={selectedSystem} sites={sites} users={complianceUsers} onSave={onEditSave} onClose={() => setEditOpen(false)} />
       <AddActivityModal open={addActivityOpen} systems={systems} users={users} onSave={onActivitySave} onClose={() => setAddActivityOpen(false)} />
+      <AddCAPAModal
+        isOpen={raiseCapaOpen}
+        onClose={() => setRaiseCapaOpen(false)}
+        onSave={handleRaiseCapa}
+        users={complianceUsers}
+        sites={sites}
+        isDark={isDark}
+        lockedSiteId={raiseCapaDefaults?.siteId ?? selectedSiteId}
+        defaultDescription={raiseCapaDefaults?.description}
+        defaultSource={raiseCapaDefaults?.source}
+        defaultDiGate={raiseCapaDefaults?.diGate}
+        defaultRisk={raiseCapaDefaults?.risk}
+      />
 
       {/* ── Popups ── */}
       <Popup isOpen={addedPopup} variant="success" title="System added" description="Added to the inventory. Part 11 / Annex 11 columns appear based on active frameworks in Settings." onDismiss={() => setAddedPopup(false)} />
@@ -329,6 +409,7 @@ export function CSVPage() {
       <Popup isOpen={actionsSaved} variant="success" title="Planned actions saved" description="Validation plan updated." onDismiss={() => setActionsSaved(false)} />
       <Popup isOpen={removePopup} variant="confirmation" title="Remove this system?" description="The system will be removed from the inventory. Existing findings and CAPAs are not affected." onDismiss={() => { setRemovePopup(false); setSystemToRemove(null); }} actions={[{ label: "Cancel", style: "ghost", onClick: () => { setRemovePopup(false); setSystemToRemove(null); } }, { label: "Yes, remove", style: "primary", onClick: () => { if (systemToRemove) dispatch(removeSystem(systemToRemove)); if (selectedSystem?.id === systemToRemove) setSelectedSystemId(null); setRemovePopup(false); setSystemToRemove(null); } }]} />
       <Popup isOpen={activityAddedPopup} variant="success" title="Activity added" description="Roadmap activity added. It will appear in the system's Validation tab and CSV Roadmap timeline." onDismiss={() => setActivityAddedPopup(false)} />
+      <Popup isOpen={capaRaisedPopup} variant="success" title="CAPA raised" description="CAPA created and linked to this system. Track it in the CAPA Tracker." onDismiss={() => setCapaRaisedPopup(false)} />
       <NoSitesPopup isOpen={noSitesOpen} onClose={() => setNoSitesOpen(false)} feature="CSV / CSA" />
     </main>
   );

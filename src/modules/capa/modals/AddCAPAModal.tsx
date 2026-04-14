@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -31,13 +32,24 @@ interface AddCAPAModalProps {
   sites: SiteConfig[];
   isDark: boolean;
   lockedSiteId?: string | null;
+  defaultDescription?: string;
+  defaultSource?: CAPAForm["source"];
+  defaultDiGate?: boolean;
+  defaultRisk?: CAPAForm["risk"];
 }
 
-export function AddCAPAModal({ isOpen, onClose, onSave, users, sites, isDark, lockedSiteId }: AddCAPAModalProps) {
+export function AddCAPAModal({ isOpen, onClose, onSave, users, sites, isDark, lockedSiteId, defaultDescription, defaultSource, defaultDiGate, defaultRisk }: AddCAPAModalProps) {
   const { register: reg, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<CAPAForm>({
     resolver: zodResolver(capaSchema),
-    defaultValues: { source: "Gap Assessment", risk: "Major", siteId: lockedSiteId ?? "", effectivenessCheck: true, diGate: false },
+    defaultValues: { source: defaultSource ?? "Gap Assessment", risk: defaultRisk ?? "Major", siteId: lockedSiteId ?? "", effectivenessCheck: true, diGate: defaultDiGate ?? false, description: defaultDescription ?? "" },
   });
+
+  useEffect(() => {
+    if (isOpen) {
+      reset({ source: defaultSource ?? "Gap Assessment", risk: defaultRisk ?? "Major", siteId: lockedSiteId ?? "", effectivenessCheck: true, diGate: defaultDiGate ?? false, description: defaultDescription ?? "", owner: "", dueDate: "" });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, defaultSource, defaultRisk, defaultDiGate, defaultDescription, lockedSiteId]);
 
   function onSubmit(data: CAPAForm) {
     onSave(data);

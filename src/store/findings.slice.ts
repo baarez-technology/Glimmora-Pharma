@@ -26,6 +26,7 @@ export interface Finding {
   agiSummary?: string;
   capaId?: string;
   linkedSystemId?: string;
+  linkedSystemName?: string;
   createdAt: string;
   editHistory?: EditHistoryEntry[];
 }
