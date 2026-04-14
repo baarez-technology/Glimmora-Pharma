@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Plus } from "lucide-react";
 import type { FindingSeverity, FindingStatus } from "@/store/findings.slice";
 import type { UserConfig, SiteConfig } from "@/store/settings.slice";
+import type { GxPSystem } from "@/store/systems.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
@@ -26,6 +27,8 @@ const findingSchema = z.object({
   owner: z.string().min(1, "Owner required"),
   targetDate: z.string().min(1, "Target date required"),
   evidenceLink: z.string().optional(),
+  rootCause: z.string().optional(),
+  linkedSystemId: z.string().optional(),
 });
 type FindingForm = z.infer<typeof findingSchema>;
 
@@ -35,13 +38,15 @@ interface AddFindingModalProps {
   onSave: (data: FindingForm) => void;
   sites: SiteConfig[];
   users: UserConfig[];
+  systems: GxPSystem[];
   activeFrameworks: string[];
+  lockedSiteId?: string | null;
 }
 
-export function AddFindingModal({ isOpen, onClose, onSave, sites, users, activeFrameworks }: AddFindingModalProps) {
+export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems, activeFrameworks, lockedSiteId }: AddFindingModalProps) {
   const { register: reg, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = useForm<FindingForm>({
     resolver: zodResolver(findingSchema),
-    defaultValues: { severity: "Major", status: "Open" },
+    defaultValues: { severity: "Major", status: "Open", siteId: lockedSiteId ?? "" },
   });
 
   function onSubmit(data: FindingForm) {
@@ -58,12 +63,15 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, activeF
     <Modal open={isOpen} onClose={handleClose} title="Log new finding">
       <form onSubmit={handleSubmit(onSubmit)} aria-label="Add new finding" className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Site <span className="text-(--danger)">*</span></p>
-            <Dropdown placeholder="Select site..." value={watch("siteId") ?? ""} onChange={(v) => setValue("siteId", v, { shouldValidate: true })} width="w-full"
-              options={sites.filter((s) => s.status === "Active").map((s) => ({ value: s.id, label: s.name }))} />
-            {errors.siteId && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.siteId.message}</p>}
-          </div>
+          {/* Site — hidden for non-admin (auto-assigned from login), visible dropdown for admin */}
+          {!lockedSiteId && (
+            <div className="col-span-2">
+              <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Site <span className="text-(--danger)">*</span></p>
+              <Dropdown placeholder="Select site..." value={watch("siteId") ?? ""} onChange={(v) => setValue("siteId", v, { shouldValidate: true })} width="w-full"
+                options={sites.filter((s) => s.status === "Active").map((s) => ({ value: s.id, label: s.name }))} />
+              {errors.siteId && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.siteId.message}</p>}
+            </div>
+          )}
           <div>
             <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Area <span className="text-(--danger)">*</span></p>
             <Dropdown placeholder="Select area..." value={watch("area") ?? ""} onChange={(v) => setValue("area", v, { shouldValidate: true })} width="w-full"
@@ -105,6 +113,31 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, activeF
           <div className="col-span-2">
             <label htmlFor="f-evidence" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Evidence link (optional)</label>
             <input id="f-evidence" type="text" className="input text-[12px]" placeholder="Document reference or URL" {...reg("evidenceLink")} />
+          </div>
+          {/* Linked system — shown only for CSV/IT or QC Lab areas where systems are relevant */}
+          {(watch("area") === "CSV/IT" || watch("area") === "QC Lab") && (
+            <div className="col-span-2">
+              <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Linked system <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></p>
+              <Dropdown
+                placeholder="Select system..."
+                value={watch("linkedSystemId") ?? ""}
+                onChange={(v) => setValue("linkedSystemId", v)}
+                width="w-full"
+                options={[
+                  { value: "", label: "\u2014 None" },
+                  ...systems
+                    .filter((s) => !watch("siteId") || s.siteId === watch("siteId"))
+                    .map((s) => ({ value: s.id, label: s.name })),
+                ]}
+              />
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                Linking to a system makes the finding appear in that system&apos;s DI &amp; Audit Trail tab.
+              </p>
+            </div>
+          )}
+          <div className="col-span-2">
+            <label htmlFor="f-rootcause" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Root Cause Analysis <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></label>
+            <textarea id="f-rootcause" rows={3} className="input text-[12px] resize-none" placeholder="What is the likely root cause of this gap?&#10;Can be updated later in CAPA Tracker." {...reg("rootCause")} />
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-2">

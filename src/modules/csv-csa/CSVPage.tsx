@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
 import clsx from "clsx";
-import { Database, Server, GitBranch, Plus, Info } from "lucide-react";
+import { Database, GitBranch, Plus, Info, X } from "lucide-react";
 import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { NoSitesPopup, TabBar, PageHeader } from "@/components/shared";
 import dayjs from "@/lib/dayjs";
@@ -10,6 +10,7 @@ import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useRole } from "@/hooks/useRole";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
+import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   addSystem, updateSystem, removeSystem, addActivity,
   type GxPSystem, type RoadmapActivity,
@@ -26,12 +27,11 @@ import { AddActivityModal, type ActivityForm } from "./modals/AddActivityModal";
 
 /* ── Constants ── */
 
-type TabId = "inventory" | "detail" | "roadmap";
+type TabId = "inventory" | "roadmap";
 type DetailTab = "overview" | "risk" | "validation" | "di";
 
 const TABS: { id: TabId; label: string; Icon: typeof Database }[] = [
   { id: "inventory", label: "System Inventory", Icon: Database },
-  { id: "detail", label: "System Detail", Icon: Server },
   { id: "roadmap", label: "CSV Roadmap", Icon: GitBranch },
 ];
 
@@ -45,10 +45,12 @@ export function CSVPage() {
   /* ── Redux ── */
   const { systems, roadmap, findings, capas, tenantId } = useTenantData();
   const { org, sites, users } = useTenantConfig();
+  const complianceUsers = useComplianceUsers();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
   const frameworks = useAppSelector((s) => s.settings.frameworks);
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
+  const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const { hasSites } = useSetupStatus();
 
   const showPart11 = frameworks.p11;
@@ -58,6 +60,7 @@ export function CSVPage() {
   /* ── State ── */
   const [activeTab, setActiveTab] = useState<TabId>("inventory");
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
   const selectedSystem = selectedSystemId ? systems.find((s) => s.id === selectedSystemId) ?? null : null;
   const setSelectedSystem = (sys: GxPSystem | null) => setSelectedSystemId(sys?.id ?? null);
@@ -86,7 +89,7 @@ export function CSVPage() {
     const sid = (location.state as { systemId?: string } | null)?.systemId;
     if (sid) {
       const found = systems.find((s) => s.id === sid);
-      if (found) { setSelectedSystemId(found.id); setActiveTab("detail"); }
+      if (found) { setSelectedSystemId(found.id); setDetailDrawerOpen(true); setDetailTab("overview"); }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -146,7 +149,22 @@ export function CSVPage() {
 
   function onEditSave(data: EditSystemForm) {
     if (!selectedSystem) return;
-    dispatch(updateSystem({ id: selectedSystem.id, patch: { ...data, gxpScope: data.gxpScope ?? "", criticalFunctions: data.criticalFunctions ?? "", riskFactors: data.riskFactors ?? "", plannedActions: data.plannedActions ?? "", lastValidated: data.lastValidated ? dayjs(data.lastValidated).utc().toISOString() : "", nextReview: data.nextReview ? dayjs(data.nextReview).utc().toISOString() : "" } }));
+    dispatch(updateSystem({ id: selectedSystem.id, patch: {
+      name: data.name, type: data.type, vendor: data.vendor, version: data.version,
+      gxpRelevance: data.gxpRelevance, riskLevel: data.riskLevel,
+      part11Status: data.part11Status, annex11Status: data.annex11Status,
+      gamp5Category: data.gamp5Category, validationStatus: data.validationStatus,
+      patientSafetyRisk: data.patientSafetyRisk,
+      productQualityImpact: data.productQualityImpact,
+      regulatoryExposure: data.regulatoryExposure,
+      diImpact: data.diImpact,
+      siteId: data.siteId, owner: data.owner,
+      intendedUse: data.intendedUse,
+      gxpScope: data.gxpScope ?? "", criticalFunctions: data.criticalFunctions ?? "",
+      riskFactors: data.riskFactors ?? "", plannedActions: data.plannedActions ?? "",
+      lastValidated: data.lastValidated?.trim() ? dayjs(data.lastValidated).utc().toISOString() : "",
+      nextReview: data.nextReview?.trim() ? dayjs(data.nextReview).utc().toISOString() : "",
+    } }));
     auditLog({ action: "SYSTEM_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: data });
     setEditOpen(false); setEditSavedPopup(true);
   }
@@ -170,6 +188,25 @@ export function CSVPage() {
     dispatch(updateSystem({ id: selectedSystem.id, patch: { plannedActions: text } }));
     auditLog({ action: "SYSTEM_PLANNED_ACTIONS_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: { plannedActions: text } });
     setActionsSaved(true);
+  }
+
+  function handleSaveStage(stage: import("@/store/systems.slice").ValidationStage) {
+    if (!selectedSystem) return;
+    const existing = selectedSystem.validationStages ?? [];
+    // Replace or append; preserve order based on VALIDATION_STAGE_KEYS
+    const others = existing.filter((s) => s.key !== stage.key);
+    const merged = [...others, stage];
+    // Sort by canonical order
+    const ORDER = ["URS", "FS", "DS", "IQ", "OQ", "PQ", "RTR"];
+    merged.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
+    dispatch(updateSystem({ id: selectedSystem.id, patch: { validationStages: merged } }));
+    auditLog({ action: "SYSTEM_VALIDATION_STAGE_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: stage });
+  }
+
+  function handleSaveNextReview(iso: string) {
+    if (!selectedSystem) return;
+    dispatch(updateSystem({ id: selectedSystem.id, patch: { nextReview: iso } }));
+    auditLog({ action: "SYSTEM_NEXT_REVIEW_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: { nextReview: iso } });
   }
 
   /* ══════════════════════════════════════ */
@@ -210,29 +247,9 @@ export function CSVPage() {
           onSiteFilterChange={setSiteFilter} onTypeFilterChange={setTypeFilter} onRiskFilterChange={setRiskFilter} onValFilterChange={setValFilter} onSearchChange={setSearchQ}
           onClearFilters={clearFilters}
           onAddOpen={() => setAddOpen(true)}
-          onSelectSystem={(sys) => { setSelectedSystem(sys); setActiveTab("detail"); setDetailTab("overview"); }}
+          onSelectSystem={(sys) => { setSelectedSystem(sys); setDetailDrawerOpen(true); setDetailTab("overview"); }}
           onEditSystem={(sys) => { setSelectedSystem(sys); setEditOpen(true); }}
           onRemoveSystem={(id) => { setSystemToRemove(id); setRemovePopup(true); }}
-        />
-      </div>
-
-      {/* ═══════════ DETAIL TAB ═══════════ */}
-      <div role="tabpanel" id="panel-detail" aria-labelledby="tab-detail" tabIndex={0} hidden={activeTab !== "detail"}>
-        <SystemDetailTab
-          selectedSystem={selectedSystem} systems={systems} roadmap={roadmap}
-          findings={findings} capas={capas}
-          sites={sites} users={users} timezone={timezone} dateFormat={dateFormat}
-          isDark={isDark} isViewOnly={isViewOnly} role={role}
-          showPart11={showPart11} showAnnex11={showAnnex11} showGAMP5={showGAMP5}
-          detailTab={detailTab} onDetailTabChange={setDetailTab}
-          onBack={() => { setSelectedSystem(null); setActiveTab("inventory"); }}
-          onEdit={() => setEditOpen(true)}
-          onGoToInventory={() => setActiveTab("inventory")}
-          onNavigateSettings={() => navigate("/settings")}
-          onNavigateGap={(fid) => navigate("/gap-assessment", { state: { openFindingId: fid } })}
-          onNavigateCapa={(cid) => navigate("/capa", { state: { openCapaId: cid } })}
-          onSaveRiskFactors={handleSaveRiskFactors}
-          onSavePlannedActions={handleSavePlannedActions}
         />
       </div>
 
@@ -249,9 +266,60 @@ export function CSVPage() {
         />
       </div>
 
+      {/* ═══════════ SYSTEM DETAIL DRAWER ═══════════ */}
+      {detailDrawerOpen && selectedSystem && (
+        <div
+          className="fixed inset-0 z-50 flex"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${selectedSystem.name} detail`}
+          onClick={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
+          {/* Drawer panel — slides in from right */}
+          <div
+            className="relative ml-auto w-full max-w-[720px] h-full flex flex-col shadow-2xl animate-[popupIn_0.2s_ease-out]"
+            style={{ background: "var(--bg-surface)", borderLeft: "1px solid var(--bg-border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
+              aria-label="Close system detail"
+              className="absolute top-3 right-3 w-8 h-8 rounded-md flex items-center justify-center bg-transparent hover:bg-(--bg-hover) border-none cursor-pointer transition-colors duration-150 z-10"
+            >
+              <X className="w-4 h-4 text-(--text-muted)" aria-hidden="true" />
+            </button>
+            {/* Drawer content — scrollable */}
+            <div className="flex-1 overflow-y-auto p-5">
+              <SystemDetailTab
+                selectedSystem={selectedSystem} systems={systems} roadmap={roadmap}
+                findings={findings} capas={capas}
+                sites={sites} users={users} timezone={timezone} dateFormat={dateFormat}
+                isDark={isDark} isViewOnly={isViewOnly} role={role}
+                showPart11={showPart11} showAnnex11={showAnnex11} showGAMP5={showGAMP5}
+                detailTab={detailTab} onDetailTabChange={setDetailTab}
+                onBack={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
+                onEdit={() => setEditOpen(true)}
+                onGoToInventory={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
+                onNavigateSettings={() => navigate("/settings")}
+                onNavigateGap={(fid) => navigate("/gap-assessment", { state: { openFindingId: fid } })}
+                onNavigateCapa={(cid) => navigate("/capa", { state: { openCapaId: cid } })}
+                onSaveRiskFactors={handleSaveRiskFactors}
+                onSavePlannedActions={handleSavePlannedActions}
+                onSaveStage={handleSaveStage}
+                onSaveNextReview={handleSaveNextReview}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Modals ── */}
-      <AddSystemModal open={addOpen} sites={sites} users={users} onSave={onAddSave} onClose={() => setAddOpen(false)} />
-      <EditSystemModal open={editOpen} system={selectedSystem} sites={sites} users={users} onSave={onEditSave} onClose={() => setEditOpen(false)} />
+      <AddSystemModal open={addOpen} sites={sites} users={complianceUsers} onSave={onAddSave} onClose={() => setAddOpen(false)} lockedSiteId={selectedSiteId} />
+      <EditSystemModal open={editOpen} system={selectedSystem} sites={sites} users={complianceUsers} onSave={onEditSave} onClose={() => setEditOpen(false)} />
       <AddActivityModal open={addActivityOpen} systems={systems} users={users} onSave={onActivitySave} onClose={() => setAddActivityOpen(false)} />
 
       {/* ── Popups ── */}

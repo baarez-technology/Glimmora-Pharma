@@ -6,15 +6,13 @@ import {
   ClipboardList,
   Plus,
   ChevronRight,
-  FileText,
-  GitBranch,
+  X,
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import type {
   FDA483Event,
   EventType,
   EventStatus,
-  ObservationSeverity,
 } from "@/store/fda483.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -79,11 +77,9 @@ export interface EventsTabProps {
   onStatusFilterChange: (v: string) => void;
   onSiteFilterChange: (v: string) => void;
   onClearFilters: () => void;
-  onSelectEvent: (e: FDA483Event) => void;
+  onSelectEvent: (e: FDA483Event | null) => void;
   onAddEvent: () => void;
-  onGoToObservations: (e: FDA483Event) => void;
-  onGoToResponse: (e: FDA483Event) => void;
-  onGoToRCA: (e: FDA483Event) => void;
+  computeReadiness: (e: FDA483Event) => number;
 }
 
 export function EventsTab({
@@ -108,9 +104,7 @@ export function EventsTab({
   onClearFilters,
   onSelectEvent,
   onAddEvent,
-  onGoToObservations,
-  onGoToResponse,
-  onGoToRCA,
+  computeReadiness,
 }: EventsTabProps) {
   return (
     <>
@@ -291,16 +285,6 @@ export function EventsTab({
             const days = daysLeft(ev.responseDeadline);
             const isOverdue = days < 0;
             const isUrgent = days >= 0 && days <= 5;
-            const critCount = ev.observations.filter(
-              (o) => o.severity === "Critical",
-            ).length;
-            const majCount = ev.observations.filter(
-              (o) => o.severity === "Major",
-            ).length;
-            const minCount = ev.observations.filter(
-              (o) => o.severity === "Minor",
-            ).length;
-            const capaCount = ev.observations.filter((o) => o.capaId).length;
             return (
               <div
                 key={ev.id}
@@ -360,59 +344,51 @@ export function EventsTab({
                         .tz(timezone)
                         .format(dateFormat)}
                     </span>
-                    <span>{ev.observations.length} observations</span>
-                    <span>{ev.commitments.length} commitments</span>
                   </div>
-                  {/* Severity badges */}
-                  <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    {critCount > 0 && (
-                      <Badge variant="red">{critCount} Critical</Badge>
+
+                  {/* Response readiness progress */}
+                  {(() => {
+                    const readiness = computeReadiness(ev);
+                    const col = readiness >= 100 ? "#10b981" : readiness >= 80 ? "#f59e0b" : readiness >= 41 ? "#f59e0b" : "#ef4444";
+                    return (
+                      <div className="flex items-center gap-2 mt-3">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider shrink-0" style={{ color: "var(--text-muted)" }}>Readiness</span>
+                        <div className={clsx("h-1.5 flex-1 rounded-full", isDark ? "bg-[#1e3a5a]" : "bg-[#e2e8f0]")}>
+                          <div className="h-full rounded-full transition-all" style={{ width: `${readiness}%`, background: col }} />
+                        </div>
+                        <span className="text-[11px] font-bold shrink-0" style={{ color: col }}>{readiness}%</span>
+                      </div>
+                    );
+                  })()}
+                  {/* Open / Close action */}
+                  <div className="flex justify-end gap-2 mt-3">
+                    {selectedEvent?.id === ev.id ? (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        icon={X}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectEvent(null);
+                        }}
+                        aria-label="Deselect event"
+                      >
+                        Deselect
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        icon={ChevronRight}
+                        iconPosition="right"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectEvent(ev);
+                        }}
+                      >
+                        Open event
+                      </Button>
                     )}
-                    {majCount > 0 && (
-                      <Badge variant="amber">{majCount} Major</Badge>
-                    )}
-                    {minCount > 0 && (
-                      <Badge variant="gray">{minCount} Minor</Badge>
-                    )}
-                    {capaCount > 0 && (
-                      <Badge variant="blue">{capaCount} CAPAs linked</Badge>
-                    )}
-                  </div>
-                  {/* Quick actions */}
-                  <div className="flex gap-2 mt-3">
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      icon={ChevronRight}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onGoToObservations(ev);
-                      }}
-                    >
-                      {ev.observations.length} observations
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      icon={FileText}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onGoToResponse(ev);
-                      }}
-                    >
-                      Response
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      icon={GitBranch}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onGoToRCA(ev);
-                      }}
-                    >
-                      RCA
-                    </Button>
                   </div>
                 </div>
               </div>

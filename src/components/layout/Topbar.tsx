@@ -1,12 +1,10 @@
-import { HelpCircle, Calendar, Clock, Globe, X, Menu, MapPin } from "lucide-react";
+import { Calendar, Clock, Menu, MapPin } from "lucide-react";
 import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useRole, ROLE_LABELS } from "@/hooks/useRole";
 import type { UserRole } from "@/hooks/useRole";
-import { setSelectedSite } from "@/store/auth.slice";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ColorThemePicker } from "@/components/ui/ColorThemePicker";
 import { NotificationBell } from "./NotificationBell";
@@ -47,13 +45,12 @@ function DateTimeBlock() {
 }
 
 export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
-  const dispatch = useAppDispatch();
   const { org, tenantName, allSites } = useTenantConfig();
   const companyName = org.companyName || tenantName;
   const user = useAppSelector((s) => s.auth.user);
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
-  const { role, isSuperAdmin } = useRole();
+  const { role } = useRole();
 
   const selectedSite = selectedSiteId ? allSites.find((s) => s.id === selectedSiteId) ?? null : null;
 
@@ -97,48 +94,15 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
         <DateTimeBlock />
       </div>
 
-      {/* ── Site selector — Super Admin gets dropdown; others see read-only label only when a specific site is selected ── */}
-      {isSuperAdmin && allSites.length > 0 && (
-        <div className="hidden lg:flex items-center gap-1.5 shrink-0" aria-label="Site filter">
-          <Globe size={14} aria-hidden="true" style={{ color: "var(--text-muted)" }} />
-          <select
-            value={selectedSiteId ?? ""}
-            onChange={(e) => dispatch(setSelectedSite(e.target.value || null))}
-            className={clsx(
-              "text-[12px] font-medium border rounded-lg px-2.5 py-1.5 cursor-pointer outline-none transition-colors",
-              isDark ? "bg-[#242019] border-[#3d362c] text-[#f4ede6]" : "bg-[#faf9f7] border-[#e8e4dd] text-[#302d29]",
-            )}
-            aria-label="Filter by site"
-          >
-            <option value="">All sites</option>
-            {allSites.map((site) => (
-              <option key={site.id} value={site.id}>{site.name}</option>
-            ))}
-          </select>
-          {selectedSiteId && (
-            <button
-              type="button"
-              onClick={() => dispatch(setSelectedSite(null))}
-              className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full border-none cursor-pointer"
-              style={{ background: "var(--brand-muted)", color: "var(--brand)" }}
-              aria-label="Clear site filter"
-            >
-              <X size={10} aria-hidden="true" />
-              Clear
-            </button>
-          )}
-        </div>
-      )}
-      {!isSuperAdmin && selectedSite && (
-        <div
-          className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] shrink-0"
-          style={{ background: isDark ? "var(--bg-elevated)" : "#f1f5f9", color: "var(--text-secondary)" }}
-          aria-label={`Current site: ${selectedSite.name}`}
-        >
-          <MapPin size={12} aria-hidden="true" className="shrink-0" style={{ color: "var(--text-muted)" }} />
-          <span className="font-medium">{selectedSite.name}</span>
-        </div>
-      )}
+      {/* ── Site display — read-only for all roles ── */}
+      <div
+        className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] shrink-0"
+        style={{ background: isDark ? "var(--bg-elevated)" : "#f1f5f9", color: "var(--text-secondary)" }}
+        aria-label={selectedSite ? `Current site: ${selectedSite.name}` : "All sites"}
+      >
+        <MapPin size={12} aria-hidden="true" className="shrink-0" style={{ color: "var(--text-muted)" }} />
+        <span className="font-medium">{selectedSite ? selectedSite.name : "All sites"}</span>
+      </div>
 
       {/* ── Spacer ── */}
       <div className="flex-1 min-w-0" />

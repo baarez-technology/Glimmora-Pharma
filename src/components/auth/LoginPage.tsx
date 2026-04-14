@@ -201,6 +201,16 @@ export function LoginPage() {
         return;
       }
 
+      if (mockAccount.user.role === "customer_admin") {
+        dispatch(setSelectedSite(null));
+        const userTenant = tenants.find((t) => t.id === mockAccount.user.tenantId);
+        setLoadingName(userTenant?.name ?? "workspace");
+        setLoadingTenant(true);
+        await new Promise((r) => setTimeout(r, 600));
+        navigate("/");
+        return;
+      }
+
       const userTenant = tenants.find((t) => t.id === mockAccount.user.tenantId);
       await finishLogin(mockAccount.user, userTenant, userTenant?.name ?? "workspace");
       return;
@@ -228,6 +238,15 @@ export function LoginPage() {
           setLoadingTenant(true);
           await new Promise((r) => setTimeout(r, 600));
           navigate("/admin");
+          return;
+        }
+
+        if (user.role === "customer_admin") {
+          dispatch(setSelectedSite(null));
+          setLoadingName(tenant.name);
+          setLoadingTenant(true);
+          await new Promise((r) => setTimeout(r, 600));
+          navigate("/");
           return;
         }
 

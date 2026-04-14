@@ -36,6 +36,7 @@ export interface AddEventModalProps {
   onClose: () => void;
   onSave: (data: EventFormData) => void;
   sites: Site[];
+  lockedSiteId?: string | null;
 }
 
 /** Add N working days (skip weekends) to a date */
@@ -50,14 +51,14 @@ function addWorkingDays(date: dayjs.Dayjs, days: number): dayjs.Dayjs {
   return current;
 }
 
-export function AddEventModal({ open, onClose, onSave, sites }: AddEventModalProps) {
+export function AddEventModal({ open, onClose, onSave, sites, lockedSiteId }: AddEventModalProps) {
   const form = useForm<EventFormData>({
     resolver: zodResolver(eventSchema),
     defaultValues: {
       type: "FDA 483",
       referenceNumber: "",
       agency: "",
-      siteId: "",
+      siteId: lockedSiteId ?? "",
       inspectionDate: "",
       responseDeadline: "",
       status: "Open",
@@ -178,35 +179,37 @@ export function AddEventModal({ open, onClose, onSave, sites }: AddEventModalPro
             )}
           </div>
 
-          {/* Site */}
-          <div>
-            <label
-              className="text-[11px] font-semibold uppercase tracking-wider block mb-1"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Site <span className="text-(--danger)" aria-hidden="true">*</span>
-            </label>
-            <Controller
-              name="siteId"
-              control={form.control}
-              render={({ field }) => (
-                <Dropdown
-                  value={field.value}
-                  onChange={field.onChange}
-                  placeholder="Select site"
-                  width="w-full"
-                  options={sites
-                    .filter((s) => s.status === "Active")
-                    .map((s) => ({ value: s.id, label: s.name }))}
-                />
+          {/* Site — hidden for non-admin (auto-assigned), visible for admin */}
+          {!lockedSiteId && (
+            <div>
+              <label
+                className="text-[11px] font-semibold uppercase tracking-wider block mb-1"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Site <span className="text-(--danger)" aria-hidden="true">*</span>
+              </label>
+              <Controller
+                name="siteId"
+                control={form.control}
+                render={({ field }) => (
+                  <Dropdown
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="Select site"
+                    width="w-full"
+                    options={sites
+                      .filter((s) => s.status === "Active")
+                      .map((s) => ({ value: s.id, label: s.name }))}
+                  />
+                )}
+              />
+              {form.formState.errors.siteId && (
+                <p role="alert" className="text-[11px] text-[#ef4444] mt-1">
+                  {form.formState.errors.siteId.message}
+                </p>
               )}
-            />
-            {form.formState.errors.siteId && (
-              <p role="alert" className="text-[11px] text-[#ef4444] mt-1">
-                {form.formState.errors.siteId.message}
-              </p>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Status */}
           <div>

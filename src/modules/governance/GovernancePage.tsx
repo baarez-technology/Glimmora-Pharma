@@ -53,7 +53,7 @@ export function GovernancePage() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { raidItems, capas, findings, systems, fda483Events: fda483, tenantId } = useTenantData();
-  const { org, sites, users } = useTenantConfig();
+  const { org, users, allSites } = useTenantConfig();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
   const companyName = org.companyName;
@@ -61,6 +61,11 @@ export function GovernancePage() {
   const user = useAppSelector((s) => s.auth.user);
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const { role } = useRole();
+
+  // Non-admin users see only their selected site; admins see all
+  const visibleSites = selectedSiteId
+    ? allSites.filter((s) => s.id === selectedSiteId)
+    : allSites;
 
   function ownerName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
 
@@ -96,13 +101,18 @@ export function GovernancePage() {
   function handleCloseRaid() { if (!selectedRaid || !closeResolution.trim()) return; dispatch(closeItem({ id: selectedRaid.id, resolution: closeResolution.trim() })); auditLog({ action: "RAID_ITEM_CLOSED", module: "governance", recordId: selectedRaid.id, newValue: { resolution: closeResolution } }); setCloseRaidOpen(false); setSelectedRaid(null); setCloseResolution(""); setRaidClosedPopup(true); }
 
   /* ── Chart data ── */
-  const capaTrend = (() => { const m = []; for (let i = 5; i >= 0; i--) { const mo = dayjs().subtract(i, "month"); const mc = capas.filter((c) => c.status === "Closed" && c.createdAt && dayjs.utc(c.createdAt).format("MMM YYYY") === mo.format("MMM YYYY")); const ot = mc.filter((c) => !dayjs.utc(c.closedAt || c.dueDate).isAfter(dayjs.utc(c.dueDate))).length; m.push({ month: mo.format("MMM"), onTime: ot, late: mc.length - ot }); } return m; })();
+  const capaTrend = (() => { const m = []; for (let i = 5; i >= 0; i--) { const mo = dayjs().subtract(i, "month"); const mc = capas.filter((c) => c.status === "Closed" && c.closedAt && dayjs.utc(c.closedAt).format("MMM YYYY") === mo.format("MMM YYYY")); const ot = mc.filter((c) => !dayjs.utc(c.closedAt).isAfter(dayjs.utc(c.dueDate))).length; m.push({ month: mo.format("MMM"), onTime: ot, late: mc.length - ot }); } return m; })();
   const capaTrendEmpty = capaTrend.every((d) => d.onTime === 0 && d.late === 0);
   const valBreakdown = [{ name: "Validated", value: systems.filter((s) => s.validationStatus === "Validated").length, color: "#10b981" }, { name: "In Progress", value: systems.filter((s) => s.validationStatus === "In Progress").length, color: "#f59e0b" }, { name: "Overdue", value: systems.filter((s) => s.validationStatus === "Overdue").length, color: "#ef4444" }, { name: "Not Started", value: systems.filter((s) => s.validationStatus === "Not Started").length, color: "#64748b" }].filter((d) => d.value > 0);
-  const diByArea = (() => { return ["Manufacturing", "QC Lab", "QMS", "CSV/IT", "Warehouse", "Utilities"].map((a) => ({ area: a === "Manufacturing" ? "Mfg" : a, value: capas.filter((c) => c.diGate && c.status !== "Closed" && findings.filter((f) => f.area === a).some((f) => f.id === c.findingId)).length })).filter((d) => d.value > 0); })();
+  const diByArea = (() => { return ["Manufacturing", "QC Lab", "QMS", "CSV/IT", "Warehouse", "Utilities"].map((a) => {
+    const diCapas = capas.filter((c) => c.diGate && c.status !== "Closed" && findings.filter((f) => f.area === a).some((f) => f.id === c.findingId)).length;
+    // For CSV/IT area, also count systems with non-compliant Part 11 or Annex 11
+    const diSystems = a === "CSV/IT" ? systems.filter((s) => s.part11Status === "Non-Compliant" || s.annex11Status === "Non-Compliant").length : 0;
+    return { area: a === "Manufacturing" ? "Mfg" : a, value: diCapas + diSystems };
+  }).filter((d) => d.value > 0); })();
 
   /* ── Site readiness ── */
-  const siteReadiness = sites.map((site) => { const sf = findings.filter((f) => f.siteId === site.id && f.status !== "Closed"); const sc = capas.filter((c) => { const lf = findings.find((f) => f.id === c.findingId); return lf?.siteId === site.id && c.status !== "Closed"; }); const cr = sf.filter((f) => f.severity === "Critical").length; const score = sf.length === 0 && sc.length === 0 ? 100 : Math.max(0, 100 - cr * 15 - sf.length * 5); return { site, findingsCount: sf.length, capasCount: sc.length, criticalCount: cr, score }; });
+  const siteReadiness = visibleSites.map((site) => { const sf = findings.filter((f) => f.siteId === site.id && f.status !== "Closed"); const sc = capas.filter((c) => { const lf = findings.find((f) => f.id === c.findingId); return lf?.siteId === site.id && c.status !== "Closed"; }); const cr = sf.filter((f) => f.severity === "Critical").length; const sysRisk = systems.filter((s) => s.siteId === site.id && (s.part11Status === "Non-Compliant" || s.annex11Status === "Non-Compliant" || (s.riskLevel === "HIGH" && s.validationStatus !== "Validated"))).length; const score = Math.max(0, 100 - cr * 15 - sf.length * 5 - sysRisk * 25); return { site, findingsCount: sf.length, capasCount: sc.length, criticalCount: cr, score }; });
 
   /* ── Export functions ── */
   function dl(html: string, fn: string) { const b = new Blob([html], { type: "text/html;charset=utf-8" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = fn; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u); auditLog({ action: "GOVERNANCE_REPORT_EXPORTED", module: "governance", recordId: fn, newValue: { filename: fn, exportedBy: user?.id } }); }
@@ -119,7 +129,7 @@ export function GovernancePage() {
   }
 
   function exportReadiness() {
-    const siteRows = sites.map((site) => { const sr = siteReadiness.find((s) => s.site.id === site.id)!; const col = sr.score >= 80 ? "#10b981" : sr.score >= 60 ? "#f59e0b" : "#ef4444"; return `<tr><td style="padding:10px 12px;border:1px solid #e2e8f0;font-weight:500">${site.name}</td><td style="padding:10px 12px;border:1px solid #e2e8f0">${site.risk}</td><td style="padding:10px 12px;border:1px solid #e2e8f0;font-size:18px;font-weight:700;color:${col}">${sr.score}%</td><td style="padding:10px 12px;border:1px solid #e2e8f0">${sr.findingsCount}</td><td style="padding:10px 12px;border:1px solid #e2e8f0">${sr.capasCount}</td><td style="padding:10px 12px;border:1px solid #e2e8f0">${sr.criticalCount}</td></tr>`; }).join("");
+    const siteRows = visibleSites.map((site) => { const sr = siteReadiness.find((s) => s.site.id === site.id)!; const col = sr.score >= 80 ? "#10b981" : sr.score >= 60 ? "#f59e0b" : "#ef4444"; return `<tr><td style="padding:10px 12px;border:1px solid #e2e8f0;font-weight:500">${site.name}</td><td style="padding:10px 12px;border:1px solid #e2e8f0">${site.risk}</td><td style="padding:10px 12px;border:1px solid #e2e8f0;font-size:18px;font-weight:700;color:${col}">${sr.score}%</td><td style="padding:10px 12px;border:1px solid #e2e8f0">${sr.findingsCount}</td><td style="padding:10px 12px;border:1px solid #e2e8f0">${sr.capasCount}</td><td style="padding:10px 12px;border:1px solid #e2e8f0">${sr.criticalCount}</td></tr>`; }).join("");
     dl(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Inspection Readiness Pack</title><style>body{font-family:-apple-system,Arial,sans-serif;padding:40px;color:#0a1628}.header{border-bottom:2px solid #10b981;padding-bottom:16px;margin-bottom:24px}.logo{font-size:13px;font-weight:700;color:#10b981}h1{font-size:22px;font-weight:700;margin:10px 0 4px}.score-big{font-size:48px;font-weight:700;color:${readinessScore >= 80 ? "#10b981" : readinessScore >= 60 ? "#f59e0b" : "#ef4444"}}table{width:100%;border-collapse:collapse;margin:20px 0}thead tr{background:#0a1f38}th{padding:9px 12px;text-align:left;color:#94a3b8;font-size:10px;font-weight:600;text-transform:uppercase;border:1px solid #1e3a5a}</style></head><body><div class="header"><div class="logo">${companyName || "Pharma Glimmora"}</div><h1>Inspection Readiness Pack</h1><p style="color:#475569;font-size:12px">Generated: ${dayjs().format("DD MMM YYYY HH:mm")} UTC \u00b7 Prepared by: ${ownerName(user?.id ?? "")}</p></div><p style="font-size:12px;color:#475569;margin-bottom:8px">Overall readiness score</p><p class="score-big">${readinessScore}%</p><table style="margin-top:28px"><thead><tr><th>Site</th><th>Risk</th><th>Readiness</th><th>Open findings</th><th>Open CAPAs</th><th>Critical</th></tr></thead><tbody>${siteRows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:#94a3b8">No sites configured</td></tr>'}</tbody></table></body></html>`, `Inspection-Readiness-Pack-${dayjs().format("YYYY-MM-DD")}.html`);
   }
 
@@ -131,7 +141,7 @@ export function GovernancePage() {
     <main id="main-content" aria-label="Governance and KPIs command center" className="w-full space-y-5">
       {/* Header */}
       <header className="flex items-start justify-between flex-wrap gap-4">
-        <div><h1 className="page-title">Governance &amp; KPIs</h1><p className="page-subtitle mt-1">{sites.length} sites &middot; {capas.length} CAPAs &middot; {findings.length} findings &middot; {raidItems.length} RAID items</p></div>
+        <div><h1 className="page-title">Governance &amp; KPIs</h1><p className="page-subtitle mt-1">{visibleSites.length} sites &middot; {capas.length} CAPAs &middot; {findings.length} findings &middot; {raidItems.length} RAID items</p></div>
         <div className={clsx("flex items-center gap-2 px-4 py-2 rounded-xl border", isDark ? "bg-[#0a1f38] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}><span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Readiness</span><span className="text-[20px] font-bold" style={{ color: noData ? "var(--text-muted)" : readinessScore >= 80 ? "#10b981" : readinessScore >= 60 ? "#f59e0b" : "#ef4444" }}>{noData ? "\u2014" : `${readinessScore}%`}</span></div>
       </header>
 
@@ -142,7 +152,7 @@ export function GovernancePage() {
 
       {/* Tab panels */}
       <div role="tabpanel" id="panel-kpis" aria-labelledby="tab-kpis" tabIndex={0} hidden={activeTab !== "kpis"}>
-        <KPIScorecardTab companyName={companyName} readinessScore={readinessScore} noData={noData} capaTimeliness={capaTimeliness} closedCAPAsCount={closedCAPAs.length} overdueCommitments={overdueCommitments} repeatObservationRisk={repeatObservationRisk} diExceptions={diExceptions} auditTrailCoverage={auditTrailCoverage} csvDrift={csvDrift} systemsCount={systems.length} capaTrend={capaTrend} capaTrendEmpty={capaTrendEmpty} valBreakdown={valBreakdown} diByArea={diByArea} siteReadiness={siteReadiness} sites={sites} isDark={isDark} currentMonth={dayjs().format("MMMM YYYY")} onNavigateSettings={() => navigate("/settings")} />
+        <KPIScorecardTab companyName={companyName} readinessScore={readinessScore} noData={noData} capaTimeliness={capaTimeliness} closedCAPAsCount={closedCAPAs.length} overdueCommitments={overdueCommitments} repeatObservationRisk={repeatObservationRisk} diExceptions={diExceptions} auditTrailCoverage={auditTrailCoverage} csvDrift={csvDrift} systemsCount={systems.length} capaTrend={capaTrend} capaTrendEmpty={capaTrendEmpty} valBreakdown={valBreakdown} diByArea={diByArea} siteReadiness={siteReadiness} sites={visibleSites} isDark={isDark} currentMonth={dayjs().format("MMMM YYYY")} onNavigateSettings={() => navigate("/settings")} />
       </div>
 
       <div role="tabpanel" id="panel-raid" aria-labelledby="tab-raid" tabIndex={0} hidden={activeTab !== "raid"}>
@@ -150,7 +160,7 @@ export function GovernancePage() {
       </div>
 
       <div role="tabpanel" id="panel-reports" aria-labelledby="tab-reports" tabIndex={0} hidden={activeTab !== "reports"}>
-        <ReportsTab raidItemsCount={raidItems.length} openRaidCount={raidItems.filter((r) => r.status !== "Closed").length} readinessScore={readinessScore} sitesCount={sites.length} noData={noData} exportMonthly={exportMonthly} exportRAID={exportRAID} exportReadiness={exportReadiness} />
+        <ReportsTab raidItemsCount={raidItems.length} openRaidCount={raidItems.filter((r) => r.status !== "Closed").length} readinessScore={readinessScore} sitesCount={visibleSites.length} noData={noData} exportMonthly={exportMonthly} exportRAID={exportRAID} exportReadiness={exportReadiness} />
       </div>
 
       {/* Add RAID Modal */}

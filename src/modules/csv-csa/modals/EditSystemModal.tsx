@@ -27,6 +27,10 @@ const systemSchema = z.object({
   annex11Status: z.enum(["Compliant", "Non-Compliant", "In Progress", "N/A"]),
   gamp5Category: z.enum(["1", "3", "4", "5"]),
   validationStatus: z.enum(["Validated", "In Progress", "Overdue", "Not Started"]),
+  patientSafetyRisk: z.enum(["HIGH", "MEDIUM", "LOW"]),
+  productQualityImpact: z.enum(["HIGH", "MEDIUM", "LOW"]),
+  regulatoryExposure: z.enum(["HIGH", "MEDIUM", "LOW"]),
+  diImpact: z.enum(["HIGH", "MEDIUM", "LOW"]),
   siteId: z.string().min(1, "Site required"),
   intendedUse: z.string().min(5, "Intended use required"),
   gxpScope: z.string().optional(),
@@ -55,12 +59,18 @@ export function EditSystemModal({ open, system, sites, users, onSave, onClose }:
 
   useEffect(() => {
     if (open && system) {
+      // Default risk classification from GxP relevance when the system doesn't yet have values
+      const defaultLevel = system.gxpRelevance === "Critical" ? "HIGH" : system.gxpRelevance === "Major" ? "MEDIUM" : "LOW";
       form.reset({
         name: system.name, type: system.type, vendor: system.vendor,
         version: system.version, gxpRelevance: system.gxpRelevance,
         riskLevel: system.riskLevel, part11Status: system.part11Status,
         annex11Status: system.annex11Status, gamp5Category: system.gamp5Category,
         validationStatus: system.validationStatus, siteId: system.siteId,
+        patientSafetyRisk: system.patientSafetyRisk ?? defaultLevel,
+        productQualityImpact: system.productQualityImpact ?? defaultLevel,
+        regulatoryExposure: system.regulatoryExposure ?? defaultLevel,
+        diImpact: system.diImpact ?? defaultLevel,
         intendedUse: system.intendedUse, gxpScope: system.gxpScope,
         criticalFunctions: system.criticalFunctions, riskFactors: system.riskFactors,
         plannedActions: system.plannedActions, owner: system.owner,
@@ -147,6 +157,51 @@ export function EditSystemModal({ open, system, sites, users, onSave, onClose }:
           <div>
             <label htmlFor="sys-review" className={lbl} style={{ color: "var(--text-muted)" }}>Next review date</label>
             <input id="sys-review" type="date" className="input text-[12px]" {...register("nextReview")} />
+          </div>
+        </div>
+
+        {/* Section 2b — Risk-based classification */}
+        {sec("#a78bfa", "Risk-based classification")}
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <div>
+            <label className={lbl} style={{ color: "var(--text-muted)" }}>Patient safety risk *</label>
+            <Controller name="patientSafetyRisk" control={control} render={({ field }) => (
+              <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[
+                { value: "HIGH", label: "HIGH" },
+                { value: "MEDIUM", label: "MEDIUM" },
+                { value: "LOW", label: "LOW" },
+              ]} />
+            )} />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: "var(--text-muted)" }}>Product quality impact *</label>
+            <Controller name="productQualityImpact" control={control} render={({ field }) => (
+              <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[
+                { value: "HIGH", label: "HIGH" },
+                { value: "MEDIUM", label: "MEDIUM" },
+                { value: "LOW", label: "LOW" },
+              ]} />
+            )} />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: "var(--text-muted)" }}>Regulatory exposure *</label>
+            <Controller name="regulatoryExposure" control={control} render={({ field }) => (
+              <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[
+                { value: "HIGH", label: "HIGH" },
+                { value: "MEDIUM", label: "MEDIUM" },
+                { value: "LOW", label: "LOW" },
+              ]} />
+            )} />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: "var(--text-muted)" }}>Data integrity impact *</label>
+            <Controller name="diImpact" control={control} render={({ field }) => (
+              <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[
+                { value: "HIGH", label: "HIGH" },
+                { value: "MEDIUM", label: "MEDIUM" },
+                { value: "LOW", label: "LOW" },
+              ]} />
+            )} />
           </div>
         </div>
 

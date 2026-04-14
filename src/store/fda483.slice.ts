@@ -43,6 +43,8 @@ export interface FDA483Event {
   responseDraft: string;
   agiDraft: string;
   submittedAt?: string;
+  submittedBy?: string;
+  signatureMeaning?: string;
   closedAt?: string;
   createdAt: string;
 }

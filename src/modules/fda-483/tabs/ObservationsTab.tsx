@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router";
+import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
 import {
   ClipboardList,
@@ -91,6 +92,7 @@ export interface ObservationsTabProps {
   onAddObservation: () => void;
   onEditObservation: (obs: Observation) => void;
   onAddCommitment: () => void;
+  onGoToResponse: () => void;
 }
 
 export function ObservationsTab({
@@ -106,7 +108,20 @@ export function ObservationsTab({
   onAddObservation,
   onEditObservation,
   onAddCommitment,
+  onGoToResponse,
 }: ObservationsTabProps) {
+  // Lock levels:
+  //  fullyLocked = Response Submitted or Closed → everything read-only
+  //  hasLinkedCapa = any observation has a CAPA → show soft warning
+  const fullyLocked = liveEvent?.status === "Response Submitted" || liveEvent?.status === "Closed";
+  const hasLinkedCapa = (liveEvent?.observations ?? []).some((o) => !!o.capaId);
+
+  // Step 2 checklist — all must be true to proceed to Response
+  const obsCount = liveEvent?.observations.length ?? 0;
+  const allRcaComplete = obsCount > 0 && (liveEvent?.observations ?? []).every((o) => !!o.rootCause?.trim());
+  const allCapaLinked = obsCount > 0 && (liveEvent?.observations ?? []).every((o) => !!o.capaId);
+  const hasCommitment = (liveEvent?.commitments.length ?? 0) > 0 && (liveEvent?.commitments ?? []).every((c) => !!c.dueDate);
+  const step2Done = allRcaComplete && allCapaLinked && hasCommitment;
   const navigate = useNavigate();
 
   if (!liveEvent) {
@@ -195,7 +210,7 @@ export function ObservationsTab({
                 ))}
               </div>
             </div>
-            {role !== "viewer" && (
+            {role !== "viewer" && !fullyLocked && (
               <Button
                 variant="primary"
                 size="sm"
@@ -208,6 +223,94 @@ export function ObservationsTab({
           </div>
         </div>
       </div>
+
+      {/* Step 2 guidance banner + checklist */}
+      {!fullyLocked && (
+        <div
+          className={clsx(
+            "p-3 rounded-xl mb-4 border",
+            isDark ? "bg-[rgba(14,165,233,0.08)] border-[rgba(14,165,233,0.25)]" : "bg-[#eff6ff] border-[#bfdbfe]",
+          )}
+          role="status"
+        >
+          <div className="flex items-start gap-2 mb-2">
+            <ClipboardList className="w-4 h-4 mt-0.5 shrink-0 text-[#0ea5e9]" aria-hidden="true" />
+            <div className="flex-1">
+              <p className="text-[12px] font-semibold text-[#0ea5e9]">Step 2 of 3 &mdash; Observations &amp; commitments</p>
+              <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                Confirm RCA and CAPA links, then add commitments with due dates for each observation.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-1 mt-2 ml-6">
+            {[
+              { done: allRcaComplete, label: "RCA complete for all observations" },
+              { done: allCapaLinked, label: "CAPA linked for all observations" },
+              { done: hasCommitment, label: "Commitment added with due date" },
+            ].map((c, i) => (
+              <div key={i} className="flex items-center gap-2 text-[11px]">
+                {c.done ? (
+                  <ClipboardCheck className="w-3.5 h-3.5 shrink-0 text-[#10b981]" aria-hidden="true" />
+                ) : (
+                  <div className="w-3.5 h-3.5 rounded-full border-2 shrink-0" style={{ borderColor: "#64748b" }} aria-hidden="true" />
+                )}
+                <span style={{ color: c.done ? "var(--text-primary)" : "var(--text-muted)" }}>{c.label}</span>
+              </div>
+            ))}
+          </div>
+          {step2Done && (
+            <div className="mt-3 ml-6">
+              <Button variant="primary" size="sm" onClick={onGoToResponse}>
+                Go to Response &rarr;
+              </Button>
+            </div>
+          )}
+          {!step2Done && role !== "viewer" && (
+            <p className="text-[10px] mt-2 ml-6" style={{ color: "var(--text-muted)" }}>
+              Complete all observations first to proceed to Response.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Lock banner — event submitted/closed (21 CFR Part 11) */}
+      {fullyLocked && (
+        <div
+          role="status"
+          className="flex items-start gap-2 p-3 rounded-xl mb-4 border"
+          style={{
+            background: isDark ? "rgba(16,185,129,0.08)" : "#f0fdf4",
+            borderColor: isDark ? "rgba(16,185,129,0.25)" : "#a7f3d0",
+          }}
+        >
+          <ClipboardCheck className="w-4 h-4 mt-0.5 shrink-0 text-[#10b981]" aria-hidden="true" />
+          <div>
+            <p className="text-[12px] font-semibold text-[#10b981]">
+              Record locked &mdash; response submitted
+            </p>
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
+              This response has been signed and submitted. The record is locked under 21 CFR Part 11.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Soft warning — CAPAs linked but not yet submitted */}
+      {!fullyLocked && hasLinkedCapa && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 p-3 rounded-xl mb-4 border"
+          style={{
+            background: isDark ? "rgba(245,158,11,0.08)" : "#fffbeb",
+            borderColor: isDark ? "rgba(245,158,11,0.25)" : "#fde68a",
+          }}
+        >
+          <span aria-hidden="true" className="text-[14px]">&#9888;&#65039;</span>
+          <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+            This event has linked CAPAs. Edits may affect the CAPA records &mdash; proceed with caution.
+          </p>
+        </div>
+      )}
 
       {/* Observations table */}
       <div className="card overflow-hidden mb-4">
@@ -297,19 +400,31 @@ export function ObservationsTab({
                       )}
                     </td>
                     <td>
-                      {obs.capaId ? (
-                        <button
-                          onClick={() =>
-                            navigate("/capa", {
-                              state: { openCapaId: obs.capaId },
-                            })
-                          }
-                          className="font-mono text-[11px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer"
-                          aria-label={`Open ${obs.capaId}`}
-                        >
-                          {obs.capaId}
-                        </button>
-                      ) : (
+                      {obs.capaId ? (() => {
+                        // Live lookup from the capa.items Redux slice (via capas prop)
+                        const linkedCapa = capas.find((c) => c.id === obs.capaId);
+                        const isClosed = linkedCapa?.status === "Closed";
+                        return (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() =>
+                                navigate("/capa", {
+                                  state: { openCapaId: obs.capaId },
+                                })
+                              }
+                              className="font-mono text-[11px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer shrink-0"
+                              aria-label={`Open ${obs.capaId}`}
+                            >
+                              {obs.capaId}
+                            </button>
+                            {linkedCapa && (
+                              <Badge variant={isClosed ? "green" : linkedCapa.status === "Pending QA Review" ? "purple" : linkedCapa.status === "In Progress" ? "amber" : "blue"}>
+                                {isClosed ? "Closed \u2713" : linkedCapa.status}
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })() : (
                         <span
                           className="text-[11px] italic"
                           style={{ color: "var(--text-muted)" }}
@@ -321,13 +436,17 @@ export function ObservationsTab({
                     <td>{obsStatBadge(obs.status)}</td>
                     {role !== "viewer" && (
                       <td>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          icon={Pencil}
-                          aria-label={`Edit observation ${obs.number}`}
-                          onClick={() => onEditObservation(obs)}
-                        />
+                        {fullyLocked ? (
+                          <Badge variant="gray">Locked</Badge>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            icon={Pencil}
+                            aria-label={`Edit observation ${obs.number}`}
+                            onClick={() => onEditObservation(obs)}
+                          />
+                        )}
                       </td>
                     )}
                   </tr>
@@ -354,7 +473,7 @@ export function ObservationsTab({
           >
             {liveEvent.commitments.length} items
           </span>
-          {role !== "viewer" && (
+          {role !== "viewer" && !fullyLocked && (
             <Button
               variant="ghost"
               size="sm"
@@ -447,7 +566,8 @@ export function ObservationsTab({
             className="ml-auto text-[11px]"
             style={{ color: "var(--text-muted)" }}
           >
-            {eventCAPAs.length} CAPAs
+            {eventCAPAs.length} CAPA{eventCAPAs.length !== 1 ? "s" : ""}
+            {eventCAPAs.length > 0 && ` \u00b7 ${eventCAPAs.filter((c) => c.status === "Closed").length} closed`}
           </span>
         </div>
         <div className="card-body">

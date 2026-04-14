@@ -215,13 +215,30 @@ export function CAPATrackerTab({
             </section>
 
             {/* DI Gate */}
-            <div className={clsx("flex items-start gap-2 p-3 rounded-lg text-[12px] border", selectedCAPA.diGate ? (isDark ? "bg-[rgba(239,68,68,0.08)] border-[rgba(239,68,68,0.2)]" : "bg-[#fef2f2] border-[#fca5a5]") : (isDark ? "bg-[rgba(16,185,129,0.08)] border-[rgba(16,185,129,0.2)]" : "bg-[#f0fdf4] border-[#a7f3d0]"))}>
-              {selectedCAPA.diGate ? <AlertCircle className="w-4 h-4 text-[#ef4444] shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] shrink-0 mt-0.5" aria-hidden="true" />}
-              <div>
-                <span className="font-semibold block" style={{ color: selectedCAPA.diGate ? "#ef4444" : "#10b981" }}>{selectedCAPA.diGate ? "DI gate required" : "DI gate cleared"}</span>
-                <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>{selectedCAPA.diGate ? "Data integrity review must be completed before QA can close" : "No data integrity issues identified"}</p>
-              </div>
-            </div>
+            {(() => {
+              const diOpen = selectedCAPA.diGate && selectedCAPA.diGateStatus !== "cleared";
+              const diCleared = selectedCAPA.diGate && selectedCAPA.diGateStatus === "cleared";
+              return (
+                <div className={clsx("flex items-start gap-2 p-3 rounded-lg text-[12px] border", diOpen ? (isDark ? "bg-[rgba(239,68,68,0.08)] border-[rgba(239,68,68,0.2)]" : "bg-[#fef2f2] border-[#fca5a5]") : (isDark ? "bg-[rgba(16,185,129,0.08)] border-[rgba(16,185,129,0.2)]" : "bg-[#f0fdf4] border-[#a7f3d0]"))}>
+                  {diOpen ? <AlertCircle className="w-4 h-4 text-[#ef4444] shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] shrink-0 mt-0.5" aria-hidden="true" />}
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold block" style={{ color: diOpen ? "#ef4444" : "#10b981" }}>
+                      {diOpen ? "DI gate required" : diCleared ? "DI gate cleared" : "DI gate not required"}
+                    </span>
+                    <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                      {diOpen ? "Data integrity review must be completed before QA can close — use Edit to clear" : diCleared ? "CAPA can proceed to QA review" : "No data integrity issues identified"}
+                    </p>
+                    {diCleared && (
+                      <div className="mt-2 space-y-0.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                        {selectedCAPA.diGateReviewedBy && <p>Reviewed by: <span className="font-medium" style={{ color: "var(--text-primary)" }}>{ownerName(selectedCAPA.diGateReviewedBy, users)}</span></p>}
+                        {selectedCAPA.diGateReviewDate && <p>Date: <span className="font-medium" style={{ color: "var(--text-primary)" }}>{dayjs(selectedCAPA.diGateReviewDate).format(dateFormat)}</span></p>}
+                        {selectedCAPA.diGateNotes && <p className="mt-1 italic" style={{ color: "var(--text-muted)" }}>{selectedCAPA.diGateNotes}</p>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Evidence */}
             <div>

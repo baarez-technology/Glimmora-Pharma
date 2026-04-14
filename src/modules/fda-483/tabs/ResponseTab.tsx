@@ -17,6 +17,7 @@ import type {
   EventType,
   EventStatus,
 } from "@/store/fda483.slice";
+import type { CAPA } from "@/store/capa.slice";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 
@@ -56,6 +57,7 @@ function getEffectiveStatus(e: FDA483Event): EventStatus {
 
 export interface ResponseTabProps {
   liveEvent: FDA483Event | null;
+  capas: CAPA[];
   isDark: boolean;
   role: string;
   canSign: boolean;
@@ -65,6 +67,8 @@ export interface ResponseTabProps {
   dateFormat: string;
   responseText: string;
   editingResponse: boolean;
+  canSubmit: boolean;
+  ownerName: (id: string) => string;
   onGoToEvents: () => void;
   onResponseTextChange: (v: string) => void;
   onEditResponseToggle: () => void;
@@ -77,6 +81,7 @@ export interface ResponseTabProps {
 
 export function ResponseTab({
   liveEvent,
+  capas,
   isDark,
   role,
   canSign,
@@ -86,6 +91,8 @@ export function ResponseTab({
   dateFormat,
   responseText,
   editingResponse,
+  canSubmit,
+  ownerName,
   onGoToEvents,
   onResponseTextChange,
   onEditResponseToggle,
@@ -121,6 +128,19 @@ export function ResponseTab({
     );
   }
 
+  const isSubmitted =
+    liveEvent.status === "Response Submitted" || liveEvent.status === "Closed";
+
+  // Live CAPA lookup — always reads from the current Redux capa.items via the capas prop
+  const linkedCapas = liveEvent.observations
+    .filter((o) => !!o.capaId)
+    .map((o) => capas.find((c) => c.id === o.capaId))
+    .filter((c): c is CAPA => !!c);
+  const totalObs = liveEvent.observations.length;
+  const capasRaised = totalObs > 0 && liveEvent.observations.every((o) => !!o.capaId);
+  const allCapasClosed = capasRaised && linkedCapas.length > 0
+    && linkedCapas.every((c) => c.status === "Closed");
+
   const checks = [
     {
       label: "All observations have RCA",
@@ -129,8 +149,12 @@ export function ResponseTab({
         liveEvent.observations.every((o) => o.rootCause?.trim()),
     },
     {
-      label: "All observations have CAPA raised",
-      done: liveEvent.observations.every((o) => o.capaId),
+      label: allCapasClosed
+        ? "All CAPAs raised and closed"
+        : capasRaised
+          ? "CAPAs raised \u2014 pending closure"
+          : "All observations have CAPA raised",
+      done: allCapasClosed,
     },
     {
       label: "Response draft written",
@@ -146,6 +170,10 @@ export function ResponseTab({
       label: "Response within deadline",
       done: daysLeft(liveEvent.responseDeadline) >= 0,
     },
+    {
+      label: "Signed and submitted",
+      done: isSubmitted,
+    },
   ];
   const score = Math.round(
     (checks.filter((c) => c.done).length / checks.length) * 100,
@@ -153,6 +181,120 @@ export function ResponseTab({
 
   return (
     <>
+      {/* Submitted success card — replaces guidance banner when locked */}
+      {isSubmitted && (
+        <div
+          className={clsx(
+            "rounded-xl p-5 mb-4 border",
+            isDark ? "bg-[rgba(16,185,129,0.08)] border-[rgba(16,185,129,0.3)]" : "bg-[#f0fdf4] border-[#a7f3d0]",
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldCheck className="w-5 h-5 text-[#10b981]" aria-hidden="true" />
+            <span className="text-[14px] font-semibold text-[#10b981]">Response submitted</span>
+            <Badge variant="green">Locked</Badge>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px] mb-3" style={{ color: "var(--text-secondary)" }}>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-muted)" }}>Reference</p>
+              <p className="font-mono mt-0.5" style={{ color: "var(--text-primary)" }}>{liveEvent.type} &middot; {liveEvent.referenceNumber}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-muted)" }}>Submitted</p>
+              <p className="mt-0.5" style={{ color: "var(--text-primary)" }}>
+                {liveEvent.submittedAt ? dayjs.utc(liveEvent.submittedAt).tz(timezone).format(`${dateFormat} HH:mm`) : "\u2014"}
+              </p>
+            </div>
+            {liveEvent.submittedBy && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-muted)" }}>Signed by</p>
+                <p className="mt-0.5" style={{ color: "var(--text-primary)" }}>{ownerName(liveEvent.submittedBy)}</p>
+              </div>
+            )}
+            {liveEvent.signatureMeaning && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-muted)" }}>Signature meaning</p>
+                <p className="mt-0.5 italic" style={{ color: "var(--text-primary)" }}>&ldquo;{liveEvent.signatureMeaning}&rdquo;</p>
+              </div>
+            )}
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+            This response has been signed and submitted under 21 CFR Part 11. The record is locked and cannot be modified.
+          </p>
+
+          {/* Linked CAPAs — live status from capa.slice */}
+          {linkedCapas.length > 0 && (
+            <div className="mt-4 pt-3" style={{ borderTop: "1px solid rgba(16,185,129,0.25)" }}>
+              <p className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: "var(--text-muted)" }}>
+                Linked CAPAs ({linkedCapas.filter((c) => c.status === "Closed").length} of {linkedCapas.length} closed)
+              </p>
+              <ul className="space-y-1.5 list-none p-0">
+                {linkedCapas.map((c) => {
+                  const isClosed = c.status === "Closed";
+                  return (
+                    <li key={c.id} className="flex items-center justify-between gap-2 text-[11px]">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono font-semibold" style={{ color: "var(--brand)" }}>{c.id}</span>
+                        <span className="truncate" style={{ color: "var(--text-secondary)" }}>
+                          {c.description.length > 60 ? `${c.description.slice(0, 60)}\u2026` : c.description}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant={isClosed ? "green" : c.status === "Pending QA Review" ? "purple" : c.status === "In Progress" ? "amber" : "blue"}>
+                          {c.status}
+                        </Badge>
+                        {isClosed && c.closedAt && (
+                          <span style={{ color: "var(--text-muted)" }}>
+                            {dayjs.utc(c.closedAt).tz(timezone).format(dateFormat)}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 3 guidance banner — hidden when submitted */}
+      {!isSubmitted && (
+        <div
+          className={clsx(
+            "flex items-start gap-2 p-3 rounded-xl mb-4 border",
+            isDark ? "bg-[rgba(139,92,246,0.08)] border-[rgba(139,92,246,0.25)]" : "bg-[#f5f3ff] border-[#c4b5fd]",
+          )}
+          role="status"
+        >
+          <FileText className="w-4 h-4 mt-0.5 shrink-0 text-[#8b5cf6]" aria-hidden="true" />
+          <div className="flex-1">
+            <p className="text-[12px] font-semibold text-[#8b5cf6]">Step 3 of 3 &mdash; Draft and submit your FDA response</p>
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
+              Review the readiness checklist below, write your response (or use the AGI draft), then sign and submit.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Blocking warning if prior steps incomplete */}
+      {!canSubmit && !isSubmitted && (
+        <div
+          className={clsx(
+            "flex items-start gap-2 p-3 rounded-xl mb-4 border",
+            isDark ? "bg-[rgba(245,158,11,0.08)] border-[rgba(245,158,11,0.25)]" : "bg-[#fffbeb] border-[#fde68a]",
+          )}
+          role="alert"
+        >
+          <span aria-hidden="true" className="text-[14px]">&#9888;&#65039;</span>
+          <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+            Complete the <strong>RCA Workspace</strong> and <strong>Observations</strong> steps before drafting and submitting your response.
+          </p>
+        </div>
+      )}
+
       {/* Status bar */}
       <div
         className={clsx(
@@ -264,8 +406,8 @@ export function ResponseTab({
         </div>
       </div>
 
-      {/* AGI draft panel */}
-      {agiMode !== "manual" && agiAgent && (
+      {/* AGI draft panel — hidden when submitted */}
+      {!isSubmitted && agiMode !== "manual" && agiAgent && (
         <div className="agi-panel mb-4" role="status" aria-live="polite">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -331,27 +473,31 @@ export function ResponseTab({
             />
             <span className="card-title">Response draft</span>
           </div>
-          {role !== "viewer" && getEffectiveStatus(liveEvent) !== "Closed" && (
-            <button
-              type="button"
-              onClick={onEditResponseToggle}
-              className="ml-auto flex items-center gap-1.5 text-[11px] border-none bg-transparent cursor-pointer"
-              style={{ color: editingResponse ? "#64748b" : "#0ea5e9" }}
-              aria-label={
-                editingResponse ? "Cancel editing" : "Edit response"
-              }
-            >
-              {editingResponse ? (
-                <X className="w-3.5 h-3.5" aria-hidden="true" />
-              ) : (
-                <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-              )}
-              {editingResponse ? "Cancel" : "Edit"}
-            </button>
+          {isSubmitted ? (
+            <Badge variant="green">Submitted &#10003;</Badge>
+          ) : (
+            role !== "viewer" && getEffectiveStatus(liveEvent) !== "Closed" && (
+              <button
+                type="button"
+                onClick={onEditResponseToggle}
+                className="ml-auto flex items-center gap-1.5 text-[11px] border-none bg-transparent cursor-pointer"
+                style={{ color: editingResponse ? "#64748b" : "#0ea5e9" }}
+                aria-label={
+                  editingResponse ? "Cancel editing" : "Edit response"
+                }
+              >
+                {editingResponse ? (
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
+                ) : (
+                  <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                )}
+                {editingResponse ? "Cancel" : "Edit"}
+              </button>
+            )
           )}
         </div>
         <div className="card-body">
-          {editingResponse ? (
+          {editingResponse && !isSubmitted ? (
             <div className="space-y-3">
               <textarea
                 rows={14}
@@ -418,7 +564,9 @@ export function ResponseTab({
               variant="primary"
               icon={ShieldCheck}
               fullWidth
+              disabled={!canSubmit}
               onClick={onSignSubmit}
+              aria-label={canSubmit ? "Sign and submit response" : "Complete previous steps first"}
             >
               Sign &amp; Submit Response
             </Button>
@@ -426,7 +574,9 @@ export function ResponseTab({
               className="text-[10px] text-center mt-1.5"
               style={{ color: "var(--text-muted)" }}
             >
-              GxP e-signature &mdash; identity, meaning and hash recorded
+              {canSubmit
+                ? "GxP e-signature \u2014 identity, meaning and hash recorded"
+                : "Complete RCA Workspace and Observations steps first"}
             </p>
           </div>
         )}

@@ -102,6 +102,8 @@ export interface SystemDetailTabProps {
   onNavigateCapa: (capaId: string) => void;
   onSaveRiskFactors: (text: string) => void;
   onSavePlannedActions: (text: string) => void;
+  onSaveStage: (stage: import("@/store/systems.slice").ValidationStage) => void;
+  onSaveNextReview: (iso: string) => void;
 }
 
 export function SystemDetailTab({
@@ -111,7 +113,7 @@ export function SystemDetailTab({
   detailTab, onDetailTabChange,
   onBack, onEdit, onGoToInventory,
   onNavigateSettings, onNavigateGap, onNavigateCapa,
-  onSaveRiskFactors, onSavePlannedActions,
+  onSaveRiskFactors, onSavePlannedActions, onSaveStage, onSaveNextReview,
 }: SystemDetailTabProps) {
   if (!selectedSystem) {
     return (
@@ -185,6 +187,8 @@ export function SystemDetailTab({
           system={selectedSystem} roadmapActivities={systemActivities}
           users={users} timezone={timezone} dateFormat={dateFormat} role={role}
           onSavePlannedActions={onSavePlannedActions}
+          onSaveStage={onSaveStage}
+          onSaveNextReview={onSaveNextReview}
         />
       </div>
 

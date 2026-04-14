@@ -12,6 +12,8 @@ interface Finding {
   status: string;
   area: string;
   framework: string;
+  siteId: string;
+  linkedSystemId?: string;
 }
 
 interface CAPA {
@@ -39,8 +41,24 @@ export function DIAuditPanel({ system, findings, capas, isDark, onNavigateGap, o
   const isBad = p11 === "Non-Compliant" || a11 === "Non-Compliant";
   const isAmber = !isBad && (p11 === "In Progress" || a11 === "In Progress");
   const isGood = !isBad && !isAmber && (p11 === "Compliant" || a11 === "Compliant");
-  const linkedFindings = findings.filter((f) => f.area === "CSV/IT" && (f.framework === "p11" || f.framework === "annex11"));
-  const linkedCAPAs = capas.filter((c) => linkedFindings.some((f) => f.id === c.findingId));
+  // Preferred link: explicit linkedSystemId set on the finding.
+  // Fallback for legacy findings that have no linkedSystemId: match by site + Part 11/Annex 11
+  // framework AND requirement text mentions the system name/type/vendor.
+  const systemNameFirst = system.name.split("\u2014")[0].trim().toLowerCase();
+  const linkedFindings = findings.filter((f) => {
+    if (f.linkedSystemId) return f.linkedSystemId === system.id;
+    if (f.siteId !== system.siteId) return false;
+    if (f.framework !== "p11" && f.framework !== "annex11") return false;
+    const reqLc = f.requirement.toLowerCase();
+    return (
+      reqLc.includes(systemNameFirst) ||
+      reqLc.includes(system.type.toLowerCase()) ||
+      reqLc.includes(system.vendor.toLowerCase())
+    );
+  });
+  // CAPAs linked to this system via any of the linked findings
+  const linkedFindingIds = new Set(linkedFindings.map((f) => f.id));
+  const linkedCAPAs = capas.filter((c) => c.findingId && linkedFindingIds.has(c.findingId));
   const openDIGateCAPAs = linkedCAPAs.filter((c) => c.diGate && c.status !== "Closed");
 
   function statusPanel(isBadS: boolean, isAmberS: boolean, icon: React.ReactNode, label: string, desc: string) {

@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
-import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
 import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { useActiveSite } from "@/hooks/useActiveSite";
@@ -96,8 +95,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
   const activeSite = useActiveSite();
   const { allowedPaths } = useRole();
-  const capas = useAppSelector((s) => s.capa.items);
-  const openCapaCount = capas.filter((c) => c.status === "Open" || c.status === "In Progress").length;
   const { setupNeeded, completedCount, totalSteps } = useSetupStatus();
 
   const [openGroups, setOpenGroups] = useState<Set<string>>(
@@ -258,11 +255,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                             <>
                               <item.icon className="w-4 h-4" aria-hidden="true" />
                               {item.label}
-                              {item.path === "capa" && openCapaCount > 0 && (
-                                <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#ef4444] text-white min-w-[18px] text-center">
-                                  {openCapaCount}
-                                </span>
-                              )}
                               {item.path === "settings" && setupNeeded && (
                                 <span
                                   className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#0ea5e9] text-white min-w-[32px] text-center"

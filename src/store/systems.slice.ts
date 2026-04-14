@@ -7,6 +7,28 @@ export type ComplianceStatus = "Compliant" | "Non-Compliant" | "In Progress" | "
 export type GAMP5Category = "1" | "3" | "4" | "5";
 export type RiskLevel = "HIGH" | "MEDIUM" | "LOW";
 
+export type ValidationStageKey = "URS" | "FS" | "DS" | "IQ" | "OQ" | "PQ" | "RTR";
+export type ValidationStageStatus = "complete" | "in-progress" | "skipped" | "pending";
+
+export interface ValidationStage {
+  key: ValidationStageKey;
+  status: ValidationStageStatus;
+  date?: string;
+  targetDate?: string;
+}
+
+export const VALIDATION_STAGE_LABELS: Record<ValidationStageKey, string> = {
+  URS: "User Requirement Spec",
+  FS: "Functional Specification",
+  DS: "Design Specification",
+  IQ: "Installation Qualification",
+  OQ: "Operational Qualification",
+  PQ: "Performance Qualification",
+  RTR: "Release to Production",
+};
+
+export const VALIDATION_STAGE_KEYS: ValidationStageKey[] = ["URS", "FS", "DS", "IQ", "OQ", "PQ", "RTR"];
+
 export interface GxPSystem {
   id: string;
   tenantId: string;
@@ -29,6 +51,11 @@ export interface GxPSystem {
   owner: string;
   lastValidated?: string;
   nextReview?: string;
+  validationStages?: ValidationStage[];
+  patientSafetyRisk?: RiskLevel;
+  productQualityImpact?: RiskLevel;
+  regulatoryExposure?: RiskLevel;
+  diImpact?: RiskLevel;
   createdAt: string;
 }
 

@@ -22,8 +22,10 @@ export interface Finding {
   owner: string;
   targetDate: string;
   evidenceLink: string;
+  rootCause?: string;
   agiSummary?: string;
   capaId?: string;
+  linkedSystemId?: string;
   createdAt: string;
   editHistory?: EditHistoryEntry[];
 }

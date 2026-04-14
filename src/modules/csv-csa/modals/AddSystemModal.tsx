@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -25,6 +26,10 @@ const systemSchema = z.object({
   annex11Status: z.enum(["Compliant", "Non-Compliant", "In Progress", "N/A"]),
   gamp5Category: z.enum(["1", "3", "4", "5"]),
   validationStatus: z.enum(["Validated", "In Progress", "Overdue", "Not Started"]),
+  patientSafetyRisk: z.enum(["HIGH", "MEDIUM", "LOW"]),
+  productQualityImpact: z.enum(["HIGH", "MEDIUM", "LOW"]),
+  regulatoryExposure: z.enum(["HIGH", "MEDIUM", "LOW"]),
+  diImpact: z.enum(["HIGH", "MEDIUM", "LOW"]),
   siteId: z.string().min(1, "Site required"),
   intendedUse: z.string().min(5, "Intended use required"),
   gxpScope: z.string().optional(),
@@ -45,17 +50,35 @@ export interface AddSystemModalProps {
   users: UserConfig[];
   onSave: (data: SystemForm) => void;
   onClose: () => void;
+  lockedSiteId?: string | null;
 }
 
-export function AddSystemModal({ open, sites, users, onSave, onClose }: AddSystemModalProps) {
+export function AddSystemModal({ open, sites, users, onSave, onClose, lockedSiteId }: AddSystemModalProps) {
   const form = useForm<SystemForm>({
     resolver: zodResolver(systemSchema),
-    defaultValues: { type: "LIMS", gxpRelevance: "Major", riskLevel: "MEDIUM", part11Status: "N/A", annex11Status: "N/A", gamp5Category: "4", validationStatus: "Not Started" },
+    defaultValues: {
+      type: "LIMS", gxpRelevance: "Major", riskLevel: "MEDIUM",
+      part11Status: "N/A", annex11Status: "N/A", gamp5Category: "4",
+      validationStatus: "Not Started", siteId: lockedSiteId ?? "",
+      patientSafetyRisk: "MEDIUM", productQualityImpact: "MEDIUM",
+      regulatoryExposure: "MEDIUM", diImpact: "MEDIUM",
+    },
   });
 
-  const { register, control, handleSubmit, formState: { errors, isSubmitting } } = form;
+  const { register, control, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = form;
   const activeSites = sites.filter((s) => s.status === "Active");
   const activeUsers = users.filter((u) => u.status === "Active");
+
+  // Smart defaults: when GxP Relevance changes, pre-fill the 4 risk classification
+  // dropdowns. User can override any individually after this runs.
+  const watchGxp = watch("gxpRelevance");
+  useEffect(() => {
+    const level = watchGxp === "Critical" ? "HIGH" : watchGxp === "Major" ? "MEDIUM" : "LOW";
+    setValue("patientSafetyRisk", level);
+    setValue("productQualityImpact", level);
+    setValue("regulatoryExposure", level);
+    setValue("diImpact", level);
+  }, [watchGxp, setValue]);
 
   function handleSave(data: SystemForm) {
     onSave(data);
@@ -88,11 +111,13 @@ export function AddSystemModal({ open, sites, users, onSave, onClose }: AddSyste
             <label htmlFor="sys-ver" className={lbl} style={{ color: "var(--text-muted)" }}>Version *</label>
             <input id="sys-ver" className="input text-[12px]" placeholder="e.g. 8.7" {...register("version")} />
           </div>
-          <div>
-            <label className={lbl} style={{ color: "var(--text-muted)" }}>Site *</label>
-            <Controller name="siteId" control={control} render={({ field }) => (<Dropdown value={field.value} onChange={field.onChange} placeholder="Select site" width="w-full" options={activeSites.map((s) => ({ value: s.id, label: s.name }))} />)} />
-            {errors.siteId && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{errors.siteId.message}</p>}
-          </div>
+          {!lockedSiteId && (
+            <div>
+              <label className={lbl} style={{ color: "var(--text-muted)" }}>Site *</label>
+              <Controller name="siteId" control={control} render={({ field }) => (<Dropdown value={field.value} onChange={field.onChange} placeholder="Select site" width="w-full" options={activeSites.map((s) => ({ value: s.id, label: s.name }))} />)} />
+              {errors.siteId && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{errors.siteId.message}</p>}
+            </div>
+          )}
           <div>
             <label className={lbl} style={{ color: "var(--text-muted)" }}>System owner *</label>
             <Controller name="owner" control={control} render={({ field }) => (<Dropdown value={field.value} onChange={field.onChange} placeholder="Select owner" width="w-full" options={activeUsers.map((u) => ({ value: u.id, label: u.name }))} />)} />
@@ -135,6 +160,54 @@ export function AddSystemModal({ open, sites, users, onSave, onClose }: AddSyste
             <label htmlFor="sys-review" className={lbl} style={{ color: "var(--text-muted)" }}>Next review date</label>
             <input id="sys-review" type="date" className="input text-[12px]" {...register("nextReview")} />
           </div>
+        </div>
+
+        {/* Section 2b — Risk-based classification (ICH Q9) */}
+        {sec("#a78bfa", "Risk-based classification")}
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <div>
+            <label className={lbl} style={{ color: "var(--text-muted)" }}>Patient safety risk *</label>
+            <Controller name="patientSafetyRisk" control={control} render={({ field }) => (
+              <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[
+                { value: "HIGH", label: "HIGH" },
+                { value: "MEDIUM", label: "MEDIUM" },
+                { value: "LOW", label: "LOW" },
+              ]} />
+            )} />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: "var(--text-muted)" }}>Product quality impact *</label>
+            <Controller name="productQualityImpact" control={control} render={({ field }) => (
+              <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[
+                { value: "HIGH", label: "HIGH" },
+                { value: "MEDIUM", label: "MEDIUM" },
+                { value: "LOW", label: "LOW" },
+              ]} />
+            )} />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: "var(--text-muted)" }}>Regulatory exposure *</label>
+            <Controller name="regulatoryExposure" control={control} render={({ field }) => (
+              <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[
+                { value: "HIGH", label: "HIGH" },
+                { value: "MEDIUM", label: "MEDIUM" },
+                { value: "LOW", label: "LOW" },
+              ]} />
+            )} />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: "var(--text-muted)" }}>Data integrity impact *</label>
+            <Controller name="diImpact" control={control} render={({ field }) => (
+              <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[
+                { value: "HIGH", label: "HIGH" },
+                { value: "MEDIUM", label: "MEDIUM" },
+                { value: "LOW", label: "LOW" },
+              ]} />
+            )} />
+          </div>
+          <p className="col-span-2 text-[10px]" style={{ color: "var(--text-muted)" }}>
+            Pre-filled from GxP relevance &mdash; change any value to override. These feed the Risk &amp; Controls tab.
+          </p>
         </div>
 
         {/* Section 3 — Detail */}

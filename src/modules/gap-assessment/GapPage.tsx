@@ -11,6 +11,7 @@ import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useRole } from "@/hooks/useRole";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
+import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   addFinding, updateFinding,
   type Finding, type FindingStatus,
@@ -86,12 +87,14 @@ export function GapPage() {
   const { isAtLimit, getLimit, tenantPlan } = usePlanLimits();
   const atFindingLimit = isAtLimit("findings");
 
-  const { findings, capas, tenantId } = useTenantData();
+  const { findings, capas, systems, tenantId } = useTenantData();
   const { org, sites, users } = useTenantConfig();
+  const complianceUsers = useComplianceUsers();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
   const frameworks = useAppSelector((s) => s.settings.frameworks);
   const agiMode = useAppSelector((s) => s.settings.agi.mode);
+  const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const agiCapa = useAppSelector((s) => s.settings.agi.agents.capa);
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
 
@@ -219,7 +222,7 @@ export function GapPage() {
       id: capaId, findingId: finding.id, source: "Gap Assessment",
       risk: finding.severity, owner: finding.owner, dueDate: finding.targetDate,
       status: "Open", description: finding.requirement,
-      rca: "", rcaMethod: undefined, correctiveActions: "",
+      rca: finding.rootCause ?? "", rcaMethod: undefined, correctiveActions: "",
       effectivenessCheck: finding.severity !== "Minor",
       evidenceLinks: [], diGate: ["p11", "annex11"].includes(finding.framework), createdAt: "",
       tenantId: tenantId ?? "", siteId: finding.siteId,
@@ -231,7 +234,7 @@ export function GapPage() {
   }
 
   function handleAddFinding(data: FindingForm) {
-    const nf = { ...data, id: `FIND-${String(findings.length + 1).padStart(3, "0")}`, evidenceLink: data.evidenceLink ?? "", createdAt: "", capaId: undefined, agiSummary: undefined, tenantId: tenantId ?? "" };
+    const nf = { ...data, id: `FIND-${String(findings.length + 1).padStart(3, "0")}`, evidenceLink: data.evidenceLink ?? "", rootCause: data.rootCause ?? "", createdAt: "", capaId: undefined, agiSummary: undefined, tenantId: tenantId ?? "" };
     dispatch(addFinding(nf));
     auditLog({ action: "FINDING_CREATED", module: "gap-assessment", recordId: nf.id, newValue: nf });
     setAddOpen(false);
@@ -309,7 +312,8 @@ export function GapPage() {
       {/* Modals */}
       <AddFindingModal
         isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddFinding}
-        sites={sites} users={users} activeFrameworks={activeFrameworks as string[]}
+        sites={sites} users={complianceUsers} systems={systems} activeFrameworks={activeFrameworks as string[]}
+        lockedSiteId={selectedSiteId}
       />
 
       <EvidenceLinkModal

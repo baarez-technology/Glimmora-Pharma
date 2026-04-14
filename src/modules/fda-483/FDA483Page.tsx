@@ -1,10 +1,6 @@
 import { useState, useEffect } from "react";
 import clsx from "clsx";
 import {
-  FileWarning,
-  ClipboardList,
-  FileText,
-  GitBranch,
   Plus,
   AlertCircle,
 } from "lucide-react";
@@ -14,6 +10,7 @@ import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useRole } from "@/hooks/useRole";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
+import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   addEvent,
   updateEvent,
@@ -55,14 +52,21 @@ function getEffectiveStatus(e: FDA483Event): EventStatus {
   return e.status;
 }
 
-type TabId = "events" | "observations" | "response" | "rca";
+export function computeReadiness(e: FDA483Event): number {
+  // New step order: Event (20) → Observations (40) → RCA (60) → Response draft (80) → Submitted (100)
+  if (e.status === "Response Submitted" || e.status === "Closed") return 100;
+  const hasObs = e.observations.length > 0;
+  const allRca = hasObs && e.observations.every((o) => !!o.rootCause?.trim());
+  const allCapa = hasObs && e.observations.every((o) => !!o.capaId);
+  const hasDraft = !!e.responseDraft?.trim();
+  let score = 20;                                // Step 1 — event exists
+  if (hasObs) score = 40;                        // Step 2 — observations added
+  if (hasObs && allRca && allCapa) score = 60;   // Step 3 — RCA + CAPA done
+  if (hasObs && allRca && allCapa && hasDraft) score = 80; // Step 4 — response drafted
+  return score;
+}
 
-const TABS: { id: TabId; label: string; Icon: typeof FileWarning }[] = [
-  { id: "events", label: "Events", Icon: FileWarning },
-  { id: "observations", label: "Observations", Icon: ClipboardList },
-  { id: "response", label: "Response", Icon: FileText },
-  { id: "rca", label: "RCA Workspace", Icon: GitBranch },
-];
+type Step = 1 | 2 | 3 | 4;
 
 /* ══════════════════════════════════════ */
 
@@ -70,12 +74,14 @@ export function FDA483Page() {
   const dispatch = useAppDispatch();
   const { fda483Events: events, capas, tenantId } = useTenantData();
   const { org, sites, users } = useTenantConfig();
+  const complianceUsers = useComplianceUsers();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
   const agiMode = useAppSelector((s) => s.settings.agi.mode);
   const agiAgent = useAppSelector((s) => s.settings.agi.agents.fda483);
   const user = useAppSelector((s) => s.auth.user);
+  const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const { role, canSign } = useRole();
   const { hasSites } = useSetupStatus();
 
@@ -85,7 +91,7 @@ export function FDA483Page() {
 
   /* ── State ── */
   const [selectedEvent, setSelectedEvent] = useState<FDA483Event | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>("events");
+  const [currentStep, setCurrentStep] = useState<Step>(1);
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
@@ -102,6 +108,8 @@ export function FDA483Page() {
   const [signPassword, setSignPassword] = useState("");
   const [signedPopup, setSignedPopup] = useState(false);
   const [responseSavedPopup, setResponseSavedPopup] = useState(false);
+  const [rcaSavedPopup, setRcaSavedPopup] = useState(false);
+  const [capaRaisedPopup, setCapaRaisedPopup] = useState(false);
   const [selectedObsId, setSelectedObsId] = useState("");
   const [whyAnswers, setWhyAnswers] = useState(["", "", "", "", ""]);
   const [fishboneAnswers, setFishboneAnswers] = useState<
@@ -157,6 +165,15 @@ export function FDA483Page() {
     if (siteFilter && e.siteId !== siteFilter) return false;
     return true;
   });
+
+  /* ── Step workflow status (new order: Event → Observations → RCA → Response) ── */
+  const hasEvent = !!liveEvent;
+  const hasObservations = !!liveEvent && liveEvent.observations.length > 0;
+  const hasRcaAndCapa = hasObservations
+    && liveEvent.observations.every((o) => o.rootCause?.trim() && !!o.capaId);
+  const hasSubmitted = !!liveEvent
+    && (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed");
+  const canSubmitResponse = hasRcaAndCapa;
 
   /* ── Handlers ── */
 
@@ -244,8 +261,13 @@ export function FDA483Page() {
     setAddCommitOpen(false);
   }
 
-  function selectEvent(e: FDA483Event) {
+  function selectEvent(e: FDA483Event | null) {
     setSelectedEvent(e);
+    if (!e) setCurrentStep(1);
+  }
+  function resetWorkflow() {
+    setSelectedEvent(null);
+    setCurrentStep(1);
   }
   function clearFilters() {
     setTypeFilter("");
@@ -317,127 +339,233 @@ export function FDA483Page() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => { setStatusFilter("Response Due"); setActiveTab("events"); }}
+            onClick={() => { setStatusFilter("Response Due"); setCurrentStep(1); }}
           >
             View
           </Button>
         </div>
       )}
 
-      {/* Tab bar */}
-      <div
-        role="tablist"
-        aria-label="FDA 483 sections"
-        className="flex gap-1 border-b border-(--bg-border)"
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`tab-${t.id}`}
-            aria-selected={activeTab === t.id}
-            aria-controls={`panel-${t.id}`}
-            onClick={() => setActiveTab(t.id)}
-            className={clsx(
-              "inline-flex items-center gap-2 px-4 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors bg-transparent border-x-0 border-t-0 cursor-pointer outline-none",
-              activeTab === t.id
-                ? "border-b-(--brand) text-(--brand)"
-                : "border-b-transparent text-(--text-muted) hover:text-(--text-secondary)",
-            )}
+
+      {/* ═══════════ RESPONSE SUMMARY TAB ═══════════ */}
+      {/* ═══════════ STEP INDICATOR (display only) ═══════════ */}
+      {(() => {
+        const steps = [
+          { n: 1 as Step, label: "Event",        complete: hasSubmitted || (hasEvent && currentStep > 1) },
+          { n: 2 as Step, label: "Observations", complete: hasSubmitted || (hasObservations && currentStep > 2) },
+          { n: 3 as Step, label: "RCA",          complete: hasSubmitted || (hasRcaAndCapa && currentStep > 3) },
+          { n: 4 as Step, label: "Response",     complete: hasSubmitted },
+        ];
+        return (
+          <div
+            className={clsx("flex items-center gap-2 p-3 rounded-xl border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}
+            role="progressbar"
+            aria-label={`Workflow step ${currentStep} of 4`}
+            aria-valuenow={currentStep}
+            aria-valuemin={1}
+            aria-valuemax={4}
           >
-            <t.Icon className="w-3.5 h-3.5" aria-hidden="true" />
-            {t.label}
-          </button>
-        ))}
-      </div>
+            {steps.map((s, i) => {
+              const isActive = currentStep === s.n;
+              const color = s.complete ? "#10b981" : isActive ? "#0ea5e9" : "#64748b";
+              return (
+                <div key={s.n} className="flex items-center gap-2 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0" aria-current={isActive ? "step" : undefined}>
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold"
+                      style={{
+                        background: s.complete ? color : "transparent",
+                        border: `2px solid ${color}`,
+                        color: s.complete ? "#fff" : color,
+                      }}
+                      aria-hidden="true"
+                    >
+                      {s.complete ? "\u2713" : s.n}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Step {s.n}</p>
+                      <p className="text-[12px] font-semibold truncate" style={{ color }}>{s.label}</p>
+                    </div>
+                  </div>
+                  {i < steps.length - 1 && (
+                    <div className="flex-1 h-px" style={{ background: s.complete ? "#10b981" : "var(--bg-border)" }} aria-hidden="true" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
-      {/* ═══════════ EVENTS TAB ═══════════ */}
-      <div
-        role="tabpanel"
-        id="panel-events"
-        aria-labelledby="tab-events"
-        tabIndex={0}
-        hidden={activeTab !== "events"}
-      >
-        <EventsTab
-          events={events}
-          filteredEvents={filteredEvents}
-          selectedEvent={selectedEvent}
-          openCount={openCount}
-          dueCount={dueCount}
-          closedCount={closedCount}
-          typeFilter={typeFilter}
-          statusFilter={statusFilter}
-          siteFilter={siteFilter}
-          anyFilter={anyFilter}
-          sites={sites}
-          timezone={timezone}
-          dateFormat={dateFormat}
-          isDark={isDark}
-          role={role}
-          onTypeFilterChange={setTypeFilter}
-          onStatusFilterChange={setStatusFilter}
-          onSiteFilterChange={setSiteFilter}
-          onClearFilters={clearFilters}
-          onSelectEvent={selectEvent}
-          onAddEvent={() => setAddEventOpen(true)}
-          onGoToObservations={(ev) => { selectEvent(ev); setActiveTab("observations"); }}
-          onGoToResponse={(ev) => { selectEvent(ev); setActiveTab("response"); }}
-          onGoToRCA={(ev) => { selectEvent(ev); setActiveTab("rca"); }}
-        />
-      </div>
+      {/* ═══════════ STEP CONTENT ═══════════ */}
+      <div>
+        {/* STEP 1 — Events list */}
+        {currentStep === 1 && (
+          <>
+            <EventsTab
+              events={events}
+              filteredEvents={filteredEvents}
+              selectedEvent={selectedEvent}
+              openCount={openCount}
+              dueCount={dueCount}
+              closedCount={closedCount}
+              typeFilter={typeFilter}
+              statusFilter={statusFilter}
+              siteFilter={siteFilter}
+              anyFilter={anyFilter}
+              sites={sites}
+              timezone={timezone}
+              dateFormat={dateFormat}
+              isDark={isDark}
+              role={role}
+              onTypeFilterChange={setTypeFilter}
+              onStatusFilterChange={setStatusFilter}
+              onSiteFilterChange={setSiteFilter}
+              onClearFilters={clearFilters}
+              onSelectEvent={selectEvent}
+              onAddEvent={() => setAddEventOpen(true)}
+              computeReadiness={computeReadiness}
+            />
+            <div className="flex justify-end pt-4">
+              {hasSubmitted ? (
+                <div
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium"
+                  style={{ background: "var(--success-bg)", color: "var(--success)" }}
+                  role="status"
+                >
+                  <span aria-hidden="true">&#10003;</span>
+                  Response submitted &mdash; no further action required
+                </div>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={!liveEvent}
+                  onClick={() => setCurrentStep(2)}
+                  title={liveEvent ? "" : "Select an event first"}
+                >
+                  Next: Observations &rarr;
+                </Button>
+              )}
+            </div>
+          </>
+        )}
 
-      {/* ═══════════ OBSERVATIONS TAB ═══════════ */}
-      <div
-        role="tabpanel"
-        id="panel-observations"
-        aria-labelledby="tab-observations"
-        tabIndex={0}
-        hidden={activeTab !== "observations"}
-      >
-        <ObservationsTab
+                {/* STEP 3 — RCA Workspace */}
+                {currentStep === 3 && liveEvent && (
+                  <>
+                    <RCATab
+                      liveEvent={liveEvent}
+                      selectedObs={selectedObs}
+                      selectedObsId={selectedObsId}
+                      isDark={isDark}
+                      role={role}
+                      whyAnswers={whyAnswers}
+                      fishboneAnswers={fishboneAnswers}
+                      fishboneRoot={fishboneRoot}
+                      freeformRCA={freeformRCA}
+                      onGoToEvents={resetWorkflow}
+                      onGoToObservations={() => setCurrentStep(2)}
+                      onSelectedObsIdChange={setSelectedObsId}
+                      onWhyAnswersChange={setWhyAnswers}
+                      onFishboneAnswersChange={setFishboneAnswers}
+                      onFishboneRootChange={setFishboneRoot}
+                      onFreeformRCAChange={setFreeformRCA}
+                      onSelectRCAMethod={(method) => {
+                        if (!selectedObs) return;
+                        dispatch(updateObservation({ eventId: liveEvent.id, obsId: selectedObs.id, patch: { rcaMethod: method } }));
+                      }}
+                      onSave5Why={() => {
+                        if (!selectedObs) return;
+                        if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
+                        const text = whyAnswers.filter((w) => w.trim()).map((w, i) => `Why ${i + 1}: ${w}`).join("\n");
+                        dispatch(updateObservation({ eventId: liveEvent.id, obsId: selectedObs.id, patch: { rootCause: text, status: "Response Drafted" } }));
+                        auditLog({ action: "FDA483_RCA_SAVED", module: "fda-483", recordId: selectedObs.id, newValue: { rootCause: text } });
+                        setRcaSavedPopup(true);
+                      }}
+                      onSaveFishbone={() => {
+                        if (!selectedObs) return;
+                        if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
+                        const text = Object.entries(fishboneAnswers).filter(([, v]) => v.trim()).map(([k, v]) => `${k}: ${v}`).join("\n") + `\n\nRoot cause: ${fishboneRoot}`;
+                        dispatch(updateObservation({ eventId: liveEvent.id, obsId: selectedObs.id, patch: { rootCause: text, status: "Response Drafted" } }));
+                        auditLog({ action: "FDA483_RCA_SAVED", module: "fda-483", recordId: selectedObs.id });
+                        setRcaSavedPopup(true);
+                      }}
+                      onSaveFreeform={() => {
+                        if (!selectedObs) return;
+                        if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
+                        dispatch(updateObservation({ eventId: liveEvent.id, obsId: selectedObs.id, patch: { rootCause: freeformRCA.trim(), status: "Response Drafted" } }));
+                        auditLog({ action: "FDA483_RCA_SAVED", module: "fda-483", recordId: selectedObs.id });
+                        setRcaSavedPopup(true);
+                      }}
+                      onRaiseCAPA={() => {
+                        if (!selectedObs) return;
+                        const capaId = `CAPA-${String(Date.now()).slice(-4)}`;
+                        dispatch(addCAPA({
+                          id: capaId, tenantId: tenantId ?? "", siteId: liveEvent.siteId,
+                          source: "483", risk: selectedObs.severity, owner: user?.id ?? "",
+                          dueDate: liveEvent.responseDeadline, status: "Open",
+                          description: `${liveEvent.referenceNumber} Obs #${selectedObs.number}: ${selectedObs.text}`,
+                          rca: selectedObs.rootCause ?? "",
+                          rcaMethod: selectedObs.rcaMethod as "5 Why" | "Fishbone" | "Fault Tree" | "Other" | undefined,
+                          correctiveActions: "", effectivenessCheck: selectedObs.severity === "Critical",
+                          evidenceLinks: [], diGate: false, createdAt: "",
+                        }));
+                        dispatch(updateObservation({ eventId: liveEvent.id, obsId: selectedObs.id, patch: { capaId } }));
+                        auditLog({ action: "CAPA_RAISED_FROM_483", module: "fda-483", recordId: selectedObs.id, newValue: { capaId } });
+                        setCapaRaisedPopup(true);
+                      }}
+                    />
+                    <div className="flex justify-between pt-4">
+                      <Button variant="secondary" size="sm" onClick={() => setCurrentStep(2)}>&larr; Back</Button>
+                      <Button variant="primary" size="sm" disabled={!hasRcaAndCapa} onClick={() => setCurrentStep(4)} title={hasRcaAndCapa ? "" : "Save RCA and raise CAPA for every observation first"}>Next: Response &rarr;</Button>
+                    </div>
+                  </>
+                )}
+
+                {/* STEP 2 — Observations */}
+                {currentStep === 2 && liveEvent && (
+                  <>
+                    <ObservationsTab
+                      liveEvent={liveEvent}
+                      capas={capas}
+                      sites={sites}
+                      timezone={timezone}
+                      dateFormat={dateFormat}
+                      isDark={isDark}
+                      role={role}
+                      ownerName={ownerName}
+                      onGoToEvents={resetWorkflow}
+                      onAddObservation={() => { setEditingObs(null); setAddObsOpen(true); }}
+                      onEditObservation={(obs) => { setEditingObs(obs); setAddObsOpen(true); }}
+                      onAddCommitment={() => setAddCommitOpen(true)}
+                      onGoToResponse={() => setCurrentStep(3)}
+                    />
+                    <div className="flex justify-between pt-4">
+                      <Button variant="secondary" size="sm" onClick={() => setCurrentStep(1)}>&larr; Back</Button>
+                      <Button variant="primary" size="sm" disabled={!hasObservations} onClick={() => setCurrentStep(3)} title={hasObservations ? "" : "Add at least one observation before proceeding to RCA"}>Next: RCA &rarr;</Button>
+                    </div>
+                  </>
+                )}
+
+                {/* STEP 4 — Response */}
+                {currentStep === 4 && liveEvent && (
+                  <>
+                    <ResponseTab
           liveEvent={liveEvent}
           capas={capas}
-          sites={sites}
-          timezone={timezone}
-          dateFormat={dateFormat}
-          isDark={isDark}
-          role={role}
-          ownerName={ownerName}
-          onGoToEvents={() => setActiveTab("events")}
-          onAddObservation={() => {
-            setEditingObs(null);
-            setAddObsOpen(true);
-          }}
-          onEditObservation={(obs) => {
-            setEditingObs(obs);
-            setAddObsOpen(true);
-          }}
-          onAddCommitment={() => setAddCommitOpen(true)}
-        />
-      </div>
-
-      {/* ═══════════ RESPONSE TAB ═══════════ */}
-      <div
-        role="tabpanel"
-        id="panel-response"
-        aria-labelledby="tab-response"
-        tabIndex={0}
-        hidden={activeTab !== "response"}
-      >
-        <ResponseTab
-          liveEvent={liveEvent}
           isDark={isDark}
           role={role}
           canSign={canSign}
+          canSubmit={canSubmitResponse}
           agiMode={agiMode}
           agiAgent={agiAgent}
           timezone={timezone}
           dateFormat={dateFormat}
           responseText={responseText}
           editingResponse={editingResponse}
-          onGoToEvents={() => setActiveTab("events")}
+          ownerName={ownerName}
+          onGoToEvents={resetWorkflow}
           onResponseTextChange={setResponseText}
           onEditResponseToggle={() => {
             if (editingResponse)
@@ -497,152 +625,12 @@ export function FDA483Page() {
             );
           }}
           onSignSubmit={() => setSignOpen(true)}
-        />
-      </div>
-
-      {/* ═══════════ RCA TAB ═══════════ */}
-      <div
-        role="tabpanel"
-        id="panel-rca"
-        aria-labelledby="tab-rca"
-        tabIndex={0}
-        hidden={activeTab !== "rca"}
-      >
-        <RCATab
-          liveEvent={liveEvent}
-          selectedObs={selectedObs}
-          selectedObsId={selectedObsId}
-          isDark={isDark}
-          role={role}
-          whyAnswers={whyAnswers}
-          fishboneAnswers={fishboneAnswers}
-          fishboneRoot={fishboneRoot}
-          freeformRCA={freeformRCA}
-          onGoToEvents={() => setActiveTab("events")}
-          onGoToObservations={() => setActiveTab("observations")}
-          onSelectedObsIdChange={setSelectedObsId}
-          onWhyAnswersChange={setWhyAnswers}
-          onFishboneAnswersChange={setFishboneAnswers}
-          onFishboneRootChange={setFishboneRoot}
-          onFreeformRCAChange={setFreeformRCA}
-          onSelectRCAMethod={(method) => {
-            if (!liveEvent || !selectedObs) return;
-            dispatch(
-              updateObservation({
-                eventId: liveEvent.id,
-                obsId: selectedObs.id,
-                patch: { rcaMethod: method },
-              }),
-            );
-          }}
-          onSave5Why={() => {
-            if (!liveEvent || !selectedObs) return;
-            const text = whyAnswers
-              .filter((w) => w.trim())
-              .map((w, i) => `Why ${i + 1}: ${w}`)
-              .join("\n");
-            dispatch(
-              updateObservation({
-                eventId: liveEvent.id,
-                obsId: selectedObs.id,
-                patch: {
-                  rootCause: text,
-                  status: "RCA In Progress",
-                },
-              }),
-            );
-            auditLog({
-              action: "FDA483_RCA_SAVED",
-              module: "fda-483",
-              recordId: selectedObs.id,
-              newValue: { rootCause: text },
-            });
-          }}
-          onSaveFishbone={() => {
-            if (!liveEvent || !selectedObs) return;
-            const text =
-              Object.entries(fishboneAnswers)
-                .filter(([, v]) => v.trim())
-                .map(([k, v]) => `${k}: ${v}`)
-                .join("\n") + `\n\nRoot cause: ${fishboneRoot}`;
-            dispatch(
-              updateObservation({
-                eventId: liveEvent.id,
-                obsId: selectedObs.id,
-                patch: {
-                  rootCause: text,
-                  status: "RCA In Progress",
-                },
-              }),
-            );
-            auditLog({
-              action: "FDA483_RCA_SAVED",
-              module: "fda-483",
-              recordId: selectedObs.id,
-            });
-          }}
-          onSaveFreeform={() => {
-            if (!liveEvent || !selectedObs) return;
-            dispatch(
-              updateObservation({
-                eventId: liveEvent.id,
-                obsId: selectedObs.id,
-                patch: {
-                  rootCause: freeformRCA.trim(),
-                  status: "RCA In Progress",
-                },
-              }),
-            );
-            auditLog({
-              action: "FDA483_RCA_SAVED",
-              module: "fda-483",
-              recordId: selectedObs.id,
-            });
-          }}
-          onRaiseCAPA={() => {
-            if (!liveEvent || !selectedObs) return;
-            const capaId = `CAPA-${String(Date.now()).slice(-4)}`;
-            dispatch(
-              addCAPA({
-                id: capaId,
-                tenantId: tenantId ?? "",
-                siteId: liveEvent.siteId,
-                source: "483",
-                risk: selectedObs.severity,
-                owner: user?.id ?? "",
-                dueDate: liveEvent.responseDeadline,
-                status: "Open",
-                description: `${liveEvent.referenceNumber} Obs #${selectedObs.number}: ${selectedObs.text}`,
-                rca: selectedObs.rootCause ?? "",
-                rcaMethod: selectedObs.rcaMethod as
-                  | "5 Why"
-                  | "Fishbone"
-                  | "Fault Tree"
-                  | "Other"
-                  | undefined,
-                correctiveActions: "",
-                effectivenessCheck:
-                  selectedObs.severity === "Critical",
-                evidenceLinks: [],
-                diGate: false,
-                createdAt: "",
-              }),
-            );
-            dispatch(
-              updateObservation({
-                eventId: liveEvent.id,
-                obsId: selectedObs.id,
-                patch: { capaId },
-              }),
-            );
-            auditLog({
-              action: "CAPA_RAISED_FROM_483",
-              module: "fda-483",
-              recordId: selectedObs.id,
-              newValue: { capaId },
-            });
-          }}
-        />
+                    />
+                    <div className="flex justify-start pt-4">
+                      <Button variant="secondary" size="sm" onClick={() => setCurrentStep(3)}>&larr; Back</Button>
+                    </div>
+                  </>
+                )}
       </div>
 
       {/* ── Modals ── */}
@@ -651,6 +639,7 @@ export function FDA483Page() {
         onClose={() => setAddEventOpen(false)}
         onSave={onEventSave}
         sites={sites}
+        lockedSiteId={selectedSiteId}
       />
       <AddObservationModal
         open={addObsOpen}
@@ -663,7 +652,7 @@ export function FDA483Page() {
         open={addCommitOpen}
         onClose={() => setAddCommitOpen(false)}
         onSave={onCommitSave}
-        users={users}
+        users={complianceUsers}
       />
       <SignSubmitModal
         open={signOpen}
@@ -679,7 +668,12 @@ export function FDA483Page() {
           dispatch(
             updateEvent({
               id: liveEvent.id,
-              patch: { status: "Response Submitted", submittedAt: "" },
+              patch: {
+                status: "Response Submitted",
+                submittedAt: dayjs().toISOString(),
+                submittedBy: user?.id ?? "",
+                signatureMeaning: signMeaning,
+              },
             }),
           );
           auditLog({
@@ -692,7 +686,7 @@ export function FDA483Page() {
           setSignedPopup(true);
           setSignMeaning("");
           setSignPassword("");
-          setSelectedEvent(null);
+          // Stay on the current event so the user sees the submitted success view
         }}
       />
 
@@ -724,6 +718,20 @@ export function FDA483Page() {
         title="Response submitted"
         description="Signed and submitted. Audit trail recorded."
         onDismiss={() => setSignedPopup(false)}
+      />
+      <Popup
+        isOpen={rcaSavedPopup}
+        variant="success"
+        title="RCA saved successfully"
+        description="Root cause analysis saved. Observation status updated."
+        onDismiss={() => setRcaSavedPopup(false)}
+      />
+      <Popup
+        isOpen={capaRaisedPopup}
+        variant="success"
+        title="CAPA raised successfully"
+        description="Proceed to Observations tab to add a commitment."
+        onDismiss={() => setCapaRaisedPopup(false)}
       />
       <NoSitesPopup isOpen={noSitesOpen} onClose={() => setNoSitesOpen(false)} feature="FDA 483 events" />
     </main>

@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import { setActiveSite, setSelectedSite } from "@/store/auth.slice";
+import { setActiveSite, setSelectedSite as setSelectedSiteAction } from "@/store/auth.slice";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 
 const riskStyles = {
@@ -58,7 +58,7 @@ export function SitePicker() {
     // Set BOTH fields in sync — activeSiteId gates the role loader,
     // selectedSiteId is the filter the Topbar/Sidebar render from.
     dispatch(setActiveSite(selectedSite.id));
-    dispatch(setSelectedSite(selectedSite.id));
+    dispatch(setSelectedSiteAction(selectedSite.id));
     navigate("/");
   };
 

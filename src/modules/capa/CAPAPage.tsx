@@ -11,11 +11,13 @@ import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useRole } from "@/hooks/useRole";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
+import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   addCAPA, updateCAPA, closeCAPA,
   type CAPA, type CAPAStatus, type RCAMethod,
 } from "@/store/capa.slice";
 import { closeFinding } from "@/store/findings.slice";
+import { updateObservation } from "@/store/fda483.slice";
 import { auditLog } from "@/lib/audit";
 import { Button } from "@/components/ui/Button";
 import { Popup } from "@/components/ui/Popup";
@@ -50,12 +52,14 @@ export function CAPAPage() {
   const dispatch = useAppDispatch();
   const { canSign, canCloseCapa, isViewOnly } = useRole();
 
-  const { capas, findings, tenantId } = useTenantData();
+  const { capas, findings, fda483Events, tenantId } = useTenantData();
   const { org, users, allSites } = useTenantConfig();
+  const complianceUsers = useComplianceUsers();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
   const user = useAppSelector((s) => s.auth.user);
+  const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
 
   /* ── State ── */
   const [activeTab, setActiveTab] = useState<TabId>("blueprint");
@@ -164,6 +168,10 @@ export function CAPAPage() {
         risk: data.risk, rcaMethod: (data.rcaMethod as RCAMethod) || undefined,
         rca: data.rca ?? "", correctiveActions: data.correctiveActions ?? "",
         effectivenessCheck: data.effectivenessCheck, diGate: data.diGate,
+        diGateStatus: data.diGateStatus ?? "open",
+        diGateNotes: data.diGateNotes ?? "",
+        diGateReviewedBy: data.diGateReviewedBy ?? "",
+        diGateReviewDate: data.diGateReviewDate ?? "",
         ...(autoAdvance ? { status: "In Progress" as const } : {}),
       },
     }));
@@ -179,11 +187,29 @@ export function CAPAPage() {
     setSelectedCAPA(null);
   }
 
+  const [diGateBlockPopup, setDiGateBlockPopup] = useState(false);
+
   function handleSignClose(data: { meaning: string }) {
     if (!selectedCAPA) return;
+    if (selectedCAPA.diGate && selectedCAPA.diGateStatus !== "cleared") {
+      setSignOpen(false);
+      setDiGateBlockPopup(true);
+      return;
+    }
     const now = dayjs().toISOString();
     dispatch(closeCAPA({ id: selectedCAPA.id, closedBy: user?.id ?? "", closedAt: now }));
     if (selectedCAPA.findingId) { dispatch(closeFinding(selectedCAPA.findingId)); auditLog({ action: "FINDING_CLOSED_VIA_CAPA", module: "capa", recordId: selectedCAPA.findingId, newValue: { closedByCapaId: selectedCAPA.id } }); }
+    // If this CAPA was raised from an FDA 483 observation, mark that observation as Closed too
+    if (selectedCAPA.source === "483") {
+      for (const ev of fda483Events) {
+        const matchingObs = ev.observations.find((o) => o.capaId === selectedCAPA.id);
+        if (matchingObs) {
+          dispatch(updateObservation({ eventId: ev.id, obsId: matchingObs.id, patch: { status: "Closed" } }));
+          auditLog({ action: "FDA483_OBS_CLOSED_VIA_CAPA", module: "capa", recordId: matchingObs.id, newValue: { closedByCapaId: selectedCAPA.id } });
+          break;
+        }
+      }
+    }
     auditLog({ action: "CAPA_CLOSED", module: "capa", recordId: selectedCAPA.id, newValue: { closedBy: user?.id, closedAt: now, meaning: data.meaning } });
     setSignOpen(false);
     setSignedPopup(true);
@@ -253,8 +279,8 @@ export function CAPAPage() {
       )}
 
       {/* Modals */}
-      <AddCAPAModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddCAPA} users={users} sites={allSites} isDark={isDark} />
-      <EditCAPAModal isOpen={editModalOpen} onClose={() => setEditModalOpen(false)} onSave={handleEditSave} capa={selectedCAPA} users={users} isDark={isDark} />
+      <AddCAPAModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddCAPA} users={complianceUsers} sites={allSites} isDark={isDark} lockedSiteId={selectedSiteId} />
+      <EditCAPAModal isOpen={editModalOpen} onClose={() => setEditModalOpen(false)} onSave={handleEditSave} capa={selectedCAPA} users={complianceUsers} isDark={isDark} />
       <SignCloseModal isOpen={signOpen} onClose={() => setSignOpen(false)} onSign={handleSignClose} capa={selectedCAPA} isDark={isDark} />
 
       {/* Popups */}
@@ -262,6 +288,7 @@ export function CAPAPage() {
       <Popup isOpen={addedPopup} variant="success" title="CAPA created" description="Added to the tracker. Document RCA and corrective actions next." onDismiss={() => setAddedPopup(false)} />
       <Popup isOpen={submittedPopup} variant="success" title="Submitted for QA review" description="QA Head will review and sign to close." onDismiss={() => setSubmittedPopup(false)} />
       <Popup isOpen={signedPopup} variant="success" title="CAPA closed" description="Signed and closed. Audit trail entry recorded." onDismiss={() => setSignedPopup(false)} />
+      <Popup isOpen={diGateBlockPopup} variant="confirmation" title="DI gate must be cleared" description="Data integrity review has not been completed. Open Edit mode and clear the DI gate before closing this CAPA." onDismiss={() => setDiGateBlockPopup(false)} actions={[{ label: "OK", style: "primary", onClick: () => setDiGateBlockPopup(false) }]} />
     </main>
   );
 }

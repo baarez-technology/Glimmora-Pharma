@@ -80,15 +80,29 @@ export function Dropdown({
   const allSections: DropdownSection[] =
     sections ?? (options ? [{ options }] : []);
 
-  // Position menu below trigger
+  // Position menu below trigger; flip above only if clearly not enough space.
+  // Uses the menu's actual rendered height (if already mounted) so short menus
+  // don't float far above the trigger.
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    setMenuPos({
-      top: rect.bottom + 6,
-      left: rect.left,
-      width: rect.width,
-    });
+    const actualMenuHeight = menuRef.current?.offsetHeight ?? 0;
+    const gap = 6;
+    const viewportPad = 8;
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPad;
+    const spaceAbove = rect.top - viewportPad;
+
+    // Prefer below. Only flip up if the menu's actual height doesn't fit below
+    // AND there is more room above. Use a small minimum height for the first
+    // paint before the menu has rendered (actualMenuHeight === 0).
+    const neededHeight = actualMenuHeight > 0 ? actualMenuHeight : 120;
+    const flipAbove = neededHeight > spaceBelow && spaceAbove > spaceBelow;
+
+    const top = flipAbove
+      ? Math.max(viewportPad, rect.top - neededHeight - gap)
+      : rect.bottom + gap;
+
+    setMenuPos({ top, left: rect.left, width: rect.width });
   }, []);
 
   // Open handler
@@ -122,6 +136,15 @@ export function Dropdown({
       window.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);
     };
+  }, [open, updatePosition]);
+
+  // Re-measure once the menu has rendered so the flip-up position uses the
+  // real menu height instead of the 120px pre-render estimate.
+  useEffect(() => {
+    if (!open) return;
+    // requestAnimationFrame ensures the menu has painted and offsetHeight is accurate
+    const raf = requestAnimationFrame(() => updatePosition());
+    return () => cancelAnimationFrame(raf);
   }, [open, updatePosition]);
 
   // Filter by search
@@ -187,10 +210,11 @@ export function Dropdown({
         top: menuPos.top,
         left: menuPos.left,
         minWidth: menuPos.width,
+        maxHeight: Math.min(256, window.innerHeight - menuPos.top - 8),
       }}
       className={clsx(
         "z-9999 rounded-[10px] border p-1 shadow-lg",
-        "max-h-64 overflow-y-auto",
+        "overflow-y-auto",
         menuWidth,
         "bg-(--bg-surface) border-(--bg-border)",
       )}

@@ -394,32 +394,31 @@ export function GapRegisterTab({
             )}
 
             {/* ── CAPA link or Raise button ── */}
-            {!isEditing && (
-              selectedFinding.capaId ? (
+            {!isEditing && (() => {
+              // Check both: finding.capaId and reverse lookup via capas[].findingId
+              const linkedCapa = selectedFinding.capaId
+                ? capas.find((c) => c.id === selectedFinding.capaId)
+                : capas.find((c) => c.findingId === selectedFinding.id);
+              const linkedCapaId = linkedCapa?.id ?? selectedFinding.capaId;
+
+              return linkedCapaId ? (
                 <div>
                   <h3 className={LABEL}>Linked CAPA</h3>
-                  {(() => {
-                    const lc = capas.find((c) => c.id === selectedFinding.capaId);
-                    return (
-                      <>
-                        <div className="flex items-center gap-2 mt-1">
-                          <button type="button" onClick={() => onNavigateCapa(selectedFinding.capaId!)} className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0">
-                            <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{selectedFinding.capaId}
-                          </button>
-                          {lc && capaStatusBadge(lc.status)}
-                        </div>
-                        {lc?.status === "Pending QA Review" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--info-bg)", color: "var(--info)" }}>CAPA pending QA review. Once closed, this finding will be automatically closed.</p>}
-                        {lc?.status === "Closed" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--success-bg)", color: "var(--success)" }}>CAPA closed. This finding has been automatically closed.</p>}
-                      </>
-                    );
-                  })()}
+                  <div className="flex items-center gap-2 mt-1">
+                    <button type="button" onClick={() => onNavigateCapa(linkedCapaId)} className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0">
+                      <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{linkedCapaId}
+                    </button>
+                    {linkedCapa && capaStatusBadge(linkedCapa.status)}
+                  </div>
+                  {linkedCapa?.status === "Pending QA Review" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--info-bg)", color: "var(--info)" }}>CAPA pending QA review. Once closed, this finding will be automatically closed.</p>}
+                  {linkedCapa?.status === "Closed" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--success-bg)", color: "var(--success)" }}>CAPA closed. This finding has been automatically closed.</p>}
                 </div>
               ) : (
                 !isViewOnly && selectedFinding.status !== "Closed" && (
                   <Button variant="secondary" icon={Plus} fullWidth onClick={() => onRaiseCapa(selectedFinding)}>Raise CAPA</Button>
                 )
-              )
-            )}
+              );
+            })()}
 
             {/* ── Status update ── */}
             {!isEditing && !isViewOnly && selectedFinding.status !== "Closed" && (

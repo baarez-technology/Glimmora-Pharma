@@ -23,15 +23,23 @@ import { StatCard, CardSection, SetupChecklist, DataTable } from "@/components/s
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { findings, capas, systems, fda483Events, tenantId } = useTenantData();
+  const { findings, capas, systems, roadmap, fda483Events, tenantId } = useTenantData();
   const { org, sites, users } = useTenantConfig();
   const agiSettings = useAppSelector((s) => s.settings.agi);
+  const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
   const companyName = org.companyName;
   const tenants = useAppSelector((s) => s.auth.tenants);
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
   const { role } = useRole();
+  const isAdmin = role === "super_admin" || role === "customer_admin";
+
+  // When a specific site is selected (at login), restrict heatmap to that site only.
+  // Admins (customer_admin / super_admin) have selectedSiteId = null → show all sites.
+  const visibleSites = selectedSiteId
+    ? sites.filter((s) => s.id === selectedSiteId)
+    : sites;
 
   const currentTenant = tenants.find((t) => t.id === tenantId);
   function ownerName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
@@ -117,7 +125,7 @@ export function DashboardPage() {
     const score = Math.max(0, 100 - cr * 30 - mj * 15 - areaCapaOverdue * 20 - sysRisk * 25);
     return { score, open: af.length, critical: cr };
   }
-  const displayedSites = siteFilter ? sites.filter((s) => s.id === siteFilter) : sites.slice(0, 4);
+  const displayedSites = siteFilter ? visibleSites.filter((s) => s.id === siteFilter) : visibleSites;
 
   /* ── Action plan ── */
   const actionPlan = (() => {
@@ -129,6 +137,11 @@ export function DashboardPage() {
       items.push({ id: c.id, priority: c.risk, area, action: c.description.length > 60 ? c.description.slice(0, 60) + "..." : c.description, owner: c.owner, dueDate: c.dueDate, status: c.status, module: "capa", refId: c.id, agiRisk: c.risk === "Critical" ? "High" : "Medium" });
     });
     filteredSystems.filter((s) => s.riskLevel === "HIGH" && s.validationStatus !== "Validated").slice(0, 3).forEach((s) => items.push({ id: s.id, priority: "Major", area: "CSV/IT", action: `Validate ${s.name} \u2014 ${s.validationStatus}`, owner: s.owner, dueDate: s.nextReview ?? "", status: s.validationStatus, module: "csv-csa", refId: s.id, agiRisk: "High" }));
+    // CSV roadmap activities (non-complete, within 90 days)
+    roadmap.filter((a) => a.status !== "Complete" && dayjs.utc(a.endDate).diff(dayjs(), "day") <= 90).forEach((a) => {
+      const sys = systems.find((s) => s.id === a.systemId);
+      items.push({ id: a.id, priority: "Major", area: "CSV/IT", action: `${a.title}${sys ? ` \u2014 ${sys.name}` : ""}`, owner: a.owner, dueDate: a.endDate, status: a.status, module: "csv-csa", refId: a.systemId ?? a.id, agiRisk: "High" });
+    });
     const p: Record<string, number> = { Critical: 0, Major: 1, Minor: 2 };
     return items.sort((a, b) => (p[a.priority] ?? 2) - (p[b.priority] ?? 2) || (!a.dueDate ? 1 : !b.dueDate ? -1 : dayjs(a.dueDate).diff(dayjs(b.dueDate))));
   })();
@@ -165,7 +178,7 @@ export function DashboardPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Dropdown value={timeFilter} onChange={setTimeFilter} width="w-36" options={[{ value: "7", label: "Last 7 days" }, { value: "30", label: "Last 30 days" }, { value: "60", label: "Last 60 days" }, { value: "90", label: "Last 90 days" }, { value: "all", label: "All time" }]} />
-          <Dropdown placeholder="All sites" value={siteFilter} onChange={setSiteFilter} width="w-36" options={[{ value: "", label: "All sites" }, ...sites.map((s) => ({ value: s.id, label: s.name }))]} />
+          {isAdmin && <Dropdown placeholder="All sites" value={siteFilter} onChange={setSiteFilter} width="w-36" options={[{ value: "", label: "All sites" }, ...visibleSites.map((s) => ({ value: s.id, label: s.name }))]} />}
           <Dropdown placeholder="All severities" value={sevFilter} onChange={setSevFilter} width="w-32" options={[{ value: "", label: "All severities" }, { value: "Critical", label: "Critical" }, { value: "Major", label: "Major" }, { value: "Minor", label: "Minor" }]} />
           {(siteFilter || sevFilter) && <Button variant="ghost" size="sm" onClick={() => { setSiteFilter(""); setSevFilter(""); }}>Clear</Button>}
         </div>
@@ -189,32 +202,33 @@ export function DashboardPage() {
         <div className="lg:col-span-2 space-y-4">
           {/* ① Heatmap */}
           <CardSection icon={Grid3x3} title="Area readiness heatmap">
-            {sites.length === 0 ? (
+            {visibleSites.length === 0 ? (
               <div className="text-center py-6">
                 <MapPin className="w-8 h-8 mx-auto mb-2" style={{ color: "#334155" }} aria-hidden="true" />
-                <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No sites configured</p>
-                <button type="button" onClick={() => navigate("/settings")} className="text-[11px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer mt-1">Add sites in Settings &rarr;</button>
+                <p className="text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>No sites configured yet</p>
+                <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>Go to Settings &rarr; Sites to add your sites.</p>
+                <button type="button" onClick={() => navigate("/settings")} className="text-[11px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer mt-2">Add sites in Settings &rarr;</button>
               </div>
-            ) : filteredFindings.length === 0 ? (
-              <div className="flex flex-col items-center py-8"><Grid3x3 className="w-10 h-10 text-[#334155] mb-2" aria-hidden="true" /><p className="text-[12px]" style={{ color: "var(--text-muted)" }}>No findings match current filters. Adjust filters above.</p></div>
             ) : (
               <>
-                <table className="w-full text-[11px]" aria-label="Area readiness heatmap">
-                  <thead><tr><th className="text-left py-2 pr-3 w-28 font-semibold" style={{ color: "var(--text-muted)" }}>Area</th>
-                    {displayedSites.length === 0 ? <th className="text-center py-2" style={{ color: "var(--text-muted)" }}>No sites</th> : displayedSites.map((s) => <th key={s.id} className="text-center py-2 px-1 font-semibold" style={{ color: "var(--text-muted)" }}>{s.name.split(" ")[0]}</th>)}
-                  </tr></thead>
-                  <tbody>{AREAS.map((area) => (
-                    <tr key={area}><td className="py-1 pr-3 font-medium" style={{ color: "var(--text-secondary)" }}>{area}</td>
-                      {displayedSites.length === 0 ? <td className="py-1 px-1 text-center"><span className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>&mdash;</span></td> : displayedSites.map((site) => {
-                        const { score, open, critical } = getAreaScore(area, site.id);
-                        const bg = score >= 80 ? "#10b981" : score >= 60 ? "#f59e0b" : "#ef4444";
-                        return <td key={site.id} className="py-1 px-1 text-center"><button type="button" title={`${area} \u2014 ${site.name}\nScore: ${score}%\nOpen: ${open}\nCritical: ${critical}`} onClick={() => navigate("/gap-assessment")} className="w-full py-2 px-1 rounded-lg text-[10px] font-bold border-none cursor-pointer transition-opacity hover:opacity-80" style={{ background: bg + "22", color: bg, border: `1px solid ${bg}44` }} aria-label={`${area} ${site.name}: ${score}%`}>{open === 0 ? "\u2713" : `${score}%`}</button></td>;
-                      })}
-                    </tr>
-                  ))}</tbody>
-                </table>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]" aria-label="Area readiness heatmap">
+                    <thead><tr><th className="text-left py-2 pr-3 w-28 font-semibold" style={{ color: "var(--text-muted)" }}>Area</th>
+                      {displayedSites.map((s) => <th key={s.id} className="text-center py-2 px-1 font-semibold whitespace-nowrap" style={{ color: "var(--text-muted)" }}>{s.name}</th>)}
+                    </tr></thead>
+                    <tbody>{AREAS.map((area) => (
+                      <tr key={area}><td className="py-1 pr-3 font-medium whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{area}</td>
+                        {displayedSites.map((site) => {
+                          const { score, open, critical } = getAreaScore(area, site.id);
+                          const bg = score >= 80 ? "#10b981" : score >= 60 ? "#f59e0b" : "#ef4444";
+                          return <td key={site.id} className="py-1 px-1 text-center"><button type="button" title={`${area} \u2014 ${site.name}\nScore: ${score}%\nOpen: ${open}\nCritical: ${critical}`} onClick={() => navigate("/gap-assessment")} className="w-full py-2 px-1 rounded-lg text-[10px] font-bold border-none cursor-pointer transition-opacity hover:opacity-80" style={{ background: bg + "22", color: bg, border: `1px solid ${bg}44` }} aria-label={`${area} ${site.name}: ${score}%`}>{open === 0 ? "\u2713" : `${score}%`}</button></td>;
+                        })}
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
                 <div className="flex gap-4 mt-3 text-[10px]" style={{ color: "var(--text-muted)" }}>{[["#10b981", "\u2265 80% ready"], ["#f59e0b", "60\u201379%"], ["#ef4444", "< 60%"]].map(([c, l]) => <div key={l} className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{ background: c }} />{l}</div>)}</div>
-                {sites.length > 4 && !siteFilter && <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>Showing 4 of {sites.length} sites. Use site filter to view specific site.</p>}
+                {visibleSites.length > displayedSites.length && !siteFilter && <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>Showing {displayedSites.length} of {visibleSites.length} sites. Use site filter to view a specific site.</p>}
               </>
             )}
           </CardSection>

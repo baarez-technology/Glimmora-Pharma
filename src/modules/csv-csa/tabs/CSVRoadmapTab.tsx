@@ -64,6 +64,23 @@ export function CSVRoadmapTab({
 }: CSVRoadmapTabProps) {
   return (
     <>
+      {/* Guidance banner */}
+      <div
+        className={clsx(
+          "flex items-start gap-2 p-3 rounded-xl mb-4 border",
+          isDark ? "bg-[rgba(14,165,233,0.08)] border-[rgba(14,165,233,0.25)]" : "bg-[#eff6ff] border-[#bfdbfe]",
+        )}
+        role="status"
+      >
+        <GitBranch className="w-4 h-4 mt-0.5 shrink-0 text-[#0ea5e9]" aria-hidden="true" />
+        <div>
+          <p className="text-[12px] font-semibold text-[#0ea5e9]">Plan and track validation activities</p>
+          <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
+            Complete IQ &rarr; OQ &rarr; PQ &rarr; PV for each GxP critical system. Use filters to focus on a specific system or activity type.
+          </p>
+        </div>
+      </div>
+
       {/* Summary + Add button */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div className="flex items-center gap-3 flex-wrap">
