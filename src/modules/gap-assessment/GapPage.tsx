@@ -256,7 +256,7 @@ export function GapPage() {
 
   function toggleArea(a: string) { setExpandedAreas((p) => { const n = new Set(p); n.has(a) ? n.delete(a) : n.add(a); return n; }); }
 
-  type FindingForm = { siteId: string; area: string; requirement: string; framework: string; severity: "Critical" | "Major" | "Minor"; status: "Open" | "In Progress" | "Closed"; owner: string; targetDate: string; evidenceLink?: string };
+  type FindingForm = { siteId: string; area: string; requirement: string; framework: string; severity: "Critical" | "Major" | "Minor"; status: "Open" | "In Progress" | "Closed"; owner: string; targetDate: string; evidenceLink?: string; rootCause?: string; linkedSystemId?: string; linkedSystemName?: string };
 
   /* ══════════════════════════════════════ */
 

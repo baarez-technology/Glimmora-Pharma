@@ -198,7 +198,7 @@ export function SystemDetailTab({
       {/* DI & Audit Trail */}
       <div role="tabpanel" id="dpanel-di" aria-labelledby="dtab-di" tabIndex={0} hidden={detailTab !== "di"}>
         <DIAuditPanel
-          system={selectedSystem} findings={findings} capas={capas} isDark={isDark} role={role}
+          system={selectedSystem} findings={findings as any} capas={capas} isDark={isDark} role={role}
           onNavigateGap={onNavigateGap} onNavigateCapa={onNavigateCapa} onRaiseCapa={onRaiseCapa}
         />
       </div>
