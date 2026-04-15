@@ -174,7 +174,6 @@ export function LoginPage() {
       if (anySite) dispatch(setActiveSite(anySite.id));
       setLoadingName(displayName);
       setLoadingTenant(true);
-      await new Promise((r) => setTimeout(r, 600));
       navigate("/");
       return;
     }
@@ -221,8 +220,7 @@ export function LoginPage() {
       if (mockAccount.user.role === "super_admin") {
         setLoadingName("Platform Admin");
         setLoadingTenant(true);
-        await new Promise((r) => setTimeout(r, 600));
-        // Full page navigation — guarantees URL is exactly /admin with no
+          // Full page navigation — guarantees URL is exactly /admin with no
         // leftover query params, and rehydrates the SPA shell cleanly.
         window.location.assign("/admin");
         return;
@@ -233,8 +231,7 @@ export function LoginPage() {
         const userTenant = tenants.find((t) => t.id === mockAccount.user.tenantId);
         setLoadingName(userTenant?.name ?? "workspace");
         setLoadingTenant(true);
-        await new Promise((r) => setTimeout(r, 600));
-        window.location.assign("/");
+          window.location.assign("/");
         return;
       }
 
@@ -255,8 +252,7 @@ export function LoginPage() {
         if (user.role === "super_admin") {
           setLoadingName("Platform Admin");
           setLoadingTenant(true);
-          await new Promise((r) => setTimeout(r, 600));
-          window.location.assign("/admin");
+              window.location.assign("/admin");
           return;
         }
 
@@ -290,8 +286,7 @@ export function LoginPage() {
         if (user.role === "super_admin") {
           setLoadingName("Platform Admin");
           setLoadingTenant(true);
-          await new Promise((r) => setTimeout(r, 600));
-          window.location.assign("/admin");
+              window.location.assign("/admin");
           return;
         }
 
@@ -299,8 +294,7 @@ export function LoginPage() {
           dispatch(setSelectedSite(null));
           setLoadingName(tenant.name);
           setLoadingTenant(true);
-          await new Promise((r) => setTimeout(r, 600));
-          window.location.assign("/");
+              window.location.assign("/");
           return;
         }
 
@@ -319,7 +313,6 @@ export function LoginPage() {
     dispatch(setSelectedSite(pickerSiteId));
     setLoadingName("workspace");
     setLoadingTenant(true);
-    await new Promise((r) => setTimeout(r, 600));
     navigate("/");
   };
 
