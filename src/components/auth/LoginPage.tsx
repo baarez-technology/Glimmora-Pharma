@@ -202,6 +202,17 @@ export function LoginPage() {
       console.warn("[login] next-auth signIn failed", err);
     }
 
+    // Strip any ?callbackUrl=... query param that next-auth may have placed on
+    // the URL (e.g. when the user hit a protected route before signing in).
+    // We navigate explicitly based on role below, so we never want to honor
+    // a callback URL — especially one pointing at an /api/* route which would
+    // render the raw JSON in the browser.
+    try {
+      if (typeof window !== "undefined" && window.location.search) {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    } catch { /* ignore */ }
+
     // 1. Check static mock accounts first
     const mockAccount = MOCK_ACCOUNTS[key];
     if (mockAccount && mockAccount.password === data.password) {
@@ -211,7 +222,9 @@ export function LoginPage() {
         setLoadingName("Platform Admin");
         setLoadingTenant(true);
         await new Promise((r) => setTimeout(r, 600));
-        navigate("/admin");
+        // Full page navigation — guarantees URL is exactly /admin with no
+        // leftover query params, and rehydrates the SPA shell cleanly.
+        window.location.assign("/admin");
         return;
       }
 
@@ -221,7 +234,7 @@ export function LoginPage() {
         setLoadingName(userTenant?.name ?? "workspace");
         setLoadingTenant(true);
         await new Promise((r) => setTimeout(r, 600));
-        navigate("/");
+        window.location.assign("/");
         return;
       }
 
@@ -243,7 +256,7 @@ export function LoginPage() {
           setLoadingName("Platform Admin");
           setLoadingTenant(true);
           await new Promise((r) => setTimeout(r, 600));
-          navigate("/admin");
+          window.location.assign("/admin");
           return;
         }
 
@@ -278,7 +291,7 @@ export function LoginPage() {
           setLoadingName("Platform Admin");
           setLoadingTenant(true);
           await new Promise((r) => setTimeout(r, 600));
-          navigate("/admin");
+          window.location.assign("/admin");
           return;
         }
 
@@ -287,7 +300,7 @@ export function LoginPage() {
           setLoadingName(tenant.name);
           setLoadingTenant(true);
           await new Promise((r) => setTimeout(r, 600));
-          navigate("/");
+          window.location.assign("/");
           return;
         }
 
