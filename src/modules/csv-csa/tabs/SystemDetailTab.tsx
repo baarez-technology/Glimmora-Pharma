@@ -2,6 +2,8 @@ import clsx from "clsx";
 import { Server, Pencil, X } from "lucide-react";
 import type { GxPSystem, RiskLevel, ValidationStatus, GAMP5Category, SystemType, RoadmapActivity } from "@/store/systems.slice";
 import type { UserConfig, SiteConfig } from "@/store/settings.slice";
+import type { Finding } from "@/store/findings.slice";
+import type { CAPA } from "@/store/capa.slice";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { OverviewPanel } from "@/modules/csv-csa/detail/OverviewPanel";
@@ -55,25 +57,6 @@ const DETAIL_TABS: { id: DetailTab; label: string }[] = [
   { id: "di", label: "DI & Audit Trail" },
 ];
 
-/* ── Types for DI panel data ── */
-
-interface Finding {
-  id: string;
-  requirement: string;
-  severity: string;
-  status: string;
-  area: string;
-  framework: string;
-}
-
-interface CAPA {
-  id: string;
-  description: string;
-  status: string;
-  findingId: string;
-  diGate?: boolean;
-}
-
 /* ── Props ── */
 
 export interface SystemDetailTabProps {
@@ -100,7 +83,7 @@ export interface SystemDetailTabProps {
   onNavigateSettings: () => void;
   onNavigateGap: (findingId: string) => void;
   onNavigateCapa: (capaId: string) => void;
-  onRaiseCapa: () => void;
+  onSaveRemediation: (patch: { remediationTargetDate?: string; remediationNotes?: string }) => void;
   onSaveRiskFactors: (text: string) => void;
   onSavePlannedActions: (text: string) => void;
   onSaveStage: (stage: import("@/store/systems.slice").ValidationStage) => void;
@@ -114,7 +97,7 @@ export function SystemDetailTab({
   isViewOnly, role, showPart11, showAnnex11, showGAMP5,
   detailTab, onDetailTabChange,
   onBack, onEdit, onGoToInventory,
-  onNavigateSettings, onNavigateGap, onNavigateCapa, onRaiseCapa,
+  onNavigateSettings, onNavigateGap, onNavigateCapa, onSaveRemediation,
   onSaveRiskFactors, onSavePlannedActions, onSaveStage, onSaveNextReview, onSaveRiskClassification,
 }: SystemDetailTabProps) {
   if (!selectedSystem) {
@@ -198,8 +181,9 @@ export function SystemDetailTab({
       {/* DI & Audit Trail */}
       <div role="tabpanel" id="dpanel-di" aria-labelledby="dtab-di" tabIndex={0} hidden={detailTab !== "di"}>
         <DIAuditPanel
-          system={selectedSystem} findings={findings as any} capas={capas} isDark={isDark} role={role}
-          onNavigateGap={onNavigateGap} onNavigateCapa={onNavigateCapa} onRaiseCapa={onRaiseCapa}
+          system={selectedSystem} findings={findings} capas={capas} isDark={isDark} role={role}
+          onNavigateGap={onNavigateGap} onNavigateCapa={onNavigateCapa}
+          onSaveRemediation={onSaveRemediation}
         />
       </div>
     </>

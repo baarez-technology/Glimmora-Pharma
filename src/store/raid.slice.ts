@@ -21,6 +21,9 @@ export interface RAIDItem {
   raisedBy: string;
   createdAt: string;
   closedAt?: string;
+  reopenedBy?: string;
+  reopenedDate?: string;
+  reopenReason?: string;
 }
 
 interface RAIDState {
@@ -50,8 +53,21 @@ const raidSlice = createSlice({
         item.closedAt = "";
       }
     },
+    removeItem(state, { payload }: PayloadAction<string>) {
+      state.items = state.items.filter((r) => r.id !== payload);
+    },
+    reopenItem(state, { payload }: PayloadAction<{ id: string; reopenedBy: string; reason: string }>) {
+      const item = state.items.find((r) => r.id === payload.id);
+      if (item) {
+        item.status = "Open";
+        item.reopenedBy = payload.reopenedBy;
+        item.reopenedDate = new Date().toISOString();
+        item.reopenReason = payload.reason;
+        item.closedAt = undefined;
+      }
+    },
   },
 });
 
-export const { addItem, updateItem, closeItem } = raidSlice.actions;
+export const { addItem, updateItem, closeItem, removeItem, reopenItem } = raidSlice.actions;
 export default raidSlice.reducer;
