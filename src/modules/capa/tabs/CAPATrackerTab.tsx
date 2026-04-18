@@ -92,7 +92,6 @@ export function CAPATrackerTab({
         <Dropdown placeholder="All risks" value={riskFilter} onChange={setRiskFilter} width="w-32" options={[{ value: "", label: "All risks" }, { value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Low", label: "Low" }]} />
         <Dropdown placeholder="All sources" value={sourceFilter} onChange={setSourceFilter} width="w-40" options={[{ value: "", label: "All sources" }, { value: "483", label: "483" }, { value: "Internal Audit", label: "Internal Audit" }, { value: "Deviation", label: "Deviation" }, { value: "Complaint", label: "Complaint" }, { value: "OOS", label: "OOS" }, { value: "Change Control", label: "Change Control" }, { value: "Gap Assessment", label: "Gap Assessment" }]} />
         {anyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear</Button>}
-        {!isViewOnly && <Button variant="primary" size="sm" icon={Plus} onClick={onAddOpen}>New CAPA</Button>}
       </div>
 
       {/* Table — always full width */}
