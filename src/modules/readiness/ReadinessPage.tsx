@@ -309,7 +309,7 @@ export function ReadinessPage() {
         subtitle={`${completeCount} of ${totalCards} actions complete \u00b7 ${readinessScore}% ready`}
         actions={
           <div className="flex items-center gap-3">
-            <div className={clsx("flex items-center gap-2 px-4 py-2 rounded-xl border", isDark ? "bg-[#0a1f38] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+            <div className={clsx("flex items-center gap-2 px-4 py-2 rounded-xl border", "bg-(--bg-elevated) border-(--bg-border)")}>
               <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Readiness</span>
               <span className="text-[20px] font-bold" style={{ color: rsCol }}>{`${readinessScore}%`}</span>
             </div>
@@ -365,7 +365,7 @@ export function ReadinessPage() {
                     {BUCKETS.map((bucket) => {
                       const bc = tenantCards.filter((c) => c.lane === lane && c.bucket === bucket);
                       return (
-                        <div key={bucket} className={clsx("min-h-[80px] rounded-xl p-2.5 space-y-2", isDark ? "bg-[#071526] border border-[#1e3a5a]" : "bg-[#f8fafc] border border-[#e2e8f0]")}>
+                        <div key={bucket} className={clsx("min-h-[80px] rounded-xl p-2.5 space-y-2", "bg-(--bg-surface) border border-(--bg-border)")}>
                           {bc.length === 0 && <div className="flex items-center justify-center h-10"><span className="text-[10px] italic" style={{ color: "var(--text-muted)" }}>No actions</span></div>}
                           {bc.map((card) => {
                             const isOd = card.status !== "Complete" && dayjs.utc(card.dueDate).isBefore(dayjs());
@@ -375,7 +375,7 @@ export function ReadinessPage() {
                             return (
                               <div
                                 key={card.id}
-                                className={clsx("rounded-lg p-2.5 border", isDark ? "bg-[#0a1f38] border-[#1e3a5a]" : "bg-white border-[#e2e8f0]", isComplete && "opacity-75")}
+                                className={clsx("rounded-lg p-2.5 border", "bg-(--bg-elevated) border-(--bg-border)", isComplete && "opacity-75")}
                                 style={borderLeft ? { borderLeft } : undefined}
                               >
                                 <p className="text-[11px] font-medium leading-relaxed mb-2" style={{ color: "var(--text-primary)" }}>{isComplete ? "\u2713 " : ""}{card.action}</p>
@@ -420,7 +420,7 @@ export function ReadinessPage() {
 
                                 {/* Mark Complete (default) */}
                                 {role !== "viewer" && !isComplete && !card.showSuggestion && (
-                                  <div className="mt-2 pt-2 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>
+                                  <div className="mt-2 pt-2 border-t" style={{ borderColor: "var(--bg-border)" }}>
                                     <button
                                       type="button"
                                       onClick={() => markCardComplete(card.id, card.action)}
@@ -437,7 +437,7 @@ export function ReadinessPage() {
 
                                 {/* Completed footer */}
                                 {isComplete && (
-                                  <div className="mt-2 pt-2 border-t flex items-center justify-between gap-2" style={{ borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>
+                                  <div className="mt-2 pt-2 border-t flex items-center justify-between gap-2" style={{ borderColor: "var(--bg-border)" }}>
                                     <div className="flex-1 min-w-0">
                                       <p className="text-[10px] font-semibold" style={{ color: "#10b981" }}>✅ Complete</p>
                                       {(card.completedBy || card.completedAt) && (
@@ -479,7 +479,7 @@ export function ReadinessPage() {
       {activeTab === "governance" && (
         <section aria-label="Governance model" className="flex flex-col gap-3">
           {/* ─── SECTION 1 — War room model ─── */}
-          <CollapsibleSection id="war-room" icon={AlertTriangle} iconColor="#f59e0b" title="War room model" isOpen={openSections.has("war-room")} onToggle={() => toggleSection("war-room")} isDark={isDark}>
+          <CollapsibleSection id="war-room" icon={AlertTriangle} iconColor="#f59e0b" title="War room model" isOpen={openSections.has("war-room")} onToggle={() => toggleSection("war-room")}>
             <div className={clsx("flex items-start gap-3 p-4 rounded-xl border", isDark ? "bg-[rgba(14,165,233,0.06)] border-[rgba(14,165,233,0.15)]" : "bg-[#eff6ff] border-[#bfdbfe]")}>
               <AlertTriangle className="w-4 h-4 text-[#0ea5e9] shrink-0 mt-0.5" aria-hidden="true" />
               <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>During an FDA inspection, two parallel teams operate. Front room faces the inspector. Back room coordinates evidence and responses.</p>
@@ -487,11 +487,11 @@ export function ReadinessPage() {
           </CollapsibleSection>
 
           {/* ─── SECTION 2 — Inspection teams (Front + Back) ─── */}
-          <CollapsibleSection id="teams" icon={Users} iconColor="#0ea5e9" title="Inspection teams" isOpen={openSections.has("teams")} onToggle={() => toggleSection("teams")} isDark={isDark}>
+          <CollapsibleSection id="teams" icon={Users} iconColor="#0ea5e9" title="Inspection teams" isOpen={openSections.has("teams")} onToggle={() => toggleSection("teams")}>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <CardSection icon={UserCheck} iconColor="#0ea5e9" title="Front room">
                 {[{ role: "QA Head", name: "Dr. Priya Sharma", resp: "Lead inspector contact" }, { role: "Regulatory Affairs", name: "Rahul Mehta", resp: "Document response" }, { role: "SME (on-call)", name: "Dr. Nisha Rao", resp: "Technical questions" }, { role: "Scribe", name: "Vikram Singh", resp: "Log all requests" }].map((r) => (
-                  <div key={r.role} className="flex items-start gap-3 py-2.5 border-b last:border-0" style={{ borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>
+                  <div key={r.role} className="flex items-start gap-3 py-2.5 border-b last:border-0" style={{ borderColor: "var(--bg-border)" }}>
                     <div className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-[#0ea5e9]" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -505,7 +505,7 @@ export function ReadinessPage() {
               </CardSection>
               <CardSection icon={Shield} iconColor="#6366f1" title="Back room">
                 {[{ role: "Evidence Lead", name: "Anita Patel", resp: "Retrieve + review documents" }, { role: "CSV/Val Lead", name: "Suresh Kumar", resp: "System evidence support" }, { role: "QC Lab Director", name: "Dr. Nisha Rao", resp: "Lab records and data" }, { role: "Legal/QP", name: "Rahul Mehta", resp: "Regulatory risk advice" }].map((r) => (
-                  <div key={r.role} className="flex items-start gap-3 py-2.5 border-b last:border-0" style={{ borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>
+                  <div key={r.role} className="flex items-start gap-3 py-2.5 border-b last:border-0" style={{ borderColor: "var(--bg-border)" }}>
                     <div className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-[#6366f1]" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -521,7 +521,7 @@ export function ReadinessPage() {
           </CollapsibleSection>
 
           {/* ─── SECTION 3 — Inspection day flow ─── */}
-          <CollapsibleSection id="day-flow" icon={Calendar} iconColor="#10b981" title="Inspection day flow" isOpen={openSections.has("day-flow")} onToggle={() => toggleSection("day-flow")} isDark={isDark}>
+          <CollapsibleSection id="day-flow" icon={Calendar} iconColor="#10b981" title="Inspection day flow" isOpen={openSections.has("day-flow")} onToggle={() => toggleSection("day-flow")}>
             <div className="space-y-0">
               {FLOW_STEPS.map((step, i) => (
                 <div key={i} className="flex gap-4 items-stretch">
@@ -530,14 +530,14 @@ export function ReadinessPage() {
                   </div>
                   <div className="flex flex-col items-center shrink-0">
                     <div className="w-3 h-3 rounded-full mt-3" style={{ background: step.color }} />
-                    {i < FLOW_STEPS.length - 1 && <div className="w-0.5 flex-1 min-h-4" style={{ background: isDark ? "#1e3a5a" : "#e2e8f0" }} />}
+                    {i < FLOW_STEPS.length - 1 && <div className="w-0.5 flex-1 min-h-4" style={{ background: "var(--bg-border)" }} />}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 py-2">
-                    <div className={clsx("rounded-lg p-2.5 text-[11px]", isDark ? "bg-[#071526] border border-[#1e3a5a]" : "bg-[#f8fafc] border border-[#e2e8f0]")}>
+                    <div className={clsx("rounded-lg p-2.5 text-[11px]", "bg-(--bg-surface) border border-(--bg-border)")}>
                       <p className="text-[10px] font-semibold text-[#0ea5e9] mb-1">FRONT ROOM</p>
                       <p style={{ color: "var(--text-secondary)" }}>{step.front}</p>
                     </div>
-                    <div className={clsx("rounded-lg p-2.5 text-[11px]", isDark ? "bg-[#071526] border border-[#1e3a5a]" : "bg-[#f8fafc] border border-[#e2e8f0]")}>
+                    <div className={clsx("rounded-lg p-2.5 text-[11px]", "bg-(--bg-surface) border border-(--bg-border)")}>
                       <p className="text-[10px] font-semibold text-[#6366f1] mb-1">BACK ROOM</p>
                       <p style={{ color: "var(--text-secondary)" }}>{step.back}</p>
                     </div>
@@ -548,10 +548,10 @@ export function ReadinessPage() {
           </CollapsibleSection>
 
           {/* ─── SECTION 4 — Escalation path ─── */}
-          <CollapsibleSection id="escalation" icon={ChevronUp} iconColor="#ef4444" title="Escalation path" isOpen={openSections.has("escalation")} onToggle={() => toggleSection("escalation")} isDark={isDark}>
-            <div className={clsx("rounded-xl border p-4", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-white border-[#e2e8f0]")}>
+          <CollapsibleSection id="escalation" icon={ChevronUp} iconColor="#ef4444" title="Escalation path" isOpen={openSections.has("escalation")} onToggle={() => toggleSection("escalation")}>
+            <div className={clsx("rounded-xl border p-4", "bg-(--bg-surface) border-(--bg-border)")}>
               {["QA Head \u2192 Operations Head \u2192 Super Admin", "CSV Lead \u2192 IT/CDO \u2192 QA Head", "Reg Affairs \u2192 QA Head \u2192 Legal"].map((p) => (
-                <div key={p} className="flex items-center gap-2 py-2 border-b last:border-0" style={{ borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>
+                <div key={p} className="flex items-center gap-2 py-2 border-b last:border-0" style={{ borderColor: "var(--bg-border)" }}>
                   <ChevronRight className="w-3 h-3 text-[#ef4444] shrink-0" aria-hidden="true" /><span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{p}</span>
                 </div>
               ))}
@@ -559,10 +559,10 @@ export function ReadinessPage() {
           </CollapsibleSection>
 
           {/* ─── SECTION 5 — Daily touchpoints ─── */}
-          <CollapsibleSection id="touchpoints" icon={Clock} iconColor="#f59e0b" title="Daily touchpoints" isOpen={openSections.has("touchpoints")} onToggle={() => toggleSection("touchpoints")} isDark={isDark}>
-            <div className={clsx("rounded-xl border p-4", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-white border-[#e2e8f0]")}>
+          <CollapsibleSection id="touchpoints" icon={Clock} iconColor="#f59e0b" title="Daily touchpoints" isOpen={openSections.has("touchpoints")} onToggle={() => toggleSection("touchpoints")}>
+            <div className={clsx("rounded-xl border p-4", "bg-(--bg-surface) border-(--bg-border)")}>
               {[{ time: "08:00", event: "Back room morning briefing" }, { time: "12:00", event: "Midday status check" }, { time: "17:00", event: "Front/back room debrief" }, { time: "20:00", event: "Overnight action review" }].map((t) => (
-                <div key={t.time} className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>
+                <div key={t.time} className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor: "var(--bg-border)" }}>
                   <span className="text-[11px] font-mono font-semibold text-[#f59e0b] w-12 shrink-0">{t.time}</span>
                   <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{t.event}</span>
                 </div>
@@ -571,7 +571,7 @@ export function ReadinessPage() {
           </CollapsibleSection>
 
           {/* ─── SECTION 6 — RACI ─── */}
-          <CollapsibleSection id="raci" icon={ClipboardList} iconColor="#6366f1" title="RACI — key inspection activities" isOpen={openSections.has("raci")} onToggle={() => toggleSection("raci")} isDark={isDark}>
+          <CollapsibleSection id="raci" icon={ClipboardList} iconColor="#6366f1" title="RACI — key inspection activities" isOpen={openSections.has("raci")} onToggle={() => toggleSection("raci")}>
             <div className="card overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="data-table" style={{ minWidth: 600 }} aria-label="RACI matrix">
@@ -604,7 +604,7 @@ export function ReadinessPage() {
                 const cfg = PB_CFG[pb.type];
                 const PbIcon = cfg.icon;
                 return (
-                  <button key={pb.id} type="button" onClick={() => setSelectedPlaybook(pb)} className={clsx("card text-left cursor-pointer transition-colors hover:border-[#0ea5e9]", isDark ? "border-[#1e3a5a]" : "border-[#e2e8f0]")} aria-label={`Open ${pb.title}`}>
+                  <button key={pb.id} type="button" onClick={() => setSelectedPlaybook(pb)} className={clsx("card text-left cursor-pointer transition-colors hover:border-[#0ea5e9]", "border-(--bg-border)")} aria-label={`Open ${pb.title}`}>
                     <div className="card-body">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: cfg.color + "18" }}><PbIcon className="w-5 h-5" style={{ color: cfg.color }} aria-hidden="true" /></div>
@@ -658,7 +658,7 @@ export function ReadinessPage() {
                 <div>
                   <CardSection icon={FileText} iconColor="#6366f1" title="Document templates">
                     {selectedPlaybook.templates.map((t) => (
-                      <div key={t} className="flex items-center gap-2 py-2.5 border-b last:border-0" style={{ borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>
+                      <div key={t} className="flex items-center gap-2 py-2.5 border-b last:border-0" style={{ borderColor: "var(--bg-border)" }}>
                         <FileText className="w-3.5 h-3.5 text-[#0ea5e9] shrink-0" aria-hidden="true" />
                         <span className="text-[12px]" style={{ color: "var(--text-primary)" }}>{t}</span>
                       </div>
@@ -882,7 +882,7 @@ export function ReadinessPage() {
                         <span className="line-clamp-2">{sim.participants.map((id) => ownerName(id)).join(", ")}</span>
                       </div>
                       {sim.notes && (
-                        <p className="text-[11px] italic pt-2 border-t" style={{ color: "var(--text-muted)", borderColor: isDark ? "#1e3a5a" : "#f1f5f9" }}>{sim.notes}</p>
+                        <p className="text-[11px] italic pt-2 border-t" style={{ color: "var(--text-muted)", borderColor: "var(--bg-border)" }}>{sim.notes}</p>
                       )}
                     </div>
                   ))}
@@ -937,7 +937,7 @@ export function ReadinessPage() {
                                   aria-label={`${isDone ? "Untick" : "Mark"} ${m} for ${u.name}`}
                                   aria-pressed={isDone}
                                   className="w-4 h-4 rounded border mx-auto cursor-pointer transition-colors flex items-center justify-center p-0"
-                                  style={{ background: isDone ? "#10b981" : "transparent", borderColor: isDone ? "#10b981" : isDark ? "#1e3a5a" : "#e2e8f0" }}
+                                  style={{ background: isDone ? "#10b981" : "transparent", borderColor: isDone ? "#10b981" : "var(--bg-border)" }}
                                 >
                                   {isDone && <CheckCircle2 className="w-3 h-3 text-white" aria-hidden="true" />}
                                 </button>
@@ -948,7 +948,7 @@ export function ReadinessPage() {
                             <td key={m} className="text-center">
                               <div
                                 className="relative w-4 h-4 rounded border mx-auto flex items-center justify-center group"
-                                style={{ background: isDone ? "var(--success-bg)" : "transparent", borderColor: isDone ? "#10b981" : isDark ? "#1e3a5a" : "#e2e8f0" }}
+                                style={{ background: isDone ? "var(--success-bg)" : "transparent", borderColor: isDone ? "#10b981" : "var(--bg-border)" }}
                                 title="Only QA Head or the user themselves can update this training record"
                                 aria-label={isDone ? `${m} complete for ${u.name} (read-only)` : `${m} not complete for ${u.name} (read-only)`}
                               >
@@ -963,7 +963,7 @@ export function ReadinessPage() {
                         })}
                         <td>
                           <div className="flex items-center gap-2">
-                            <div className={clsx("h-1.5 rounded-full flex-1", isDark ? "bg-[#1e3a5a]" : "bg-[#e2e8f0]")}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444" }} /></div>
+                            <div className={clsx("h-1.5 rounded-full flex-1", "bg-(--bg-border)")}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444" }} /></div>
                             <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{pct}%</span>
                           </div>
                         </td>
@@ -990,7 +990,7 @@ export function ReadinessPage() {
             <div><p className="text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Due date *</p><Controller name="dueDate" control={control} render={({ field }) => <input type="date" {...field} className="input w-full" />} />{errors.dueDate && <p className="text-[11px] text-[#ef4444] mt-1">{errors.dueDate.message}</p>}</div>
           </div>
           <div><p className="text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>AGI risk</p><Controller name="agiRisk" control={control} render={({ field }) => <Dropdown options={RISK_OPTIONS} value={field.value} onChange={field.onChange} width="w-44" />} /></div>
-          <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
+          <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: "var(--bg-border)" }}>
             <Button variant="secondary" onClick={() => { setAddCardOpen(false); reset(); }}>Cancel</Button>
             <Button type="submit" icon={Plus}>Add action</Button>
           </div>
@@ -1046,7 +1046,7 @@ export function ReadinessPage() {
             )}
             {simErrors.participants && <p className="text-[11px] text-[#ef4444] mt-1">{simErrors.participants.message}</p>}
           </div>
-          <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
+          <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: "var(--bg-border)" }}>
             <Button variant="secondary" onClick={() => { setAddSimOpen(false); simReset(); }}>Cancel</Button>
             <Button type="submit" icon={Plus}>Schedule</Button>
           </div>
@@ -1058,7 +1058,7 @@ export function ReadinessPage() {
         {activeSim && (
           <div className="space-y-4">
             {/* Sim details */}
-            <div className={clsx("rounded-lg p-3 space-y-1", isDark ? "bg-[#071526] border border-[#1e3a5a]" : "bg-[#f8fafc] border border-[#e2e8f0]")}>
+            <div className={clsx("rounded-lg p-3 space-y-1", "bg-(--bg-surface) border border-(--bg-border)")}>
               <div className="flex items-start gap-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wider min-w-[90px]" style={{ color: "var(--text-muted)" }}>Simulation</span>
                 <span className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>{activeSim.title}</span>
@@ -1110,7 +1110,7 @@ export function ReadinessPage() {
             </div>
 
             {/* Update training records section */}
-            <div className="pt-3 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
+            <div className="pt-3 border-t" style={{ borderColor: "var(--bg-border)" }}>
               <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>Update training records</p>
               <p className="text-[12px] mb-3" style={{ color: "var(--text-secondary)" }}>Mark these modules complete for all participants?</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mb-3">
@@ -1144,7 +1144,7 @@ export function ReadinessPage() {
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
+            <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: "var(--bg-border)" }}>
               <Button variant="secondary" onClick={() => setActiveSim(null)}>Cancel</Button>
               <Button variant="primary" icon={CheckCircle2} onClick={completeActiveSimulation}>Save &amp; update training</Button>
             </div>
@@ -1164,7 +1164,7 @@ export function ReadinessPage() {
           <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
             The action will return to <strong>Not Started</strong>. Completion metadata will be cleared and the readiness score will recalculate.
           </p>
-          <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
+          <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: "var(--bg-border)" }}>
             <Button variant="secondary" onClick={() => setReopenTarget(null)}>Cancel</Button>
             <Button variant="primary" onClick={confirmReopen}>Reopen</Button>
           </div>
@@ -1182,11 +1182,10 @@ interface CollapsibleSectionProps {
   title: string;
   isOpen: boolean;
   onToggle: () => void;
-  isDark: boolean;
   children: ReactNode;
 }
 
-function CollapsibleSection({ id, icon: Icon, iconColor, title, isOpen, onToggle, isDark, children }: CollapsibleSectionProps) {
+function CollapsibleSection({ id, icon: Icon, iconColor, title, isOpen, onToggle, children }: CollapsibleSectionProps) {
   const panelId = `gov-panel-${id}`;
   const btnId = `gov-btn-${id}`;
   return (
@@ -1202,12 +1201,12 @@ function CollapsibleSection({ id, icon: Icon, iconColor, title, isOpen, onToggle
           padding: "14px 20px",
           borderRadius: 12,
           borderWidth: 1,
-          borderColor: isDark ? "#1e3a5a" : "#e2e8f0",
-          background: isDark ? "#0a1f38" : "#ffffff",
+          borderColor: "var(--bg-border)",
+          background: "var(--bg-elevated)",
           color: "var(--text-primary)",
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? "#0d2a4a" : "#f8fafc"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = isDark ? "#0a1f38" : "#ffffff"; }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg-elevated)"; }}
       >
         <span className="flex items-center gap-2.5">
           <Icon className="w-4 h-4 shrink-0" style={{ color: iconColor }} aria-hidden="true" />
