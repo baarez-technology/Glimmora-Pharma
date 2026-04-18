@@ -80,12 +80,20 @@ export default async function handler(
       const users: any[] = tenant.config?.users ?? [];
       const match = users.find(
         (u) =>
-          u.status === "Active" &&
-          ((u.username && u.username.toLowerCase() === key) ||
-            (u.email && u.email.toLowerCase() === key) ||
-            (u.name && u.name.toLowerCase() === key)),
+          (u.username && u.username.toLowerCase() === key) ||
+          (u.email && u.email.toLowerCase() === key) ||
+          (u.name && u.name.toLowerCase() === key),
       );
       if (match && (!match.password || match.password === password)) {
+        // User-level gate — credentials matched but the user record is
+        // Inactive. Return a clear message so the UI can show it.
+        if (match.status !== "Active") {
+          return res.status(403).json({
+            error:
+              "Your account is inactive. Please contact your administrator to reactivate it.",
+            reason: "USER_INACTIVE",
+          });
+        }
         // Subscription gate — block login when the tenant has no active or
         // non-expired subscription plan, regardless of the user's own
         // per-record status.

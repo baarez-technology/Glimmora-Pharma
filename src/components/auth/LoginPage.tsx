@@ -200,6 +200,13 @@ export function LoginPage() {
           });
           return;
         }
+        if (result.error && result.error.includes("USER_INACTIVE")) {
+          setError("root", {
+            message:
+              "Your account is inactive. Please contact your administrator to reactivate it.",
+          });
+          return;
+        }
         console.warn("[login] next-auth rejected credentials:", result.error);
       }
     } catch (err) {
@@ -267,6 +274,21 @@ export function LoginPage() {
         return;
       }
     } catch (err) {
+      const reason = (err as Error & { reason?: string })?.reason;
+      if (reason === "USER_INACTIVE") {
+        setError("root", {
+          message:
+            "Your account is inactive. Please contact your administrator to reactivate it.",
+        });
+        return;
+      }
+      if (reason === "SUBSCRIPTION_INACTIVE") {
+        setError("root", {
+          message:
+            "Your subscription has expired or no active plan is configured. Please contact your administrator.",
+        });
+        return;
+      }
       console.warn("[login] API unreachable, falling back to local cache", err);
     }
 
@@ -278,7 +300,14 @@ export function LoginPage() {
           u.email.toLowerCase() === key ||
           u.name.toLowerCase() === key,
       );
-      if (tenantUser && tenantUser.status === "Active" && (!tenantUser.password || tenantUser.password === data.password)) {
+      if (tenantUser && (!tenantUser.password || tenantUser.password === data.password)) {
+        if (tenantUser.status !== "Active") {
+          setError("root", {
+            message:
+              "Your account is inactive. Please contact your administrator to reactivate it.",
+          });
+          return;
+        }
         const user: AuthUser = {
           id: tenantUser.id,
           name: tenantUser.name,

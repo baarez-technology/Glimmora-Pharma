@@ -77,14 +77,20 @@ async function findTenantUser(
   for (const row of rows) {
     const users = row.config?.users ?? [];
     for (const u of users) {
-      const status = u.status as string | undefined;
-      if (status !== "Active") continue;
       const matches =
         (typeof u.username === "string" && u.username.toLowerCase() === key) ||
         (typeof u.email === "string" && u.email.toLowerCase() === key) ||
         (typeof u.name === "string" && u.name.toLowerCase() === key);
       if (!matches) continue;
       if (typeof u.password === "string" && u.password !== password) continue;
+
+      // User-level gate — credentials matched but the user record is
+      // Inactive. Block with a clear message instead of falling through
+      // to "Invalid username or password".
+      const status = u.status as string | undefined;
+      if (status !== "Active") {
+        throw new Error("USER_INACTIVE");
+      }
 
       // Subscription gate — block login when the tenant has no active or
       // non-expired subscription. Throwing a tagged error lets next-auth

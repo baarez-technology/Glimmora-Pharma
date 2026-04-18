@@ -139,6 +139,7 @@ Open URL → Sign In (email/SSO) → Select Organisation / Site → Dashboard
 - If you have access to multiple sites, you will see multiple cards on the site picker. Select the relevant site for this session.
 - Your role is site-specific. Switching sites may change available modules.
 - If you are denied access to a module, your role does not include that path. Contact your Super Admin.
+- **Inactive accounts** — users whose status is set to Inactive in Settings → Users & Roles cannot sign in. They will see the message "Your account is inactive. Please contact your administrator to reactivate it." Re-activation is done by a Super Admin or Customer Admin from Settings → Users & Roles.
 
 ---
 
