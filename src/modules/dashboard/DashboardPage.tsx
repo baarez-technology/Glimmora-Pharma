@@ -112,8 +112,19 @@ export function DashboardPage() {
     }).length;
     // High-risk systems in this site (for CSV/IT area)
     const sysRisk = area === "CSV/IT" ? filteredSystems.filter((s) => (!siteId || s.siteId === siteId) && (s.riskLevel === "HIGH" && s.validationStatus !== "Validated")).length : 0;
+    // "Has data" = something has actually been logged for this area+site.
+    // Without this, an untouched site shows as 100% green everywhere, which
+    // reads as "fully compliant" when it really means "never assessed".
+    const totalFindingsForArea = findings.filter((f) => f.area === area && (!siteId || f.siteId === siteId)).length;
+    const totalCapasForArea = capas.filter((c) => {
+      if (siteId && c.siteId !== siteId) return false;
+      const lf = findings.find((f) => f.id === c.findingId);
+      return lf ? lf.area === area : false;
+    }).length;
+    const totalSystemsForArea = area === "CSV/IT" ? systems.filter((s) => !siteId || s.siteId === siteId).length : 0;
+    const hasData = totalFindingsForArea + totalCapasForArea + totalSystemsForArea > 0;
     const score = Math.max(0, 100 - cr * 30 - mj * 15 - areaCapaOverdue * 20 - sysRisk * 25);
-    return { score, open: af.length, critical: cr };
+    return { score, open: af.length, critical: cr, hasData };
   }
   const displayedSites = siteFilter ? visibleSites.filter((s) => s.id === siteFilter) : visibleSites;
 
@@ -212,7 +223,11 @@ export function DashboardPage() {
                     <tbody>{AREAS.map((area) => (
                       <tr key={area}><td className="py-1 pr-3 font-medium whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{area}</td>
                         {displayedSites.map((site) => {
-                          const { score, open, critical } = getAreaScore(area, site.id);
+                          const { score, open, critical, hasData } = getAreaScore(area, site.id);
+                          if (!hasData) {
+                            const neutral = "#64748b";
+                            return <td key={site.id} className="py-1 px-1 text-center"><button type="button" title={`${area} \u2014 ${site.name}\nNot assessed yet \u2014 no findings, CAPAs or systems logged for this area.`} onClick={() => navigate("/gap-assessment")} className="w-full py-2 px-1 rounded-lg text-[10px] font-bold border-none cursor-pointer transition-opacity hover:opacity-80" style={{ background: neutral + "1a", color: neutral, border: `1px dashed ${neutral}55` }} aria-label={`${area} ${site.name}: not assessed yet`}>\u2014</button></td>;
+                          }
                           const bg = score >= 80 ? "#10b981" : score >= 60 ? "#f59e0b" : "#ef4444";
                           return <td key={site.id} className="py-1 px-1 text-center"><button type="button" title={`${area} \u2014 ${site.name}\nScore: ${score}%\nOpen: ${open}\nCritical: ${critical}`} onClick={() => navigate("/gap-assessment")} className="w-full py-2 px-1 rounded-lg text-[10px] font-bold border-none cursor-pointer transition-opacity hover:opacity-80" style={{ background: bg + "22", color: bg, border: `1px solid ${bg}44` }} aria-label={`${area} ${site.name}: ${score}%`}>{open === 0 ? "\u2713" : `${score}%`}</button></td>;
                         })}
@@ -220,7 +235,7 @@ export function DashboardPage() {
                     ))}</tbody>
                   </table>
                 </div>
-                <div className="flex gap-4 mt-3 text-[10px]" style={{ color: "var(--text-muted)" }}>{[["#10b981", "\u2265 80% ready"], ["#f59e0b", "60\u201379%"], ["#ef4444", "< 60%"]].map(([c, l]) => <div key={l} className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{ background: c }} />{l}</div>)}</div>
+                <div className="flex gap-4 mt-3 text-[10px] flex-wrap" style={{ color: "var(--text-muted)" }}>{[["#10b981", "\u2265 80% ready"], ["#f59e0b", "60\u201379%"], ["#ef4444", "< 60%"], ["#64748b", "not assessed"]].map(([c, l]) => <div key={l} className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{ background: c }} />{l}</div>)}</div>
                 {visibleSites.length > displayedSites.length && !siteFilter && <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>Showing {displayedSites.length} of {visibleSites.length} sites. Use site filter to view a specific site.</p>}
               </>
             )}

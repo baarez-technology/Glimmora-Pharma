@@ -149,7 +149,7 @@ Open URL → Sign In (email/SSO) → Select Organisation / Site → Dashboard
 **What it shows:**
 - **Readiness Score** — Overall GxP/GMP inspection readiness (0–100).
 - **KPI Cards** — Critical findings count, CAPA overdue %, high-risk CSV systems, training compliance %.
-- **Area Heatmap** — Risk level (HIGH/MED/LOW) by site and functional area.
+- **Area Heatmap** — Risk level (HIGH/MED/LOW) by site and functional area. Cells are colour-coded: green ≥ 80%, amber 60–79%, red < 60%, and grey dashed "—" when no findings, CAPAs, or systems have been logged yet for that area + site (i.e. not assessed, not 100% ready).
 - **Observation Trend Chart** — Monthly observation volume by severity (Critical/Major/Minor).
 - **AGI Insights Panel** — Active only when AGI mode is Assisted or Autonomous. Shows top 3 risks with module links.
 - **90-Day Action Plan** — Prioritised actions with owners, due dates, status, and AGI risk scores.
