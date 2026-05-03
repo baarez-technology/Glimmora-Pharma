@@ -43,6 +43,11 @@ export function loadPersistedState(): Record<string, any> | undefined {
     }
     return out;
   } catch {
+    // localStorage throw (private browsing) OR JSON.parse failure
+    // (corrupt cached state from a manual edit or crashed write). Either
+    // way, returning undefined makes the caller fall back to slice
+    // defaults — the same end state as a fresh visitor. Symmetric with
+    // the persistMiddleware catch below.
     return undefined;
   }
 }

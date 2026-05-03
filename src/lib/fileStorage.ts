@@ -67,6 +67,11 @@ function createLocalStorage(): FileStorage {
         await fs.access(resolveKey(key));
         return true;
       } catch {
+        // Any access failure — missing file, permission denied, disk
+        // unmounted — answers exists() with false. fs.access has no
+        // narrower API, and exists() callers (idempotency checks
+        // upstream) only need a boolean. Cause-differentiated logging
+        // would be noisy on hot paths where misses are expected.
         return false;
       }
     },

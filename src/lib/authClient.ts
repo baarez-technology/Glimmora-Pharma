@@ -35,7 +35,15 @@ export async function fetchCurrentUser(): Promise<{
     if (!res.ok) return null;
     const data = await res.json();
     return data.user;
-  } catch {
+  } catch (reason) {
+    // Network failure / JSON parse error / server crash — distinct from
+    // the `res.status === 401 → null` path above, which means "no
+    // session". Caller (e.g. AdminShell's fetchCurrentUser().then() .catch
+    // chain) treats null as "no user available" uniformly, so behavior is
+    // unchanged. Logging here gives ops a breadcrumb when the silent-null
+    // path was actually a transient infra failure rather than a genuine
+    // unauthenticated request.
+    console.error("[authClient] fetchCurrentUser failed:", reason);
     return null;
   }
 }
