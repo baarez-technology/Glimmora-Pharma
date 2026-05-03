@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { toggleFramework } from "@/store/settings.slice";
@@ -32,7 +32,13 @@ const FRAMEWORKS: FrameworkEntry[] = [
 export function FrameworksTab({ readOnly = false }: { readOnly?: boolean }) {
   const dispatch = useAppDispatch();
   const frameworks = useAppSelector((s) => s.settings.frameworks);
-  const activeCount = Object.values(frameworks).filter(Boolean).length;
+  // Memoised so the Object.values + .filter pass doesn't re-run (and
+  // re-allocate the intermediate array) on every render. Recomputed only
+  // when the frameworks slice reference changes.
+  const activeCount = useMemo(
+    () => Object.values(frameworks).filter(Boolean).length,
+    [frameworks],
+  );
   const [warnPopup, setWarnPopup] = useState(false);
   const [pendingKey, setPendingKey] = useState<keyof FrameworkSettings | null>(null);
 

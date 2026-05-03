@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import {
@@ -113,19 +113,25 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     });
   };
 
-  const visibleGroups = NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((item) => {
-      if (item.path === "readiness" || item.path === "deviation") return true;
-      if (item.path === "audit-trail")
-        return (
-          role === "qa_head" ||
-          role === "customer_admin" ||
-          role === "super_admin"
-        );
-      return allowedPaths.includes(item.path);
-    }),
-  })).filter((g) => g.items.length > 0);
+  // Memoised so role-gated filtering doesn't allocate a fresh array of
+  // groups (and inner item arrays) on every Sidebar render. NAV_GROUPS is
+  // module-scoped so it isn't a dep; only `role` and `allowedPaths` from
+  // useRole() can change the result.
+  const visibleGroups = useMemo(() => (
+    NAV_GROUPS.map((g) => ({
+      ...g,
+      items: g.items.filter((item) => {
+        if (item.path === "readiness" || item.path === "deviation") return true;
+        if (item.path === "audit-trail")
+          return (
+            role === "qa_head" ||
+            role === "customer_admin" ||
+            role === "super_admin"
+          );
+        return allowedPaths.includes(item.path);
+      }),
+    })).filter((g) => g.items.length > 0)
+  ), [role, allowedPaths]);
 
   const handleLogout = async () => {
     // AUTH-03: Clear next-auth session cookie first (server-side), then
