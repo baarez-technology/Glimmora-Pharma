@@ -1,15 +1,13 @@
 import { useState } from "react";
 import clsx from "clsx";
 import { ShieldCheck } from "lucide-react";
-import type { CAPA, CAPARisk, CAPAStatus } from "@/store/capa.slice";
+import type { CAPA } from "@/store/capa.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Toggle } from "@/components/ui/Toggle";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
-
-const RISK_VARIANT: Record<CAPARisk, "red" | "amber" | "green"> = { Critical: "red", High: "amber", Low: "green" };
-const STATUS_VARIANT: Record<CAPAStatus, "blue" | "amber" | "purple" | "green"> = { Open: "blue", "In Progress": "amber", "Pending QA Review": "purple", Closed: "green" };
+import { CAPA_RISK_VARIANT as RISK_VARIANT, CAPA_STATUS_VARIANT as STATUS_VARIANT } from "@/lib/badgeVariants";
 
 interface SignCloseModalProps {
   isOpen: boolean;
