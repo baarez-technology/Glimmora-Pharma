@@ -761,6 +761,7 @@ wired up. QA people hate discovering these mid-task.
 | 9 | Effectiveness check toggle in Sign & Close modal | §4.5 step 7 | I described the toggle appearing only if the CAPA's `effectivenessCheck` is on. **Confirm** the conditional render actually hides it when `effectivenessCheck` is off. |
 | 10 | Pending categories in Evidence tab collapse by default | §4.3 step 5 | I said Pending categories with zero files are collapsed by default. **Confirm** this UX matches what's running today (it was in a recent design plan; verify it shipped). |
 
-These ten items would each take a developer a few minutes to verify by
-clicking through the live app. Resolving them lets this guide move from
-"best-effort honest" to "verified per-build."
+These ten items have been resolved in [USER_GUIDE_CONFIRMATIONS.md](USER_GUIDE_CONFIRMATIONS.md).
+After applying the recommended edits in that document, this guide moves
+from "best-effort honest" to "verified per-build" against current HEAD
+(commit `40f5b76`).
