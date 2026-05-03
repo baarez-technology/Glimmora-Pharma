@@ -216,10 +216,13 @@ reports, certificates, etc.), separate from CAPA evidence. You can
 also bundle selected documents into an **Evidence Pack** for an
 inspector handoff.
 
-Layout: a searchable grid of documents with filters across the top.
-When you select documents using the row checkboxes, a floating bar
-appears at the bottom letting you name and export the selection as
-an HTML evidence pack.
+Layout: a single page — there are no tabs. A searchable grid of documents
+with filters across the top. When you select documents using the row
+checkboxes, a floating bar appears at the bottom letting you name and
+export the selection as an HTML evidence pack. (Files named
+DILStatusTab.tsx and PackBuilderTab.tsx exist in the source but are not
+imported or rendered — orphan code from an earlier design. Don't expect
+to find tabs in this module.)
 
 What you can do:
 - Click **Add document** to register a new document (title, reference,
