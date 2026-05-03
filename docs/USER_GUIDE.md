@@ -412,8 +412,9 @@ standard categories — fill them in as you collect each one.
    Equipment Logs, Environmental Data, Deviation History, Witness
    Interviews, Supplier Data). A progress bar at the top shows how many
    of the seven you've completed.
-5. For each category you have evidence for:
-   - Click the card to expand it (Pending categories are collapsed by default).
+5. All seven category cards render fully expanded by default — there is
+   no collapse / expand affordance today. For each category you have
+   evidence for:
    - Set the **Status** dropdown (Pending → In Progress → Complete, or
      Not Applicable if it doesn't apply).
    - Type into **Notes** to record what evidence you collected, by whom,
