@@ -259,9 +259,10 @@ What you can do:
   (5 Why / Fishbone / freeform) per observation, draft the response
   letter, and **Sign & Submit** when ready.
 
-> **Heads-up:** the "Generate AI draft" button on the response page
-> currently produces a template-based draft, **not** real AI-generated
-> text — there is no live LLM behind it yet. See §6.
+> **Heads-up:** the "Generate AI draft" button does not generate
+> anything with AI. It inserts a hardcoded boilerplate response template
+> (date, agency, observation list, linked CAPAs) into the editor. The
+> button label is misleading — treat it as "Insert template". See §6.
 
 ---
 
