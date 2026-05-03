@@ -18,7 +18,6 @@ import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   setCAPAs,
   addCAPA, updateCAPA as updateCAPAAction, closeCAPA,
-  addCAPADocument, removeCAPADocument, approveCAPADocument,
   type CAPA, type CAPARisk, type CAPAStatus, type CAPASource, type RCAMethod,
 } from "@/store/capa.slice";
 import { closeFinding } from "@/store/findings.slice";
@@ -111,7 +110,10 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     }
   }, [serverCAPAs, dispatch]);
   const [, startTransition] = useTransition();
-  const { canSign, canCloseCapa, isViewOnly } = useRole();
+  // canSign / canCloseCapa moved into the CAPADetailModal (which calls
+  // useRole itself); this page only needs isViewOnly to gate the table's
+  // "New CAPA" button + edit affordances at the row level.
+  const { isViewOnly } = useRole();
   const { isCustomerAdmin, canCreateCAPAs } = usePermissions();
 
   const { capas, fda483Events, tenantId } = useTenantData();
@@ -359,14 +361,11 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         <CAPATrackerTab
           capas={capas} filteredCAPAs={capas} selectedCAPA={selectedCAPA} onSelectCAPA={setSelectedCAPA}
           isDark={isDark} isViewOnly={isViewOnly} users={users} user={user} sites={allSites}
-          timezone={timezone} dateFormat={dateFormat} canSign={canSign} canCloseCapa={canCloseCapa}
+          timezone={timezone} dateFormat={dateFormat}
           onAddOpen={() => setAddOpen(true)} onEditOpen={() => setEditModalOpen(true)}
           onSignOpen={() => setSignOpen(true)} onSubmitForReview={handleSubmitForReview}
           onNavigateGap={(fid) => router.push(`/gap-assessment?openFindingId=${encodeURIComponent(fid)}`)}
           onNavigateCapa={() => router.push("/gap-assessment")}
-          onDocUpload={(capaId, doc) => dispatch(addCAPADocument({ capaId, doc }))}
-          onDocDelete={(capaId, docId) => dispatch(removeCAPADocument({ capaId, docId }))}
-          onDocApprove={(capaId, docId, approvedBy) => dispatch(approveCAPADocument({ capaId, docId, approvedBy }))}
         />
       )}
 

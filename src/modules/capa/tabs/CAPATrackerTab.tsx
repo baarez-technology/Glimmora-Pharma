@@ -1,12 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import {
-  ClipboardCheck, Plus, Search, ChevronRight, Link2, Pencil,
-  AlertCircle, AlertTriangle, CheckCircle2, TrendingUp,
-  ShieldCheck, Send, FileSearch,
-} from "lucide-react";
-import { DocumentUpload, type LinkedDocument } from "@/components/shared";
-import clsx from "clsx";
+import { ClipboardCheck, Plus, Search, ChevronRight, Link2, CheckCircle2 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import type { CAPA, CAPARisk, CAPAStatus } from "@/store/capa.slice";
 import type { AuthUser } from "@/store/auth.slice";
@@ -14,27 +8,15 @@ import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
-import { Modal } from "@/components/ui/Modal";
-import { EvidenceCollectionPanel } from "./EvidenceCollectionPanel";
-
-/* Sub-tabs inside the selected-CAPA panel. v1 has Overview + Evidence;
- * future substages (RCA, Action Plan, Effectiveness) plug in here. */
-type CAPADetailSubTab = "overview" | "evidence";
-const DETAIL_SUB_TABS: { id: CAPADetailSubTab; label: string; Icon: typeof ClipboardCheck }[] = [
-  { id: "overview", label: "Overview", Icon: ClipboardCheck },
-  { id: "evidence", label: "Evidence", Icon: FileSearch },
-];
+import { CAPA_RISK_VARIANT, CAPA_STATUS_VARIANT } from "@/lib/badgeVariants";
+import { CAPADetailModal } from "../modals/CAPADetailModal";
 
 /* ── Helpers ── */
 const SOURCE_LABEL: Record<string, string> = { "483": "FDA 483 Observation", "Gap Assessment": "Gap Assessment Finding", Deviation: "Deviation Report", "Internal Audit": "Internal Audit", Complaint: "Complaint", OOS: "OOS", "Change Control": "Change Control" };
 function sourceLabel(s: string) { return SOURCE_LABEL[s] ?? s; }
-const RISK_VARIANT: Record<CAPARisk, "red" | "amber" | "green"> = { Critical: "red", High: "amber", Low: "green" };
-const STATUS_VARIANT: Record<CAPAStatus, "blue" | "amber" | "purple" | "green"> = { Open: "blue", "In Progress": "amber", "Pending QA Review": "purple", Closed: "green" };
-function riskBadge(r: CAPARisk) { return <Badge variant={RISK_VARIANT[r]}>{r}</Badge>; }
-function capaStatusBadge(s: CAPAStatus) { return <Badge variant={STATUS_VARIANT[s]}>{s}</Badge>; }
+function riskBadge(r: CAPARisk) { return <Badge variant={CAPA_RISK_VARIANT[r]}>{r}</Badge>; }
+function capaStatusBadge(s: CAPAStatus) { return <Badge variant={CAPA_STATUS_VARIANT[s]}>{s}</Badge>; }
 function ownerName(uid: string, users: UserConfig[]) { return users.find((u) => u.id === uid)?.name ?? uid; }
-function riskLevel(r: CAPARisk): string { return r === "Critical" ? "Critical" : r === "High" ? "High" : "Low"; }
-function riskVariant(r: CAPARisk): "red" | "amber" | "green" { return r === "Critical" ? "red" : r === "High" ? "amber" : "green"; }
 
 interface SiteOption {
   id: string;
@@ -53,26 +35,19 @@ interface CAPATrackerTabProps {
   sites: SiteOption[];
   timezone: string;
   dateFormat: string;
-  canSign: boolean;
-  canCloseCapa: boolean;
   onAddOpen: () => void;
   onEditOpen: () => void;
   onSignOpen: () => void;
   onSubmitForReview: (id: string) => void;
   onNavigateGap: (findingId: string) => void;
   onNavigateCapa: () => void;
-  onDocUpload?: (capaId: string, doc: LinkedDocument) => void;
-  onDocDelete?: (capaId: string, docId: string) => void;
-  onDocApprove?: (capaId: string, docId: string, approvedBy: string) => void;
 }
 
 export function CAPATrackerTab({
   capas, filteredCAPAs, selectedCAPA, onSelectCAPA,
   isDark, isViewOnly, users, user, sites, timezone, dateFormat,
-  canSign, canCloseCapa,
   onAddOpen, onEditOpen, onSignOpen, onSubmitForReview,
   onNavigateGap, onNavigateCapa,
-  onDocUpload, onDocDelete, onDocApprove,
 }: CAPATrackerTabProps) {
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const showSiteColumn = !selectedSiteId && sites.length > 1;
@@ -82,11 +57,6 @@ export function CAPATrackerTab({
   const [statusFilter, setStatusFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
-  const [detailSubTab, setDetailSubTab] = useState<CAPADetailSubTab>("overview");
-  // Reset to overview every time a different CAPA is opened.
-  useEffect(() => {
-    setDetailSubTab("overview");
-  }, [selectedCAPA?.id]);
 
   const anyFilterActive = !!(search || siteFilter || statusFilter || riskFilter || sourceFilter);
   function clearFilters() { setSearch(""); setSiteFilter(""); setStatusFilter(""); setRiskFilter(""); setSourceFilter(""); }
@@ -174,202 +144,26 @@ export function CAPATrackerTab({
         )}
       </div>
 
-      {/* ── CAPA detail popup ── */}
-      <Modal open={!!selectedCAPA} onClose={() => onSelectCAPA(null)} title={selectedCAPA?.id ?? "CAPA Detail"}>
-        {selectedCAPA && (
-          <div className="space-y-4">
-            {/* Breadcrumb */}
-            <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[13px] -mt-1">
-              <button
-                type="button"
-                onClick={() => onSelectCAPA(null)}
-                className="bg-transparent border-none cursor-pointer p-0 hover:underline"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                QMS &amp; CAPA Tracker
-              </button>
-              <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>&rsaquo;</span>
-              <span className="font-mono font-medium" style={{ color: "var(--text-primary)" }}>{selectedCAPA.id}</span>
-            </nav>
-            {/* Header actions */}
-            <div className="flex items-center justify-between">
-              <div className="flex gap-2 flex-wrap">{capaStatusBadge(selectedCAPA.status)}{riskBadge(selectedCAPA.risk)}</div>
-              {!isViewOnly && selectedCAPA.status !== "Closed" && (
-                <Button variant="ghost" size="xs" icon={Pencil} aria-label={`Edit ${selectedCAPA.id}`} onClick={onEditOpen} />
-              )}
-            </div>
-
-            {/* Sub-tabs */}
-            <div role="tablist" aria-label="CAPA detail sections" className="flex gap-1 border-b border-(--bg-border)">
-              {DETAIL_SUB_TABS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  id={`subtab-${t.id}`}
-                  aria-selected={detailSubTab === t.id}
-                  aria-controls={`subpanel-${t.id}`}
-                  onClick={() => setDetailSubTab(t.id)}
-                  className={clsx(
-                    "inline-flex items-center gap-2 px-3 py-2 text-[12px] font-semibold border-b-2 -mb-px bg-transparent border-x-0 border-t-0 cursor-pointer outline-none transition-colors duration-150",
-                    detailSubTab === t.id
-                      ? "border-b-(--brand) text-(--brand)"
-                      : "border-b-transparent text-(--text-muted) hover:text-(--text-secondary)",
-                  )}
-                >
-                  <t.Icon className="w-3.5 h-3.5" aria-hidden="true" />
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            {detailSubTab === "evidence" && (
-              <div role="tabpanel" id="subpanel-evidence" aria-labelledby="subtab-evidence" tabIndex={0}>
-                <EvidenceCollectionPanel
-                  capaId={selectedCAPA.id}
-                  readOnly={isViewOnly || selectedCAPA.status === "Closed"}
-                />
-              </div>
-            )}
-
-            {detailSubTab === "overview" && (
-            <div role="tabpanel" id="subpanel-overview" aria-labelledby="subtab-overview" tabIndex={0} className="space-y-4">
-
-            {/* Description */}
-            <div>
-              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-(--text-muted) mb-1">Description</h3>
-              <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedCAPA.description}</p>
-            </div>
-
-            {/* Risk-based classification */}
-            <section aria-labelledby="rbc-heading">
-              <h3 id="rbc-heading" className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Risk-based classification</h3>
-              {[
-                { label: "Patient safety risk", variant: riskVariant(selectedCAPA.risk), text: riskLevel(selectedCAPA.risk) },
-                { label: "Product quality impact", variant: riskVariant(selectedCAPA.risk), text: riskLevel(selectedCAPA.risk) },
-                { label: "Regulatory exposure", variant: (selectedCAPA.diGate ? "red" : riskVariant(selectedCAPA.risk)) as "red" | "amber" | "green", text: selectedCAPA.diGate ? "High" : riskLevel(selectedCAPA.risk) },
-              ].map((row) => (
-                <div key={row.label} className={clsx("flex justify-between items-center py-2 border-b")} style={{ borderColor: isDark ? "#0f2039" : "#f1f5f9" }}>
-                  <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{row.label}</span>
-                  <Badge variant={row.variant}>{row.text}</Badge>
-                </div>
-              ))}
-            </section>
-
-            {/* Source & Finding */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Source</p>
-                <Badge variant="gray">{sourceLabel(selectedCAPA.source)}</Badge>
-              </div>
-              {selectedCAPA.findingId && (
-                <div>
-                  <p className="text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Linked finding</p>
-                  <button type="button" onClick={() => onNavigateGap(selectedCAPA.findingId!)} className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0">
-                    <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{selectedCAPA.findingId}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* RCA */}
-            <section aria-labelledby="rca-heading">
-              <h3 id="rca-heading" className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>Root cause analysis</h3>
-              {selectedCAPA.rcaMethod && <div className="flex items-center gap-2 mb-2"><span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Method:</span><Badge variant="purple">{selectedCAPA.rcaMethod}</Badge></div>}
-              {selectedCAPA.rca ? (
-                <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedCAPA.rca}</p>
-              ) : (
-                <div className="flex items-start gap-2 p-3 rounded-lg" style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: isDark ? "1px solid rgba(245,158,11,0.2)" : "1px solid #fde68a" }}>
-                  <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" aria-hidden="true" />
-                  <div>
-                    <p className="text-[12px] font-medium text-[#f59e0b]">RCA not yet documented</p>
-                    <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>Click the edit button above to add root cause analysis</p>
-                  </div>
-                </div>
-              )}
-              {selectedCAPA.correctiveActions && <><h4 className="text-[11px] font-semibold uppercase tracking-wider mt-3 mb-1" style={{ color: "var(--text-muted)" }}>Corrective actions</h4><p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedCAPA.correctiveActions}</p></>}
-            </section>
-
-            {/* DI Gate — only shown for CSV/IT-related CAPAs (diGate set at creation from Part 11/Annex 11 framework) */}
-            {selectedCAPA.diGate && (() => {
-              const diOpen = selectedCAPA.diGateStatus !== "cleared";
-              const diCleared = selectedCAPA.diGateStatus === "cleared";
-              return (
-                <div className={clsx("flex items-start gap-2 p-3 rounded-lg text-[12px] border", diOpen ? (isDark ? "bg-[rgba(239,68,68,0.08)] border-[rgba(239,68,68,0.2)]" : "bg-[#fef2f2] border-[#fca5a5]") : (isDark ? "bg-[rgba(16,185,129,0.08)] border-[rgba(16,185,129,0.2)]" : "bg-[#f0fdf4] border-[#a7f3d0]"))}>
-                  {diOpen ? <AlertCircle className="w-4 h-4 text-[#ef4444] shrink-0 mt-0.5" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 text-[#10b981] shrink-0 mt-0.5" aria-hidden="true" />}
-                  <div className="flex-1 min-w-0">
-                    <span className="font-semibold block" style={{ color: diOpen ? "#ef4444" : "#10b981" }}>
-                      {diOpen ? "DI gate required" : "DI gate cleared"}
-                    </span>
-                    <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-                      {diOpen ? "Data integrity review must be completed before QA can close — use Edit to clear" : "CAPA can proceed to QA review"}
-                    </p>
-                    {diCleared && (
-                      <div className="mt-2 space-y-0.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        {selectedCAPA.diGateReviewedBy && <p>Reviewed by: <span className="font-medium" style={{ color: "var(--text-primary)" }}>{ownerName(selectedCAPA.diGateReviewedBy, users)}</span></p>}
-                        {selectedCAPA.diGateReviewDate && <p>Date: <span className="font-medium" style={{ color: "var(--text-primary)" }}>{dayjs(selectedCAPA.diGateReviewDate).format(dateFormat)}</span></p>}
-                        {selectedCAPA.diGateNotes && <p className="mt-1 italic" style={{ color: "var(--text-muted)" }}>{selectedCAPA.diGateNotes}</p>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Evidence — Document Upload */}
-            <DocumentUpload
-              recordId={selectedCAPA.id}
-              recordTitle={selectedCAPA.description}
-              module="CAPA Tracker"
-              existingDocs={selectedCAPA.documents ?? []}
-              onUpload={(doc) => onDocUpload?.(selectedCAPA.id, doc)}
-              onDelete={(docId) => onDocDelete?.(selectedCAPA.id, docId)}
-              onApprove={(docId, by) => onDocApprove?.(selectedCAPA.id, docId, by)}
-              readOnly={isViewOnly || selectedCAPA.status === "Closed"}
-            />
-
-            {/* Effectiveness */}
-            {selectedCAPA.effectivenessCheck && selectedCAPA.status === "Closed" && selectedCAPA.effectivenessDate && (
-              <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                <TrendingUp className="w-4 h-4 text-[#6366f1]" aria-hidden="true" />
-                <span>Effectiveness check: {dayjs.utc(selectedCAPA.effectivenessDate).format(dateFormat)}</span>
-              </div>
-            )}
-
-            {/* Owner & dates */}
-            <div className="grid grid-cols-3 gap-3">
-              {[{ label: "Owner", value: ownerName(selectedCAPA.owner, users) }, { label: "Due", value: dayjs.utc(selectedCAPA.dueDate).tz(timezone).format(dateFormat) }, ...(selectedCAPA.createdAt ? [{ label: "Created", value: dayjs.utc(selectedCAPA.createdAt).fromNow() }] : [])].map((r) => (
-                <div key={r.label}>
-                  <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{r.label}</p>
-                  <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{r.value}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Submit for QA */}
-            {(selectedCAPA.status === "Open" || selectedCAPA.status === "In Progress") && (user?.id === selectedCAPA.owner || canCloseCapa) && (
-              (selectedCAPA.rca?.trim().length ?? 0) > 0 ? (
-                <Button variant="secondary" icon={Send} fullWidth onClick={() => onSubmitForReview(selectedCAPA.id)}>Submit for QA review</Button>
-              ) : (
-                <div className="flex items-start gap-2 p-3 rounded-lg" style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: isDark ? "1px solid rgba(245,158,11,0.2)" : "1px solid #fde68a" }}>
-                  <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" aria-hidden="true" />
-                  <div>
-                    <p className="text-[12px] font-medium text-[#f59e0b]">RCA required to submit</p>
-                    <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>Click the edit button above to add root cause analysis</p>
-                  </div>
-                </div>
-              )
-            )}
-
-            {/* Sign & Close */}
-            {canSign && canCloseCapa && selectedCAPA.status === "Pending QA Review" && (
-              <Button variant="primary" icon={ShieldCheck} fullWidth onClick={onSignOpen}>Sign &amp; Close CAPA</Button>
-            )}
-            </div>
-            )}
-          </div>
-        )}
-      </Modal>
+      {/* ── CAPA detail modal — extracted into its own component, see
+       *  src/modules/capa/modals/CAPADetailModal.tsx. The modal does its
+       *  own role gating (useRole), evidence-counts wiring, and tab
+       *  management; this tracker only owns selection + edit/sign trigger
+       *  state. */}
+      {selectedCAPA && (
+        <CAPADetailModal
+          capa={selectedCAPA}
+          isDark={isDark}
+          user={user}
+          users={users}
+          timezone={timezone}
+          dateFormat={dateFormat}
+          onClose={() => onSelectCAPA(null)}
+          onEditOpen={onEditOpen}
+          onSignOpen={onSignOpen}
+          onSubmitForReview={onSubmitForReview}
+          onNavigateGap={onNavigateGap}
+        />
+      )}
     </div>
   );
 }

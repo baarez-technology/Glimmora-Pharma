@@ -41,6 +41,10 @@ interface EvidenceCollectionPanelProps {
   /** Disables every mutation (status, notes, upload, remove). Used when the parent
    *  CAPA is closed or the viewer is read-only. */
   readOnly?: boolean;
+  /** Invoked after every successful items load with the per-status counts so
+   *  the parent (e.g. CAPADetailModal) can render a tab badge like "3/7"
+   *  without re-querying. Optional — panel works standalone without it. */
+  onCountsChange?: (counts: { complete: number; inProgress: number; pending: number; total: number }) => void;
 }
 
 const CATEGORY_LABEL: Record<EvidenceCategory, string> = {
@@ -98,7 +102,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function EvidenceCollectionPanel({ capaId, readOnly = false }: EvidenceCollectionPanelProps) {
+export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChange }: EvidenceCollectionPanelProps) {
   const [items, setItems] = useState<EvidenceItemSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,9 +116,25 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false }: EvidenceCo
       return;
     }
     setError(null);
-    setItems(result.data as EvidenceItemSummary[]);
+    const loaded = result.data as EvidenceItemSummary[];
+    setItems(loaded);
     setLoading(false);
-  }, [capaId]);
+    if (onCountsChange) {
+      // Treat NOT_APPLICABLE the same as COMPLETE for the "X of N done"
+      // tally — both are terminal states that don't need follow-up. PENDING
+      // is the only true "not yet started" state for the badge.
+      const total = EVIDENCE_CATEGORIES.length;
+      let complete = 0;
+      let inProgress = 0;
+      let pending = 0;
+      for (const it of loaded) {
+        if (it.status === "COMPLETE" || it.status === "NOT_APPLICABLE") complete++;
+        else if (it.status === "IN_PROGRESS") inProgress++;
+        else pending++;
+      }
+      onCountsChange({ complete, inProgress, pending, total });
+    }
+  }, [capaId, onCountsChange]);
 
   useEffect(() => {
     setLoading(true);
