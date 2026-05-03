@@ -748,6 +748,12 @@ wired up. QA people hate discovering these mid-task.
 
 ### `[NEEDS CONFIRMATION]` items collected for follow-up
 
+> **Status: all 10 items resolved as of 2026-05-03 (commit `40f5b76`).**
+> See [USER_GUIDE_CONFIRMATIONS.md](USER_GUIDE_CONFIRMATIONS.md) for the
+> per-row verdict and any corrective edits that were applied to this
+> guide. The table below is preserved as a record of which items the
+> guide author was uncertain about at the time of writing.
+
 | # | Item | Where in this guide | What needs confirming |
 |---|---|---|---|
 | 1 | "Raise CAPA immediately" checkbox in Gap Assessment finding intake | §3.2, §4.1 | I documented that ticking this auto-creates a linked CAPA and pops up the new reference. **Confirm** the auto-create actually fires today vs. just storing the intent. |
