@@ -553,7 +553,12 @@ CAPA and electronically signs it as complete.
 **What happens next:**
 - The CAPA status flips to **Closed**.
 - `closedAt` and `closedBy` are recorded on the CAPA.
-- If the CAPA was linked to a finding, the finding auto-closes too.
+- If the CAPA was linked to a Gap Assessment finding, the finding
+  auto-closes too.
+- **Linked FDA 483 observations are NOT auto-closed.** If you raised
+  this CAPA from an FDA 483 observation, go to the FDA 483 events page
+  and close the observation manually — closure does not propagate
+  upstream today.
 - A success toast appears: *"CAPA closed. Signed and closed. Audit trail
   entry recorded."*
 - The closure is logged in **Audit Trail** with action `CAPA_CLOSED`.
