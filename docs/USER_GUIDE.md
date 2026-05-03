@@ -205,6 +205,16 @@ What you can do:
 - From the detail panel: Start Investigation, Submit for QA Review,
   Sign & Close (QA Head only), Reject, Raise CAPA.
 
+> **Document upload limitation.** The detail panel has an "Attached
+> documents" section that accepts file uploads, but **uploads from this
+> panel do not persist to the database**. Files live in your browser's
+> memory only and are lost on page reload, won't be visible to other
+> users, and won't survive a deployment. If you need an audit-trail-grade
+> attachment, upload via the Evidence & Documents page or via the
+> Evidence tab inside a CAPA Detail modal instead. (FDA 483 response
+> documents on the FDA 483 module *do* persist correctly — that's a
+> separate code path.)
+
 ---
 
 ### 3.6 Evidence & Documents
