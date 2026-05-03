@@ -738,7 +738,7 @@ export function ReadinessPage({ inspections: prismaInspections, playbooks }: Rea
           <CollapsibleSection id="day-flow" icon={Calendar} iconColor="#10b981" title="Inspection day flow" isOpen={openSections.has("day-flow")} onToggle={() => toggleSection("day-flow")}>
             <div className="space-y-0">
               {FLOW_STEPS.map((step, i) => (
-                <div key={i} className="flex gap-4 items-stretch">
+                <div key={step.time} className="flex gap-4 items-stretch">
                   <div className="w-24 shrink-0 flex flex-col items-end justify-start pr-3 pt-3">
                     <span className="text-[11px] font-semibold" style={{ color: step.color }}>{step.time}</span>
                   </div>

@@ -519,7 +519,7 @@ export function GapRegisterTab({
                 </div>
                 {selectedFinding.editHistory.slice().reverse().map((edit, i) => (
                   <div
-                    key={i}
+                    key={edit.editedAt}
                     className={clsx("text-[11px] mb-2 pb-2", i < selectedFinding.editHistory!.length - 1 && "border-b border-(--bg-border)")}
                   >
                     <div className="flex items-center justify-between mb-1">

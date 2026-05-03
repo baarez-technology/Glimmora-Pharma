@@ -124,12 +124,18 @@ export function ResponseTab({
   const obsWithCapa = liveEvent.observations.filter((o) => (o.capaIds?.length ?? 0) > 0 || !!o.capaId).length;
   const hasResponseDocs = (liveEvent.responseDocuments?.length ?? 0) > 0;
 
-  const checks = [
+  // `id` is a stable semantic slug per check row (NOT the label, which can
+  // change content for the CAPA row depending on closure progress). Used as
+  // the React key in the render loop below so each row preserves its
+  // identity across re-renders even when the label text updates.
+  const checks: { id: string; label: string; done: boolean }[] = [
     {
+      id: "rca",
       label: "All observations have RCA",
       done: liveEvent.observations.length > 0 && liveEvent.observations.every((o) => o.rootCause?.trim()),
     },
     {
+      id: "capa",
       label: allCapasClosed
         ? "All CAPAs raised and closed"
         : capasRaised
@@ -138,22 +144,27 @@ export function ResponseTab({
       done: allCapasClosed,
     },
     {
+      id: "docs",
       label: `Response documents attached (${liveEvent.responseDocuments?.length ?? 0})`,
       done: hasResponseDocs,
     },
     {
+      id: "draft",
       label: "Response draft written",
       done: (liveEvent.responseDraft?.trim().length ?? 0) > 0,
     },
     {
+      id: "commitments",
       label: "All commitments have due dates",
       done: liveEvent.commitments.length > 0 && liveEvent.commitments.every((c) => c.dueDate),
     },
     {
+      id: "deadline",
       label: "Response within deadline",
       done: daysLeft(liveEvent.responseDeadline) >= 0,
     },
     {
+      id: "signed",
       label: "Signed and submitted",
       done: isSubmitted,
     },
@@ -268,9 +279,9 @@ export function ResponseTab({
           </span>
         </div>
         <div className="card-body space-y-2">
-          {checks.map((c, i) => (
+          {checks.map((c) => (
             <div
-              key={i}
+              key={c.id}
               className="flex items-center gap-2 text-[12px]"
             >
               {c.done ? (

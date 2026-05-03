@@ -247,7 +247,7 @@ export function RTMTab({ entries: entriesProp, systemsOverride }: RTMTabProps = 
                   { label: selected.pqTestId ?? "PQ", desc: `PQ Test${selected.pqResult ? ` — ${selected.pqResult.toUpperCase()}` : ""}`, ok: selected.pqResult === "pass", detail: selected.pqTestDescription, doc: selected.pqDocument, pending: selected.pqResult === "pending", missing: !selected.pqTestId && selected.pqResult !== "na" },
                   { label: "Evidence", desc: selected.evidenceStatus.charAt(0).toUpperCase() + selected.evidenceStatus.slice(1), ok: selected.evidenceStatus === "complete", pending: selected.evidenceStatus === "partial", missing: selected.evidenceStatus === "missing" },
                 ].map((step, i, arr) => (
-                  <div key={i} className="flex gap-3">
+                  <div key={step.desc} className="flex gap-3">
                     <div className="flex flex-col items-center shrink-0">
                       <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: step.skip ? "#94a3b818" : step.ok ? "#10b98118" : step.pending ? "#f59e0b18" : step.missing ? "#ef444418" : "#64748b18", color: step.skip ? "#94a3b8" : step.ok ? "#10b981" : step.pending ? "#f59e0b" : step.missing ? "#ef4444" : "#64748b" }}>
                         {step.skip

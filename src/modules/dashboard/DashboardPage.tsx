@@ -186,20 +186,24 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
   })();
 
   /* ── AGI insights — all use filtered data ── */
-  const insights: { type: "warning" | "info" | "success"; text: string; action?: string; link?: string }[] = [];
+  // `id` is a stable semantic slug per insight kind (NOT derived from `text`,
+  // which changes with the count). Used as the React key in the render loop;
+  // a count flipping from 3 to 5 keeps the same id so the insight card
+  // doesn't unmount/remount on every re-render.
+  const insights: { id: string; type: "warning" | "info" | "success"; text: string; action?: string; link?: string }[] = [];
   if (agiSettings.mode !== "manual" && (filteredFindings.length > 0 || filteredCAPAs.length > 0)) {
-    if (criticalCount > 0) insights.push({ type: "warning", text: `${criticalCount} critical finding${criticalCount > 1 ? "s" : ""} open \u2014 immediate attention required.`, action: "View findings", link: "/gap-assessment" });
-    if (overdueCAPAs.length > 0) insights.push({ type: "warning", text: `${overdueCAPAs.length} CAPA${overdueCAPAs.length > 1 ? "s" : ""} past due. Risk of inspection finding.`, action: "View CAPAs", link: "/capa" });
+    if (criticalCount > 0) insights.push({ id: "critical-findings", type: "warning", text: `${criticalCount} critical finding${criticalCount > 1 ? "s" : ""} open \u2014 immediate attention required.`, action: "View findings", link: "/gap-assessment" });
+    if (overdueCAPAs.length > 0) insights.push({ id: "overdue-capas", type: "warning", text: `${overdueCAPAs.length} CAPA${overdueCAPAs.length > 1 ? "s" : ""} past due. Risk of inspection finding.`, action: "View CAPAs", link: "/capa" });
     const diOpen = filteredCAPAs.filter((c) => c.diGate && c.status !== "Closed").length;
-    if (diOpen > 0) insights.push({ type: "warning", text: `${diOpen} open DI gate CAPA${diOpen > 1 ? "s" : ""}. Data integrity unresolved.`, action: "View DI issues", link: "/capa" });
-    if (csvHighRisk > 0) insights.push({ type: "warning", text: `${csvHighRisk} HIGH-risk system${csvHighRisk > 1 ? "s" : ""} not yet validated \u2014 FDA inspection exposure.`, action: "View systems", link: "/csv-csa" });
+    if (diOpen > 0) insights.push({ id: "di-gate-open", type: "warning", text: `${diOpen} open DI gate CAPA${diOpen > 1 ? "s" : ""}. Data integrity unresolved.`, action: "View DI issues", link: "/capa" });
+    if (csvHighRisk > 0) insights.push({ id: "csv-high-risk-unvalidated", type: "warning", text: `${csvHighRisk} HIGH-risk system${csvHighRisk > 1 ? "s" : ""} not yet validated \u2014 FDA inspection exposure.`, action: "View systems", link: "/csv-csa" });
     const overdueVal = filteredSystems.filter((s) => s.validationStatus === "Overdue").length;
-    if (overdueVal > 0) insights.push({ type: "warning", text: `${overdueVal} system${overdueVal > 1 ? "s" : ""} with overdue validation.`, action: "View systems", link: "/csv-csa" });
+    if (overdueVal > 0) insights.push({ id: "validation-overdue", type: "warning", text: `${overdueVal} system${overdueVal > 1 ? "s" : ""} with overdue validation.`, action: "View systems", link: "/csv-csa" });
     const reviewOverdue = filteredSystems.filter((s) => s.nextReview && dayjs.utc(s.nextReview).isBefore(dayjs())).length;
-    if (reviewOverdue > 0) insights.push({ type: "warning", text: `${reviewOverdue} system${reviewOverdue > 1 ? "s" : ""} with periodic review overdue.`, action: "View systems", link: "/csv-csa" });
+    if (reviewOverdue > 0) insights.push({ id: "periodic-review-overdue", type: "warning", text: `${reviewOverdue} system${reviewOverdue > 1 ? "s" : ""} with periodic review overdue.`, action: "View systems", link: "/csv-csa" });
     const pending = filteredCAPAs.filter((c) => c.status === "Pending QA Review").length;
-    if (pending > 0) insights.push({ type: "info", text: `${pending} CAPA${pending > 1 ? "s" : ""} awaiting QA sign-off.`, action: "Review", link: "/capa" });
-    if (criticalCount === 0 && overdueCAPAs.length === 0) insights.push({ type: "success", text: "No critical findings or overdue CAPAs. Maintain current trajectory." });
+    if (pending > 0) insights.push({ id: "capa-pending-qa", type: "info", text: `${pending} CAPA${pending > 1 ? "s" : ""} awaiting QA sign-off.`, action: "Review", link: "/capa" });
+    if (criticalCount === 0 && overdueCAPAs.length === 0) insights.push({ id: "all-clear", type: "success", text: "No critical findings or overdue CAPAs. Maintain current trajectory." });
   }
 
 
@@ -327,8 +331,8 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
                 <><p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>AGI is in manual mode. Enable agents in Settings &rarr; AGI Policy.</p><Button variant="ghost" size="sm" className="mt-2" onClick={() => router.push("/settings")}>Configure &rarr;</Button></>
               ) : filteredFindings.length === 0 && filteredCAPAs.length === 0 ? (
                 <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No findings match current filters. Adjust filters to see insights.</p>
-              ) : insights.slice(0, 5).map((ins, i) => (
-                <div key={i} className={clsx("flex items-start gap-2 p-2.5 rounded-lg", ins.type === "warning" ? isDark ? "bg-(--warning-bg) border border-(--warning)" : "bg-[#fffbeb] border border-[#fde68a]" : ins.type === "success" ? isDark ? "bg-(--success-bg) border border-(--success)" : "bg-[#f0fdf4] border border-[#a7f3d0]" : "bg-(--bg-surface) border border-(--bg-border)")}>
+              ) : insights.slice(0, 5).map((ins) => (
+                <div key={ins.id} className={clsx("flex items-start gap-2 p-2.5 rounded-lg", ins.type === "warning" ? isDark ? "bg-(--warning-bg) border border-(--warning)" : "bg-[#fffbeb] border border-[#fde68a]" : ins.type === "success" ? isDark ? "bg-(--success-bg) border border-(--success)" : "bg-[#f0fdf4] border border-[#a7f3d0]" : "bg-(--bg-surface) border border-(--bg-border)")}>
                   {ins.type === "warning" ? <AlertTriangle className="w-3.5 h-3.5 text-[#f59e0b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : ins.type === "success" ? <CheckCircle2 className="w-3.5 h-3.5 text-[#10b981] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <Info className="w-3.5 h-3.5 text-[#0ea5e9] flex-shrink-0 mt-0.5" aria-hidden="true" />}
                   <div className="flex-1 min-w-0"><p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{ins.text}</p>{ins.action && ins.link && <button onClick={() => router.push(ins.link!)} className="text-[10px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer mt-1">{ins.action} &rarr;</button>}</div>
                 </div>
