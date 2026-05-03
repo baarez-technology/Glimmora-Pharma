@@ -345,6 +345,14 @@ export function CustomerAccountsPage({
 }: CustomerAccountsPageProps = {}) {
   const dispatch = useAppDispatch();
   const tenants = useAppSelector((s) => s.auth.tenants);
+  // SSR/CSR coherence: stat cards, table rows and counters are derived from
+  // tenants at render time. Redux is empty during SSR (loadPersistedState()
+  // can't read localStorage on the server) but `initialTenants` is fetched
+  // server-side, so reading Redux directly causes the values to differ
+  // between server HTML and the client's first paint — same class as the
+  // isSuperAdmin MFA-column fix. Falling back to `initialTenants` until
+  // Redux gets seeded keeps both renders consistent.
+  const tenantsForRender = tenants.length > 0 ? tenants : (initialTenants ?? tenants);
   // MFA toggle column is super-admin-only — customer_admin can see /admin
   // (per E1) but must NOT control tenant-level MFA on themselves or others.
   // Server-passed prop is the source of truth for SSR-affected branches;
@@ -378,7 +386,7 @@ export function CustomerAccountsPage({
     }
   }, [dispatch, initialTenants]);
 
-  const filtered = tenants.filter(
+  const filtered = tenantsForRender.filter(
     (t) =>
       t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.adminEmail.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -663,9 +671,9 @@ export function CustomerAccountsPage({
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: "Total Organizations", value: tenants.length, icon: Building2, color: "var(--brand)" },
-          { label: "Total Users", value: tenants.reduce((sum, t) => sum + t.config.users.length, 0), icon: Users, color: "var(--success)" },
-          { label: "Total Sites", value: tenants.reduce((sum, t) => sum + t.config.sites.length, 0), icon: MapPin, color: "var(--warning)" },
+          { label: "Total Organizations", value: tenantsForRender.length, icon: Building2, color: "var(--brand)" },
+          { label: "Total Users", value: tenantsForRender.reduce((sum, t) => sum + t.config.users.length, 0), icon: Users, color: "var(--success)" },
+          { label: "Total Sites", value: tenantsForRender.reduce((sum, t) => sum + t.config.sites.length, 0), icon: MapPin, color: "var(--warning)" },
         ].map((stat) => (
           <div key={stat.label} className="stat-card flex items-center gap-4">
             <div
@@ -687,7 +695,7 @@ export function CustomerAccountsPage({
         <div className="card-header">
           <span className="card-title">Organizations</span>
           <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-            {filtered.length} of {tenants.length}
+            {filtered.length} of {tenantsForRender.length}
           </span>
         </div>
         <div className="overflow-x-auto">
