@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import {
@@ -8,6 +8,7 @@ import {
   Download, BarChart3, Activity,
   CreditCard, Users, MapPin,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -16,8 +17,7 @@ import {
   type AppNotification, type NotificationType,
 } from "@/store/notifications.slice";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const NOTIF_CONFIG: Record<NotificationType, { icon: any; color: string; category: string }> = {
+const NOTIF_CONFIG: Record<NotificationType, { icon: LucideIcon; color: string; category: string }> = {
   finding_critical:         { icon: AlertTriangle,  color: "#ef4444", category: "Gap Assessment" },
   finding_overdue:          { icon: Clock,          color: "#ef4444", category: "Gap Assessment" },
   finding_assigned:         { icon: Search,         color: "#0ea5e9", category: "Gap Assessment" },
@@ -69,7 +69,6 @@ const CATEGORIES = ["All", "Gap Assessment", "CAPA", "CSV/CSA", "FDA 483", "Evid
 
 export function NotificationBell() {
   const notifications = useAppSelector((s) => s.notifications.items);
-  const unreadCount = notifications.filter((n) => !n.read).length;
   const dispatch = useAppDispatch();
   const router = useRouter();
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
@@ -86,11 +85,35 @@ export function NotificationBell() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const displayed = sortNotifications(
-    notifications.filter((n) => {
-      if (activeCategory === "All") return true;
-      return NOTIF_CONFIG[n.type]?.category === activeCategory;
-    }),
+  // Memoised: avoids re-filtering every render when the notifications
+  // array reference is unchanged.
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications],
+  );
+
+  // Per-category unread counts precomputed in one O(N) pass instead of
+  // re-running the filter once per category × per render (was O(C×N) where
+  // C = CATEGORIES.length = 10). The "All" tab still uses unreadCount
+  // directly; this map covers the per-module tabs only.
+  const categoryUnreadCounts = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
+    for (const n of notifications) {
+      if (n.read) continue;
+      const cat = NOTIF_CONFIG[n.type]?.category;
+      if (cat) counts[cat] = (counts[cat] ?? 0) + 1;
+    }
+    return counts;
+  }, [notifications]);
+
+  const displayed = useMemo(
+    () => sortNotifications(
+      notifications.filter((n) => {
+        if (activeCategory === "All") return true;
+        return NOTIF_CONFIG[n.type]?.category === activeCategory;
+      }),
+    ),
+    [notifications, activeCategory],
   );
 
   return (
@@ -142,7 +165,7 @@ export function NotificationBell() {
           {/* Category tabs */}
           <div className={clsx("flex gap-1 px-3 py-2 overflow-x-auto border-b", "border-(--bg-border)")} style={{ scrollbarWidth: "none" }}>
             {CATEGORIES.map((cat) => {
-              const catUnread = cat === "All" ? unreadCount : notifications.filter((n) => !n.read && NOTIF_CONFIG[n.type]?.category === cat).length;
+              const catUnread = cat === "All" ? unreadCount : (categoryUnreadCounts[cat] ?? 0);
               return (
                 <button
                   key={cat} type="button" onClick={() => setCategory(cat)}
