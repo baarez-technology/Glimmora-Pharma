@@ -9,7 +9,8 @@ import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useNotificationEngine } from "@/hooks/useNotificationEngine";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useRole } from "@/hooks/useRole";
-import { logout, setTenants, type Tenant } from "@/store/auth.slice";
+import { logout, setCredentials, setTenants, type AuthUser, type Tenant } from "@/store/auth.slice";
+import { useAppSelector } from "@/hooks/useAppSelector";
 import { logout as nextAuthLogout } from "@/lib/authClient";
 import { Button } from "@/components/ui/Button";
 import { Sidebar } from "./Sidebar";
@@ -19,9 +20,18 @@ import { SiteFilterBanner } from "./SiteFilterBanner";
 interface AppShellProps {
   children?: React.ReactNode;
   initialTenant?: Tenant | null;
+  /** NextAuth session user resolved server-side by app/(app)/layout.tsx.
+   *  We dispatch setCredentials with this on mount whenever Redux's
+   *  auth.user is missing — the persistMiddleware's 500ms debounce can
+   *  miss the post-login dispatch before window.location.assign navigates,
+   *  leaving auth.currentTenant null. Without that id, useTenantConfig()
+   *  can't find the freshly-dispatched tenant in `tenants[]`, treats the
+   *  missing subscription as expired, and the gate fires "No active
+   *  subscription" against a perfectly healthy DB row. */
+  initialUser?: AuthUser | null;
 }
 
-export function AppShell({ children, initialTenant }: AppShellProps) {
+export function AppShell({ children, initialTenant, initialUser }: AppShellProps) {
   // 🔒 Prevent hydration mismatch
   const [mounted, setMounted] = useState(false);
 
@@ -35,6 +45,8 @@ export function AppShell({ children, initialTenant }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const dispatch = useAppDispatch();
+  const reduxUser = useAppSelector((s) => s.auth.user);
+  const reduxCurrentTenant = useAppSelector((s) => s.auth.currentTenant);
 
   // Hydrate Redux with the current user's own tenant so useTenantConfig()
   // can resolve subscription/site/user state. Without this, customer_admin
@@ -48,6 +60,27 @@ export function AppShell({ children, initialTenant }: AppShellProps) {
       initialSeeded.current = true;
     }
   }, [dispatch, initialTenant]);
+
+  // Self-heal Redux's auth.user / currentTenant from the server-rendered
+  // session. The post-login dispatch in LoginPage.finishLogin() lands in
+  // Redux but the persistMiddleware debounces writes by 500ms, so a
+  // window.location.assign("/") that fires immediately after can leave
+  // localStorage holding a stale (or missing) currentTenant. The next
+  // page load's loadPersistedState() then rebuilds the store with that
+  // stale state, useTenantConfig() finds no tenant for currentTenant,
+  // activePlan is null, isExpired collapses to true, and the gate fires.
+  // Mirroring AdminShell's self-heal closes that race for /(app) too.
+  const credentialsSeeded = useRef(false);
+  useEffect(() => {
+    if (credentialsSeeded.current) return;
+    if (!initialUser) return;
+    if (reduxUser && reduxCurrentTenant === initialUser.tenantId) {
+      credentialsSeeded.current = true;
+      return;
+    }
+    dispatch(setCredentials({ token: "nextauth-session", user: initialUser }));
+    credentialsSeeded.current = true;
+  }, [dispatch, initialUser, reduxUser, reduxCurrentTenant]);
 
   const { activePlan, tenantName, isExpired, isNearExpiry, daysRemaining } =
     useTenantConfig();
