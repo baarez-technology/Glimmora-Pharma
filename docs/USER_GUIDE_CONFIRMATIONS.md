@@ -212,3 +212,9 @@ If you'd like, I can also surface a separate doc/ticket for the **two
 real bugs** the verification turned up (Deviation doc upload not
 persisting; FDA observation not auto-closing on CAPA close) — both
 are out of scope for the user guide but worth tracking as defects.
+
+## Verification log
+
+- 2026-05-03: confirmations resolved against commit `40f5b76` (`refactor: extract shared CAPA badge variants to src/lib/badgeVariants.ts`)
+- 2026-05-03: edits A–G applied to USER_GUIDE.md on branch `docs/user-guide-verified` (commits `95c8fcf..f32e2e6`, plus stale-reference cleanup at `17bd9a1`)
+- 2026-05-03: BUG-001 (`6397dec`), BUG-002 (`08c179f`), CHORE-001 (`996d0b1`) filed under `docs/issues/`
