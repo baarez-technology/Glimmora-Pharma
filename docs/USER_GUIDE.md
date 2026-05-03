@@ -602,9 +602,12 @@ wired up. QA people hate discovering these mid-task.
   Part 11 e-signature claim the modal makes (*"identity, meaning, and
   content hash will be recorded and cannot be altered"*) isn't fully
   delivered. A defensive fix is planned (see CAPA_GAP_REPORT.md → Phase 0).
-- **Closed CAPAs are still editable in some paths.** The system doesn't
-  yet block all edits on a CAPA after it's been signed and closed. Don't
-  rely on closure as a hard lock until that's fixed.
+- **Closed CAPAs are still fully editable and deletable.** There is no
+  server-side guard on `Edit` or `Delete` actions that checks whether
+  a CAPA is Closed. A user with edit access can change or delete a
+  signed-and-closed CAPA exactly as if it were Open. Closure today is
+  just a status flag, not a lock. The defensive fix is the first item
+  in Phase 0 of CAPA_GAP_REPORT.md.
 - **The 90-day Effectiveness Check date is set on closure, but no
   background job actually checks it.** You'll see the date on the
   CAPA's Actions tab, but nothing reminds you when the 90 days are up.
