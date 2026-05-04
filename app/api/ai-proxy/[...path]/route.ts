@@ -30,6 +30,16 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
   const respHeaders = new Headers(res.headers);
   respHeaders.delete("content-encoding");
   respHeaders.delete("content-length");
+  // Lifecycle by-capa lookups (rca|action-plan|monitoring|effectiveness|closure)/capa/{id}
+  // 404 when the stage hasn't been submitted yet. Surface that as 204 No Content so the
+  // browser doesn't log it as an error in dev tools. The client treats both as "not started".
+  if (
+    res.status === 404 &&
+    req.method === "GET" &&
+    /^api\/v1\/(rca|action-plan|monitoring|effectiveness|closure)\/capa\//i.test(path.join("/"))
+  ) {
+    return new Response(null, { status: 204, headers: respHeaders });
+  }
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: respHeaders });
 }
 

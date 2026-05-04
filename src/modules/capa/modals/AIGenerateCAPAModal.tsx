@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { updateTenantUser } from "@/store/auth.slice";
+import { AI_API_BASE as API_BASE } from "@/lib/aiAuth";
 
 const aiCapaSchema = z.object({
   customer_id: z.string().min(1, "Customer ID is required"),
@@ -46,10 +47,6 @@ interface AIGenerateCAPAModalProps {
   defaultCustomerId?: string;
   onAccepted?: (response: AICapaResponse, form: AICapaForm) => void;
 }
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_AI_API_URL ??
-  "https://pharma-glimmora-ai-backend.onrender.com";
 
 const TOKEN_KEY = "glimmora-ai-token";
 

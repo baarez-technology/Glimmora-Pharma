@@ -11,9 +11,14 @@
  * endpoints can include the `auth` header.
  */
 
+// Browser-side defaults to the same-origin /api/ai-proxy passthrough so we
+// never hit CORS preflight failures when Render cold-starts. Server-side and
+// explicit env override go straight to the upstream.
+const AI_UPSTREAM = "https://pharma-glimmora-ai-backend.onrender.com";
+
 export const AI_API_BASE =
   process.env.NEXT_PUBLIC_AI_API_URL ??
-  "https://pharma-glimmora-ai-backend.onrender.com";
+  (typeof window === "undefined" ? AI_UPSTREAM : "/api/ai-proxy");
 
 export interface AiSignupRequest {
   user_id: string;

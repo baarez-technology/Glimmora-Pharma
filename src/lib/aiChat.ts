@@ -12,9 +12,8 @@
  * is the logged-in user's aiAccessToken (refreshed on every login).
  */
 
-export const AI_API_BASE =
-  process.env.NEXT_PUBLIC_AI_API_URL ??
-  "https://pharma-glimmora-ai-backend.onrender.com";
+export { AI_API_BASE } from "./aiAuth";
+import { AI_API_BASE } from "./aiAuth";
 
 export class AiChatError extends Error {
   status: number;
