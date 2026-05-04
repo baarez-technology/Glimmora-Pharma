@@ -52,7 +52,9 @@ const capaSlice = createSlice({
       state.items = payload;
     },
     addCAPA(state, { payload }: PayloadAction<CAPA>) {
-      state.items.push(payload);
+      const idx = state.items.findIndex((c) => c.id === payload.id);
+      if (idx >= 0) state.items[idx] = payload;
+      else state.items.push(payload);
     },
     updateCAPA(state, { payload }: PayloadAction<{ id: string; patch: Partial<CAPA> }>) {
       const item = state.items.find((c) => c.id === payload.id);

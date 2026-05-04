@@ -78,7 +78,10 @@ export function CAPATrackerTab({
   const anyFilterActive = !!(search || siteFilter || statusFilter || riskFilter || sourceFilter);
   function clearFilters() { setSearch(""); setSiteFilter(""); setStatusFilter(""); setRiskFilter(""); setSourceFilter(""); }
 
+  const seen = new Set<string>();
   const displayed = filteredCAPAs.filter((c) => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
     if (siteFilter && c.siteId !== siteFilter) return false;
     if (statusFilter && c.status !== statusFilter) return false;
     if (riskFilter && c.risk !== riskFilter) return false;

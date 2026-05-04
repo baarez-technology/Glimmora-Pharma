@@ -61,26 +61,43 @@ export function AiCapaPage({ capaId }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [c, r, p, m, e, cl] = await Promise.allSettled([
-        capaStatus(capaId, token),
-        rcaByCapa(capaId, token),
-        actionPlanByCapa(capaId, token),
-        monitoringByCapa(capaId, token),
-        effectivenessByCapa(capaId, token),
-        closureByCapa(capaId, token),
+      const c = await capaStatus(capaId, token).then(
+        (v) => ({ status: "fulfilled" as const, value: v }),
+        (reason) => ({ status: "rejected" as const, reason }),
+      );
+      if (c.status === "rejected") {
+        setCapa(null);
+        setRca(null); setPlan(null); setMonitoring(null); setEffectiveness(null); setClosure(null);
+        const reason = c.reason instanceof AiBackendError ? c.reason.message : String(c.reason);
+        setError(`CAPA fetch failed: ${reason}`);
+        return;
+      }
+      setCapa(c.value);
+      // Skip by-capa fetches we *know* will 404 — fresh CAPA with status
+      // "Open" has no RCA/AP/Mon/Eff/Closure yet. Once the user submits
+      // anything we just fetch all five and let extractRecord handle the
+      // expected 404s silently. (Backend's `stage` field is unreliable;
+      // `status` is the source of truth.)
+      const status = (c.value && typeof c.value === "object" && "status" in c.value
+        ? String((c.value as { status?: unknown }).status ?? "") : "").toLowerCase();
+      const isOpen = status === "open" || status === "";
+      const wantRca = !isOpen;
+      const wantPlan = !isOpen;
+      const wantMon = !isOpen;
+      const wantEff = !isOpen;
+      const wantClosure = !isOpen;
+      const [r, p, m, e, cl] = await Promise.allSettled([
+        wantRca ? rcaByCapa(capaId, token) : Promise.resolve(null),
+        wantPlan ? actionPlanByCapa(capaId, token) : Promise.resolve(null),
+        wantMon ? monitoringByCapa(capaId, token) : Promise.resolve(null),
+        wantEff ? effectivenessByCapa(capaId, token) : Promise.resolve(null),
+        wantClosure ? closureByCapa(capaId, token) : Promise.resolve(null),
       ]);
-      setCapa(c.status === "fulfilled" ? c.value : null);
       setRca(extractRecord(r));
       setPlan(extractRecord(p));
       setMonitoring(extractRecord(m));
       setEffectiveness(extractRecord(e));
       setClosure(extractRecord(cl));
-      // Only the CAPA fetch is required; the rest are expected to 404 when
-      // the stage hasn't been submitted yet.
-      if (c.status === "rejected") {
-        const reason = c.reason instanceof AiBackendError ? c.reason.message : String(c.reason);
-        setError(`CAPA fetch failed: ${reason}`);
-      }
     } finally {
       setLoading(false);
     }

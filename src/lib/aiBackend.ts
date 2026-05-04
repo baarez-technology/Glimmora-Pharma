@@ -177,7 +177,7 @@ export const capaListByCustomer = (customerId: string, token: string) =>
   request<unknown>(`/api/v1/capa/customer/${encodeURIComponent(customerId)}`, { method: "GET", token });
 
 export const capaStatus = (capaId: string, token: string) =>
-  request<unknown>(`/api/v1/capa/status/${encodeURIComponent(capaId)}`, { method: "GET", token });
+  request<unknown>(`/api/v1/capa/status/${encodeURIComponent(capaId)}`, { method: "GET", token, silentStatuses: [404] });
 
 export interface AlertDismissalRequest {
   capa_id: string;
