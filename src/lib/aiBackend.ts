@@ -66,6 +66,16 @@ function flattenDetail(parsed: unknown, status: number): string {
       }).join("; ");
     }
     if (typeof d === "string") return d;
+    if (d && typeof d === "object") {
+      const o = d as { error?: string; message?: string; incomplete_fields?: unknown };
+      const parts: string[] = [];
+      if (typeof o.error === "string") parts.push(o.error);
+      if (typeof o.message === "string" && o.message !== o.error) parts.push(o.message);
+      if (Array.isArray(o.incomplete_fields) && o.incomplete_fields.length) {
+        parts.push(o.incomplete_fields.map((s) => String(s)).join("; "));
+      }
+      if (parts.length) return parts.join(" — ");
+    }
   }
   return `Request failed (${status})`;
 }
@@ -74,10 +84,12 @@ interface RequestOpts extends Omit<RequestInit, "body" | "headers"> {
   jsonBody?: unknown;
   formBody?: FormData;
   token?: string | null;
+  /** Statuses to log as info instead of error (e.g. 404 from by-capa lookups before a stage is submitted). */
+  silentStatuses?: number[];
 }
 
 async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
-  const { jsonBody, formBody, token, ...rest } = opts;
+  const { jsonBody, formBody, token, silentStatuses, ...rest } = opts;
   const method = rest.method ?? "GET";
   const tag = `[aiBackend] ${method} ${path}`;
   const headers = new Headers();
@@ -99,7 +111,12 @@ async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
   try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; }
   if (!res.ok) {
     const detail = flattenDetail(parsed, res.status);
-    console.error(`${tag} ✗ ${res.status} (${ms}ms) — ${detail}`, parsed);
+    const isSilent = silentStatuses?.includes(res.status);
+    if (isSilent) {
+      console.info(`${tag} ○ ${res.status} (${ms}ms) — ${detail}`);
+    } else {
+      console.error(`${tag} ✗ ${res.status} (${ms}ms) — ${detail}`, parsed);
+    }
     throw new AiBackendError(res.status, detail, parsed);
   }
   console.info(`${tag} ✓ ${res.status} (${ms}ms)`, parsed);
@@ -194,7 +211,7 @@ export const rcaSubmit = (body: RCACreateRequest, token: string) =>
   request<RCACreateResponse>("/api/v1/rca/submit", { method: "POST", jsonBody: body, token });
 
 export const rcaByCapa = (capaId: string, token: string) =>
-  request<unknown>(`/api/v1/rca/capa/${encodeURIComponent(capaId)}`, { method: "GET", token });
+  request<unknown>(`/api/v1/rca/capa/${encodeURIComponent(capaId)}`, { method: "GET", token, silentStatuses: [404] });
 
 export const rcaStatus = (rcaId: string, token: string) =>
   request<unknown>(`/api/v1/rca/status/${encodeURIComponent(rcaId)}`, { method: "GET", token });
@@ -225,7 +242,7 @@ export const actionPlanSubmit = (body: ActionPlanCreateRequest, token: string) =
   request<ActionPlanCreateResponse>("/api/v1/action-plan/submit", { method: "POST", jsonBody: body, token });
 
 export const actionPlanByCapa = (capaId: string, token: string) =>
-  request<unknown>(`/api/v1/action-plan/capa/${encodeURIComponent(capaId)}`, { method: "GET", token });
+  request<unknown>(`/api/v1/action-plan/capa/${encodeURIComponent(capaId)}`, { method: "GET", token, silentStatuses: [404] });
 
 export const actionPlanStatus = (id: string, token: string) =>
   request<unknown>(`/api/v1/action-plan/status/${encodeURIComponent(id)}`, { method: "GET", token });
@@ -258,7 +275,7 @@ export const monitoringCheck = (body: MonitoringRequest, token: string) =>
   request<MonitoringResponse>("/api/v1/monitoring/check", { method: "POST", jsonBody: body, token });
 
 export const monitoringByCapa = (capaId: string, token: string) =>
-  request<unknown>(`/api/v1/monitoring/capa/${encodeURIComponent(capaId)}`, { method: "GET", token });
+  request<unknown>(`/api/v1/monitoring/capa/${encodeURIComponent(capaId)}`, { method: "GET", token, silentStatuses: [404] });
 
 export const monitoringStatus = (id: string, token: string) =>
   request<unknown>(`/api/v1/monitoring/status/${encodeURIComponent(id)}`, { method: "GET", token });
@@ -299,7 +316,7 @@ export const effectivenessCheck = (body: EffectivenessRequest, token: string) =>
   request<EffectivenessResponse>("/api/v1/effectiveness/check", { method: "POST", jsonBody: body, token });
 
 export const effectivenessByCapa = (capaId: string, token: string) =>
-  request<unknown>(`/api/v1/effectiveness/capa/${encodeURIComponent(capaId)}`, { method: "GET", token });
+  request<unknown>(`/api/v1/effectiveness/capa/${encodeURIComponent(capaId)}`, { method: "GET", token, silentStatuses: [404] });
 
 export const effectivenessStatus = (id: string, token: string) =>
   request<unknown>(`/api/v1/effectiveness/status/${encodeURIComponent(id)}`, { method: "GET", token });
@@ -329,7 +346,7 @@ export const closureInitiate = (body: ClosureRequest, token: string) =>
   request<ClosureResponse>("/api/v1/closure/initiate", { method: "POST", jsonBody: body, token });
 
 export const closureByCapa = (capaId: string, token: string) =>
-  request<unknown>(`/api/v1/closure/capa/${encodeURIComponent(capaId)}`, { method: "GET", token });
+  request<unknown>(`/api/v1/closure/capa/${encodeURIComponent(capaId)}`, { method: "GET", token, silentStatuses: [404] });
 
 export const closureStatus = (id: string, token: string) =>
   request<unknown>(`/api/v1/closure/status/${encodeURIComponent(id)}`, { method: "GET", token });

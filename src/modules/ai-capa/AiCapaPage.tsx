@@ -594,7 +594,7 @@ function MonitoringModal({ open, onClose, onSubmitted, capaId, customerId, actio
             <FieldRow label={i === 0 ? "Action" : ""} required={i === 0}><input className="input text-[12px]" value={u.action_description} onChange={(e) => update(i, { action_description: e.target.value })} /></FieldRow>
             <FieldRow label={i === 0 ? "Status" : ""}>
               <select className="select text-[12px]" value={u.status} onChange={(e) => update(i, { status: e.target.value })}>
-                <option>On Track</option><option>Delayed</option><option>Completed</option><option>Blocked</option>
+                <option>On Track</option><option>In Progress</option><option>Overdue</option><option>Completed</option>
               </select>
             </FieldRow>
             <FieldRow label={i === 0 ? "Note" : ""}><input className="input text-[12px]" value={u.progress_note ?? ""} onChange={(e) => update(i, { progress_note: e.target.value })} /></FieldRow>

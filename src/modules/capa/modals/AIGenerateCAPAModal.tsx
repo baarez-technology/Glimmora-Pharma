@@ -11,7 +11,7 @@ import { updateTenantUser } from "@/store/auth.slice";
 
 const aiCapaSchema = z.object({
   customer_id: z.string().min(1, "Customer ID is required"),
-  problem_statement: z.string().min(3, "Problem statement is required"),
+  problem_statement: z.string().min(10, "Problem statement must be at least 10 characters"),
   source: z.string().min(1, "Source is required"),
   area_affected: z.string().min(1, "Area affected is required"),
   equipment_product: z.string().min(1, "Equipment / product is required"),
@@ -177,7 +177,24 @@ export function AIGenerateCAPAModal({
       }
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(text || `Request failed (${res.status})`);
+        let parsed: unknown = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch { /* keep raw */ }
+        const d = parsed && typeof parsed === "object" && "detail" in parsed
+          ? (parsed as { detail?: unknown }).detail : null;
+        let msg = "";
+        if (typeof d === "string") msg = d;
+        else if (Array.isArray(d)) msg = d.map((x) => typeof x === "object" && x ? (x as { msg?: string }).msg ?? "" : String(x)).filter(Boolean).join("; ");
+        else if (d && typeof d === "object") {
+          const o = d as { error?: string; message?: string; incomplete_fields?: unknown };
+          const parts: string[] = [];
+          if (o.error) parts.push(o.error);
+          if (o.message && o.message !== o.error) parts.push(o.message);
+          if (Array.isArray(o.incomplete_fields) && o.incomplete_fields.length) {
+            parts.push(o.incomplete_fields.map((s) => String(s)).join("; "));
+          }
+          msg = parts.join(" — ");
+        }
+        throw new Error(msg || `Request failed (${res.status})`);
       }
       const json = (await res.json()) as AICapaResponse;
       setResult(json);
