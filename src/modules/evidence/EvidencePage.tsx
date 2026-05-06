@@ -152,7 +152,7 @@ export function EvidencePage() {
       }
     });
     capas.forEach((c) => {
-      c.evidenceLinks.forEach((link, i) => {
+      (c.evidenceLinks ?? []).forEach((link, i) => {
         if (!docs.find((d) => d.reference === link)) {
           docs.push({
             id: `capa-${c.id}-${i}`,

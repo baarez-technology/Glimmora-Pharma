@@ -554,7 +554,12 @@ interface CustomerAccountsPageProps {
 
 export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPageProps = {}) {
   const dispatch = useAppDispatch();
-  const tenants = useAppSelector((s) => s.auth.tenants);
+  const reduxTenants = useAppSelector((s) => s.auth.tenants);
+
+  // Use initialTenants for first render to avoid hydration mismatch,
+  // then switch to Redux after hydration
+  const [hydrated, setHydrated] = useState(false);
+  const tenants = hydrated ? reduxTenants : (initialTenants ?? reduxTenants);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -570,6 +575,11 @@ export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPagePro
   const [savedPopup, setSavedPopup] = useState<string | null>(null);
 
   const router = useRouter();
+
+  // Mark as hydrated after mount
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   // Hydrate Redux from server-fetched tenants (provided by the async Server Component).
   // Falls back to client-side fetch only if initialTenants was not supplied.

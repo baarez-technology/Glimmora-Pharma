@@ -13,8 +13,9 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
+import { useDataLoader } from "@/hooks/useDataLoader";
 import {
-  addFinding, updateFinding,
+  addFinding, updateFinding, setFindings,
   type Finding,
 } from "@/store/findings.slice";
 import { addCAPA } from "@/store/capa.slice";
@@ -89,7 +90,17 @@ export function GapPage() {
   const { isAtLimit, getLimit, tenantPlan } = usePlanLimits();
   const atFindingLimit = isAtLimit("findings");
 
+  // Load data from API
+  const { loadFindings } = useDataLoader();
+
   const { findings, capas, systems, tenantId } = useTenantData();
+
+  // Fetch findings if store is empty
+  useEffect(() => {
+    if (findings.length === 0) {
+      loadFindings();
+    }
+  }, [findings.length, loadFindings]);
   const { org, sites, users } = useTenantConfig();
   const complianceUsers = useComplianceUsers();
   const timezone = org.timezone;

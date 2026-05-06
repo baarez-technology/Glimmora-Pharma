@@ -145,7 +145,7 @@ export function DocumentLibraryTab({
                   <p className="text-[13px] font-medium line-clamp-2 mb-1" style={{ color: "var(--text-primary)" }}>{doc.title}</p>
                   <p className="font-mono text-[10px] mb-2" style={{ color: "var(--text-muted)" }}>{doc.reference}</p>
                   <div className="flex gap-1.5 flex-wrap mb-2">{docStatusBadge(doc.status)}<Badge variant="gray">{doc.type}</Badge><Badge variant="gray">{doc.area}</Badge></div>
-                  {doc.complianceTags.length > 0 && <div className="flex gap-1 flex-wrap">{doc.complianceTags.map((tag) => <span key={tag} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-(--info-bg) text-[#6366f1]">{tag}</span>)}</div>}
+                  {(doc.complianceTags?.length ?? 0) > 0 && <div className="flex gap-1 flex-wrap">{doc.complianceTags.map((tag) => <span key={tag} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-(--info-bg) text-[#6366f1]">{tag}</span>)}</div>}
                   <div className="flex items-center justify-between mt-3 pt-2 border-t" style={{ borderColor: "var(--bg-border)" }}>
                     <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>v{doc.version} &middot; {doc.effectiveDate ? dayjs.utc(doc.effectiveDate).tz(timezone).format(dateFormat) : "\u2014"}</span>
                     <div className="flex items-center gap-1.5">
@@ -181,7 +181,7 @@ export function DocumentLibraryTab({
                     <td>{docStatusBadge(doc.status)}</td>
                     <td className="text-[12px]" style={{ color: "var(--text-secondary)" }}>v{doc.version}</td>
                     <td className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{doc.effectiveDate ? dayjs.utc(doc.effectiveDate).tz(timezone).format(dateFormat) : "\u2014"}{doc.expiryDate && dayjs.utc(doc.expiryDate).isBefore(dayjs()) && <div className="text-[10px] text-[#ef4444]">Expired</div>}</td>
-                    <td><div className="flex gap-1 flex-wrap">{doc.complianceTags.map((tag) => <span key={tag} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-(--info-bg) text-[#6366f1]">{tag}</span>)}</div></td>
+                    <td><div className="flex gap-1 flex-wrap">{(doc.complianceTags ?? []).map((tag) => <span key={tag} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-(--info-bg) text-[#6366f1]">{tag}</span>)}</div></td>
                     <td><div className="flex items-center gap-1.5">
                       {doc.url && <button type="button" onClick={() => downloadEvidenceDoc(doc)} title={`Download ${doc.title}`} aria-label={`Download ${doc.title}`} className="opacity-70 hover:opacity-100 border-none bg-transparent cursor-pointer"><Download className="w-3.5 h-3.5 text-[#0ea5e9]" /></button>}
                       {doc.findingId && <button onClick={() => onNavigate("/gap-assessment", { state: { openFindingId: doc.findingId } })} title={`Finding: ${doc.findingId}`} className="opacity-50 hover:opacity-100 border-none bg-transparent cursor-pointer"><Search className="w-3.5 h-3.5 text-[#0ea5e9]" /></button>}

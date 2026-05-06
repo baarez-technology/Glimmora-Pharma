@@ -43,16 +43,31 @@ export interface EvidencePack {
 interface EvidenceState {
   documents: EvidenceDocument[];
   packs: EvidencePack[];
+  loading: boolean;
+  error: string | null;
 }
 
-import { MOCK_EVIDENCE_DOCS, MOCK_EVIDENCE_PACKS } from "@/mock";
-
-const initialState: EvidenceState = { documents: MOCK_EVIDENCE_DOCS, packs: MOCK_EVIDENCE_PACKS };
+const initialState: EvidenceState = { documents: [], packs: [], loading: false, error: null };
 
 const evidenceSlice = createSlice({
   name: "evidence",
   initialState,
   reducers: {
+    setDocuments(state, { payload }: PayloadAction<EvidenceDocument[]>) {
+      state.documents = payload;
+      state.loading = false;
+      state.error = null;
+    },
+    setPacks(state, { payload }: PayloadAction<EvidencePack[]>) {
+      state.packs = payload;
+    },
+    setEvidenceLoading(state, { payload }: PayloadAction<boolean>) {
+      state.loading = payload;
+    },
+    setEvidenceError(state, { payload }: PayloadAction<string | null>) {
+      state.error = payload;
+      state.loading = false;
+    },
     addDocument(state, { payload }: PayloadAction<EvidenceDocument>) {
       state.documents.push(payload);
     },
@@ -76,5 +91,5 @@ const evidenceSlice = createSlice({
   },
 });
 
-export const { addDocument, updateDocument, removeDocument, addPack, updatePack, removePack } = evidenceSlice.actions;
+export const { setDocuments, setPacks, setEvidenceLoading, setEvidenceError, addDocument, updateDocument, removeDocument, addPack, updatePack, removePack } = evidenceSlice.actions;
 export default evidenceSlice.reducer;

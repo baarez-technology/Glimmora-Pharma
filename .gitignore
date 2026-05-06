@@ -40,3 +40,14 @@ playwright-run-*.log
 .claude
 
 /generated/prisma
+
+# Prisma SQLite database
+prisma/*.db
+prisma/*.db-journal
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Generated documentation
+docs/*.html

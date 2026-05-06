@@ -12,7 +12,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/shared";
 
-const MODULES = ["all", "Gap Assessment", "CAPA Tracker", "FDA 483", "CSV/CSA", "Evidence & Documents", "Governance", "Inspection Readiness", "Settings", "Auth"];
+const MODULES = ["all", "Gap Assessment", "CAPA Tracker", "FDA 483", "CSV/CSA", "Evidence & Documents", "Governance", "Training & Awareness", "Settings", "Auth"];
 const ACTION_GROUPS = ["all", "Created", "Updated", "Status Changed", "Signed", "Submitted", "Deleted"];
 
 const CRITICAL_ACTIONS = new Set(["CAPA_SIGNED_AND_CLOSED", "RESPONSE_SUBMITTED", "RESPONSE_SIGNED", "USER_DELETED"]);

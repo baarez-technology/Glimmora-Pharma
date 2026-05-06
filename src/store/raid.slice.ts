@@ -28,16 +28,28 @@ export interface RAIDItem {
 
 interface RAIDState {
   items: RAIDItem[];
+  loading: boolean;
+  error: string | null;
 }
 
-import { MOCK_RAID_ITEMS } from "@/mock";
-
-const initialState: RAIDState = { items: MOCK_RAID_ITEMS };
+const initialState: RAIDState = { items: [], loading: false, error: null };
 
 const raidSlice = createSlice({
   name: "raid",
   initialState,
   reducers: {
+    setRAIDItems(state, { payload }: PayloadAction<RAIDItem[]>) {
+      state.items = payload;
+      state.loading = false;
+      state.error = null;
+    },
+    setRAIDLoading(state, { payload }: PayloadAction<boolean>) {
+      state.loading = payload;
+    },
+    setRAIDError(state, { payload }: PayloadAction<string | null>) {
+      state.error = payload;
+      state.loading = false;
+    },
     addItem(state, { payload }: PayloadAction<RAIDItem>) {
       state.items.push(payload);
     },
@@ -69,5 +81,5 @@ const raidSlice = createSlice({
   },
 });
 
-export const { addItem, updateItem, closeItem, removeItem, reopenItem } = raidSlice.actions;
+export const { setRAIDItems, setRAIDLoading, setRAIDError, addItem, updateItem, closeItem, removeItem, reopenItem } = raidSlice.actions;
 export default raidSlice.reducer;

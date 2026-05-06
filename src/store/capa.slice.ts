@@ -38,11 +38,11 @@ export interface CAPA {
 
 interface CAPAState {
   items: CAPA[];
+  loading: boolean;
+  error: string | null;
 }
 
-import { MOCK_CAPAS } from "@/mock";
-
-const initialState: CAPAState = { items: MOCK_CAPAS };
+const initialState: CAPAState = { items: [], loading: false, error: null };
 
 const capaSlice = createSlice({
   name: "capa",
@@ -50,6 +50,15 @@ const capaSlice = createSlice({
   reducers: {
     setCAPAs(state, { payload }: PayloadAction<CAPA[]>) {
       state.items = payload;
+      state.loading = false;
+      state.error = null;
+    },
+    setCAPAsLoading(state, { payload }: PayloadAction<boolean>) {
+      state.loading = payload;
+    },
+    setCAPAsError(state, { payload }: PayloadAction<string | null>) {
+      state.error = payload;
+      state.loading = false;
     },
     addCAPA(state, { payload }: PayloadAction<CAPA>) {
       state.items.push(payload);
@@ -89,5 +98,5 @@ const capaSlice = createSlice({
   },
 });
 
-export const { setCAPAs, addCAPA, updateCAPA, closeCAPA, addEvidence, addCAPADocument, removeCAPADocument, approveCAPADocument } = capaSlice.actions;
+export const { setCAPAs, setCAPAsLoading, setCAPAsError, addCAPA, updateCAPA, closeCAPA, addEvidence, addCAPADocument, removeCAPADocument, approveCAPADocument } = capaSlice.actions;
 export default capaSlice.reducer;

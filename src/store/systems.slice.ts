@@ -107,16 +107,31 @@ export interface RoadmapActivity {
 interface SystemsState {
   items: GxPSystem[];
   roadmap: RoadmapActivity[];
+  loading: boolean;
+  error: string | null;
 }
 
-import { MOCK_SYSTEMS, MOCK_ROADMAP } from "@/mock";
-
-const initialState: SystemsState = { items: MOCK_SYSTEMS, roadmap: MOCK_ROADMAP };
+const initialState: SystemsState = { items: [], roadmap: [], loading: false, error: null };
 
 const systemsSlice = createSlice({
   name: "systems",
   initialState,
   reducers: {
+    setSystems(state, { payload }: PayloadAction<GxPSystem[]>) {
+      state.items = payload;
+      state.loading = false;
+      state.error = null;
+    },
+    setRoadmap(state, { payload }: PayloadAction<RoadmapActivity[]>) {
+      state.roadmap = payload;
+    },
+    setSystemsLoading(state, { payload }: PayloadAction<boolean>) {
+      state.loading = payload;
+    },
+    setSystemsError(state, { payload }: PayloadAction<string | null>) {
+      state.error = payload;
+      state.loading = false;
+    },
     addSystem(state, { payload }: PayloadAction<GxPSystem>) {
       state.items.push(payload);
     },
@@ -194,6 +209,7 @@ const systemsSlice = createSlice({
 });
 
 export const {
+  setSystems, setRoadmap, setSystemsLoading, setSystemsError,
   addSystem, updateSystem, removeSystem, addActivity, updateActivity,
   submitStageForReview, approveStage, rejectStage, skipStage,
   addStageDocument, updateStageNotes,

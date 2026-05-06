@@ -79,8 +79,6 @@ interface ReadinessState {
   total: number;
 }
 
-import { MOCK_READINESS_CARDS, MOCK_PLAYBOOKS, MOCK_SIMULATIONS, MOCK_TRAINING_RECORDS, MOCK_INSPECTIONS } from "@/mock";
-
 function calcScore(cards: ReadinessCard[]) {
   if (cards.length === 0) return { score: 0, complete: 0, total: 0 };
   let sum = 0;
@@ -97,26 +95,39 @@ function calcScore(cards: ReadinessCard[]) {
   return { score: Math.round((sum / cards.length) * 100), complete, total: cards.length };
 }
 
-const init = calcScore(MOCK_READINESS_CARDS);
-
-const activeId = MOCK_INSPECTIONS.find((i) => i.status !== "completed" && i.status !== "cancelled")?.id ?? null;
-
 const initialState: ReadinessState = {
-  inspections: MOCK_INSPECTIONS,
-  activeInspectionId: activeId,
-  cards: MOCK_READINESS_CARDS,
-  playbooks: MOCK_PLAYBOOKS,
-  simulations: MOCK_SIMULATIONS,
-  training: MOCK_TRAINING_RECORDS,
-  score: init.score,
-  complete: init.complete,
-  total: init.total,
+  inspections: [],
+  activeInspectionId: null,
+  cards: [],
+  playbooks: [],
+  simulations: [],
+  training: [],
+  score: 0,
+  complete: 0,
+  total: 0,
 };
 
 const readinessSlice = createSlice({
   name: "readiness",
   initialState,
   reducers: {
+    setReadinessData(state, { payload }: PayloadAction<{
+      inspections: Inspection[];
+      cards: ReadinessCard[];
+      playbooks: Playbook[];
+      simulations: Simulation[];
+      training: TrainingRecord[];
+    }>) {
+      state.inspections = payload.inspections;
+      state.cards = payload.cards;
+      state.playbooks = payload.playbooks;
+      state.simulations = payload.simulations;
+      state.training = payload.training;
+      const s = calcScore(state.cards);
+      state.score = s.score;
+      state.complete = s.complete;
+      state.total = s.total;
+    },
     addCard(state, { payload }: PayloadAction<ReadinessCard>) {
       state.cards.push(payload);
       const s = calcScore(state.cards);
@@ -167,6 +178,7 @@ const readinessSlice = createSlice({
 });
 
 export const {
+  setReadinessData,
   addCard, updateCard, removeCard, addPlaybook, updatePlaybook,
   addSimulation, updateSimulation, addTraining, removeTraining,
   addInspection, updateInspection, setActiveInspection, completeInspection,

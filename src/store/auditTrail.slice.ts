@@ -1,5 +1,4 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import { MOCK_AUDIT_ENTRIES } from "@/mock";
 
 export interface AuditEntry {
   id: string;
@@ -31,7 +30,7 @@ interface AuditTrailState {
 }
 
 const initialState: AuditTrailState = {
-  entries: MOCK_AUDIT_ENTRIES,
+  entries: [],
   filters: {
     module: "all",
     action: "all",
@@ -45,6 +44,9 @@ const auditTrailSlice = createSlice({
   name: "auditTrail",
   initialState,
   reducers: {
+    setAuditEntries(state, { payload }: PayloadAction<AuditEntry[]>) {
+      state.entries = payload;
+    },
     logAction(state, { payload }: PayloadAction<AuditEntry>) {
       state.entries.unshift(payload);
     },
@@ -57,5 +59,5 @@ const auditTrailSlice = createSlice({
   },
 });
 
-export const { logAction, setAuditFilter, clearAuditFilters } = auditTrailSlice.actions;
+export const { setAuditEntries, logAction, setAuditFilter, clearAuditFilters } = auditTrailSlice.actions;
 export default auditTrailSlice.reducer;

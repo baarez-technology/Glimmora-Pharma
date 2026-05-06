@@ -33,16 +33,28 @@ export interface Finding {
 
 interface FindingsState {
   items: Finding[];
+  loading: boolean;
+  error: string | null;
 }
 
-import { MOCK_FINDINGS } from "@/mock";
-
-const initialState: FindingsState = { items: MOCK_FINDINGS };
+const initialState: FindingsState = { items: [], loading: false, error: null };
 
 const findingsSlice = createSlice({
   name: "findings",
   initialState,
   reducers: {
+    setFindings(state, { payload }: PayloadAction<Finding[]>) {
+      state.items = payload;
+      state.loading = false;
+      state.error = null;
+    },
+    setFindingsLoading(state, { payload }: PayloadAction<boolean>) {
+      state.loading = payload;
+    },
+    setFindingsError(state, { payload }: PayloadAction<string | null>) {
+      state.error = payload;
+      state.loading = false;
+    },
     addFinding(state, { payload }: PayloadAction<Finding>) {
       state.items.push(payload);
     },
@@ -90,5 +102,5 @@ const findingsSlice = createSlice({
   },
 });
 
-export const { addFinding, updateFinding, closeFinding, linkCapa, editFinding } = findingsSlice.actions;
+export const { setFindings, setFindingsLoading, setFindingsError, addFinding, updateFinding, closeFinding, linkCapa, editFinding } = findingsSlice.actions;
 export default findingsSlice.reducer;

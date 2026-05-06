@@ -148,7 +148,7 @@ export const MOCK_AUDIT_ENTRIES: AuditEntry[] = [
     userId: "u-002",
     userName: "Dr. Priya Sharma",
     userRole: "QA Head",
-    module: "Inspection Readiness",
+    module: "Training & Awareness",
     action: "SIMULATION_COMPLETED",
     recordId: "sim-003",
     recordTitle: "SME Q&A Practice \u2014 QC Lab",

@@ -91,7 +91,7 @@ export function CustomerDetailPage() {
     <div className="w-full max-w-[1200px] mx-auto">
       {/* Back link */}
       <Link
-        to="/admin"
+        href="/admin"
         className="inline-flex items-center gap-2 text-[13px] mb-4"
         style={{ color: "var(--brand)" }}
       >

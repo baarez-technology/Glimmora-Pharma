@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+
+  // Allow dev access from local network
+  allowedDevOrigins: ["192.168.1.37"],
   typescript: {
     ignoreBuildErrors: true,
   },

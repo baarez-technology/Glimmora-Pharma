@@ -159,7 +159,7 @@ export function ReadinessPage() {
       notes: inspNotes.trim() || undefined,
     }));
     dispatch(setActiveInspection(id));
-    auditLog({ action: "INSPECTION_CREATED", module: "Inspection Readiness", recordId: id, recordTitle: inspTitle.trim() });
+    auditLog({ action: "INSPECTION_CREATED", module: "Training & Awareness", recordId: id, recordTitle: inspTitle.trim() });
     setCreateInspOpen(false);
     setInspTitle(""); setInspDate(""); setInspNotes("");
     setInspCreatedPopup(true);
@@ -345,7 +345,7 @@ export function ReadinessPage() {
     <main id="main-content" aria-label="Inspection readiness program" className="w-full space-y-5">
       {/* Header */}
       <PageHeader
-        title="Inspection Readiness Program"
+        title="Training & Awareness Program"
         subtitle={`${completeCount} of ${totalCards} actions complete \u00b7 ${readinessScore}% ready`}
         actions={
           <div className="flex items-center gap-3">

@@ -18,6 +18,7 @@ import {
   Layers,
   FlaskConical,
   SlidersHorizontal,
+  GraduationCap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -60,7 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Readiness & Governance",
     icon: FlaskConical,
     items: [
-      { path: "readiness", label: "Inspection Readiness", icon: ShieldCheck },
+      { path: "readiness", label: "Training & Awareness", icon: GraduationCap },
       { path: "governance", label: "Governance & KPIs", icon: BarChart3 },
       { path: "audit-trail", label: "Audit Trail", icon: ClipboardList },
     ],

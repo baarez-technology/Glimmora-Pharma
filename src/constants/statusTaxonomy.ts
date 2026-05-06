@@ -97,7 +97,7 @@ export const DEVIATION_STATUSES: Record<string, StatusDef> = {
   rejected: { value: "rejected", label: "Rejected", color: "#A32D2D", bg: "#FEF2F2", description: "QA Head rejected. Additional investigation needed.", nextActions: ["Rework investigation"] },
 };
 
-/* ── INSPECTION READINESS — Action statuses ── */
+/* ── TRAINING & AWARENESS — Action statuses ── */
 
 export const READINESS_STATUSES: Record<string, StatusDef> = {
   "Not Started": { value: "Not Started", label: "Not Started", color: "#6B7280", bg: "#F3F4F6", description: "Action not yet initiated", nextActions: ["Begin work"] },
@@ -122,5 +122,5 @@ export const ALL_TAXONOMIES: { module: string; statuses: Record<string, StatusDe
   { module: "FDA 483 Observations", statuses: FDA483_OBS_STATUSES },
   { module: "CSV/CSA Validation", statuses: VALIDATION_STATUSES },
   { module: "Deviation Management", statuses: DEVIATION_STATUSES },
-  { module: "Inspection Readiness", statuses: READINESS_STATUSES },
+  { module: "Training & Awareness", statuses: READINESS_STATUSES },
 ];

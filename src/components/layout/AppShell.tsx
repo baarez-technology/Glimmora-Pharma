@@ -28,14 +28,15 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const dispatch = useAppDispatch();
-  const { activePlan, tenantName, isExpired, isNearExpiry, daysRemaining } =
+  const { activePlan, tenantName, tenantId, isExpired, isNearExpiry, daysRemaining } =
     useTenantConfig();
   const { isSuperAdmin } = useRole();
 
   // ⛔ Wait until client is ready
   if (!mounted) return null;
 
-  const isBlocked = isExpired && !isSuperAdmin;
+  // Only block if user is authenticated (has a tenant) but subscription is expired
+  const isBlocked = tenantId && isExpired && !isSuperAdmin;
 
   // =========================
   // 🚫 BLOCKED SCREEN

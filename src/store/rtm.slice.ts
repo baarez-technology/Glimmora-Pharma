@@ -1,5 +1,4 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import { MOCK_RTM_ENTRIES } from "@/mock";
 
 export type RTMPriority = "critical" | "high" | "medium";
 export type LinkStatus = "linked" | "missing" | "na" | "skipped";
@@ -45,7 +44,7 @@ interface RTMState {
   items: RTMEntry[];
 }
 
-const initialState: RTMState = { items: MOCK_RTM_ENTRIES };
+const initialState: RTMState = { items: [] };
 
 const rtmSlice = createSlice({
   name: "rtm",

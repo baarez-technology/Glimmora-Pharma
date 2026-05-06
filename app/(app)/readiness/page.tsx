@@ -5,7 +5,7 @@ import { ErrorBoundary } from "@/components/errors";
 
 export default function Page() {
   return (
-    <ErrorBoundary moduleName="Inspection Readiness">
+    <ErrorBoundary moduleName="Training & Awareness">
       <ReadinessPage />
     </ErrorBoundary>
   );

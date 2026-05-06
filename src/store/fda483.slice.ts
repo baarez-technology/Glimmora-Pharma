@@ -72,16 +72,28 @@ export interface FDA483Event {
 
 interface FDA483State {
   items: FDA483Event[];
+  loading: boolean;
+  error: string | null;
 }
 
-import { MOCK_FDA483_EVENTS } from "@/mock";
-
-const initialState: FDA483State = { items: MOCK_FDA483_EVENTS };
+const initialState: FDA483State = { items: [], loading: false, error: null };
 
 const fda483Slice = createSlice({
   name: "fda483",
   initialState,
   reducers: {
+    setFDA483Events(state, { payload }: PayloadAction<FDA483Event[]>) {
+      state.items = payload;
+      state.loading = false;
+      state.error = null;
+    },
+    setFDA483Loading(state, { payload }: PayloadAction<boolean>) {
+      state.loading = payload;
+    },
+    setFDA483Error(state, { payload }: PayloadAction<string | null>) {
+      state.error = payload;
+      state.loading = false;
+    },
     addEvent(state, { payload }: PayloadAction<FDA483Event>) {
       state.items.push(payload);
     },
@@ -168,6 +180,7 @@ const fda483Slice = createSlice({
 });
 
 export const {
+  setFDA483Events, setFDA483Loading, setFDA483Error,
   addEvent, updateEvent, closeEvent,
   addObservation, updateObservation,
   addCommitment, updateCommitment,

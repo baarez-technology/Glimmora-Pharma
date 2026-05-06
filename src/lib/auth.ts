@@ -14,6 +14,9 @@ import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "../../pages/api/auth/[...nextauth]";
 
+// Re-export authOptions for use in API routes
+export { authOptions };
+
 export interface AuthSession {
   user: {
     id: string;

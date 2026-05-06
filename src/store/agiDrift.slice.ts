@@ -31,9 +31,7 @@ interface AGIDriftState {
   metrics: DriftMetric[];
 }
 
-import { MOCK_DRIFT_ALERTS, MOCK_DRIFT_METRICS } from "@/mock";
-
-const initialState: AGIDriftState = { alerts: MOCK_DRIFT_ALERTS, metrics: MOCK_DRIFT_METRICS };
+const initialState: AGIDriftState = { alerts: [], metrics: [] };
 
 const agiDriftSlice = createSlice({
   name: "agiDrift",
