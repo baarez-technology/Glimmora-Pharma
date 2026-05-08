@@ -1,6 +1,6 @@
 import { useState } from "react";
 import clsx from "clsx";
-import { ShieldCheck } from "lucide-react";
+import { ShieldAlert, ShieldCheck } from "lucide-react";
 import type { CAPA } from "@/store/capa.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -13,9 +13,16 @@ interface SignCloseModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSign: (data: { meaning: string; password: string }) => void;
-  capa: CAPA | null;}
+  capa: CAPA | null;
+  /** Substage 6.4 — display-only echo of the CC dependency override the
+   *  operator captured upstream in ActionsPanel. The reason itself rides
+   *  through CAPAPage state into signAndCloseCAPAServer; this prop only
+   *  surfaces it to the signer so they can see what they are signing off
+   *  on. */
+  ccBlockOverride?: { reason: string } | null;
+}
 
-export function SignCloseModal({ isOpen, onClose, onSign, capa }: SignCloseModalProps) {
+export function SignCloseModal({ isOpen, onClose, onSign, capa, ccBlockOverride }: SignCloseModalProps) {
   const [signMeaning, setSignMeaning] = useState("");
   const [signPassword, setSignPassword] = useState("");
   const [effectivenessConfirmed, setEffectivenessConfirmed] = useState(false);
@@ -33,6 +40,32 @@ export function SignCloseModal({ isOpen, onClose, onSign, capa }: SignCloseModal
     <Modal open={isOpen} onClose={onClose} title="Sign & Close CAPA">
       <div>
         <div id="sign-part11-notice" className="alert alert-info mb-4">This is a GxP electronic signature under 21 CFR Part 11. Your identity, the meaning of this signature, and a content hash will be recorded and cannot be altered.</div>
+        {ccBlockOverride && (
+          <div
+            role="status"
+            className="alert mb-4 flex items-start gap-2"
+            style={{
+              background: "var(--warning-bg)",
+              color: "var(--warning)",
+              border: "1px solid var(--warning)",
+            }}
+          >
+            <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+            <div>
+              <p className="text-[12px] font-semibold">
+                Linked Change Control override in effect
+              </p>
+              <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
+                You are sealing this CAPA before all linked Change Controls
+                reach Implemented. The reason below will be recorded against
+                the CAPA and the audit trail.
+              </p>
+              <p className="text-[11px] mt-1 italic" style={{ color: "var(--text-primary)" }}>
+                &ldquo;{ccBlockOverride.reason}&rdquo;
+              </p>
+            </div>
+          </div>
+        )}
         <div className={clsx("rounded-lg p-3 mb-4 border", "bg-(--bg-surface) border-(--bg-border)")}>
           <div className="flex items-center gap-2">
             <span className="font-mono text-[12px] text-[#0ea5e9] font-semibold">{capa.id}</span>

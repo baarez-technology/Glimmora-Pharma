@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { ClipboardCheck, Plus, Search, ChevronRight, Link2, CheckCircle2 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
-import type { CAPA, CAPARisk, CAPAStatus } from "@/store/capa.slice";
+import type { CAPA, CAPARisk } from "@/store/capa.slice";
+import { isOverdue, STATUS_LABEL, type CAPAStatus } from "@/types/capa";
 import type { AuthUser } from "@/store/auth.slice";
 import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
@@ -15,7 +16,7 @@ import { CAPADetailModal } from "../modals/CAPADetailModal";
 const SOURCE_LABEL: Record<string, string> = { "483": "FDA 483 Observation", "Gap Assessment": "Gap Assessment Finding", Deviation: "Deviation Report", "Internal Audit": "Internal Audit", Complaint: "Complaint", OOS: "OOS", "Change Control": "Change Control" };
 function sourceLabel(s: string) { return SOURCE_LABEL[s] ?? s; }
 function riskBadge(r: CAPARisk) { return <Badge variant={CAPA_RISK_VARIANT[r]}>{r}</Badge>; }
-function capaStatusBadge(s: CAPAStatus) { return <Badge variant={CAPA_STATUS_VARIANT[s]}>{s}</Badge>; }
+function capaStatusBadge(s: CAPAStatus) { return <Badge variant={CAPA_STATUS_VARIANT[s]}>{STATUS_LABEL[s]}</Badge>; }
 function ownerName(uid: string, users: UserConfig[]) { return users.find((u) => u.id === uid)?.name ?? uid; }
 
 interface SiteOption {
@@ -37,7 +38,9 @@ interface CAPATrackerTabProps {
   dateFormat: string;
   onAddOpen: () => void;
   onEditOpen: () => void;
-  onSignOpen: () => void;
+  /** Substage 6.4 — optional CC-block override from ActionsPanel's
+   *  pre-flight gate. CAPAPage forwards it into signAndCloseCAPA. */
+  onSignOpen: (override?: { reason: string }) => void;
   onSubmitForReview: (id: string) => void;
   onNavigateGap: (findingId: string) => void;
   onNavigateCapa: () => void;
@@ -79,7 +82,7 @@ export function CAPATrackerTab({
           <input type="search" className="input pl-8 text-[12px]" placeholder="Search CAPAs..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search CAPAs" />
         </div>
         <Dropdown placeholder="All sites" value={siteFilter} onChange={setSiteFilter} width="w-40" options={[{ value: "", label: "All sites" }, ...sites.map((s) => ({ value: s.id, label: s.name }))]} />
-        <Dropdown placeholder="All statuses" value={statusFilter} onChange={setStatusFilter} width="w-44" options={[{ value: "", label: "All statuses" }, { value: "Open", label: "Open" }, { value: "In Progress", label: "In Progress" }, { value: "Pending QA Review", label: "Pending QA Review" }, { value: "Closed", label: "Closed" }]} />
+        <Dropdown placeholder="All statuses" value={statusFilter} onChange={setStatusFilter} width="w-44" options={[{ value: "", label: "All statuses" }, { value: "open", label: STATUS_LABEL.open }, { value: "in_progress", label: STATUS_LABEL.in_progress }, { value: "pending_qa_review", label: STATUS_LABEL.pending_qa_review }, { value: "closed", label: STATUS_LABEL.closed }]} />
         <Dropdown placeholder="All risks" value={riskFilter} onChange={setRiskFilter} width="w-32" options={[{ value: "", label: "All risks" }, { value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Low", label: "Low" }]} />
         <Dropdown placeholder="All sources" value={sourceFilter} onChange={setSourceFilter} width="w-40" options={[{ value: "", label: "All sources" }, { value: "483", label: "483" }, { value: "Internal Audit", label: "Internal Audit" }, { value: "Deviation", label: "Deviation" }, { value: "Complaint", label: "Complaint" }, { value: "OOS", label: "OOS" }, { value: "Change Control", label: "Change Control" }, { value: "Gap Assessment", label: "Gap Assessment" }]} />
         {anyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear</Button>}
@@ -133,7 +136,7 @@ export function CAPATrackerTab({
                   <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{ownerName(c.owner, users)}</td>
                   <td className="whitespace-nowrap">
                     <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(c.dueDate).tz(timezone).format(dateFormat)}</div>
-                    {c.status !== "Closed" && dayjs.utc(c.dueDate).isBefore(dayjs()) && <div className="text-[10px] text-[#ef4444] font-medium">Overdue</div>}
+                    {isOverdue(c) && <div className="text-[10px] text-[#ef4444] font-medium">Overdue</div>}
                   </td>
                   <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4 text-[#10b981]" aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
                   <td><Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${c.id} detail`} /></td>
