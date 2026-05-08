@@ -57,3 +57,9 @@ playwright-run-*.log
 .claude
 
 /generated/prisma
+
+# Local-only exploratory docs (never committed)
+CLAUDE.draft.md
+CLAUDE.legacy.md
+PROJECT_BRIEF.md
+docs/CODE_HEALTH_SCAN.md
