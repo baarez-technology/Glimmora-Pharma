@@ -6,7 +6,7 @@ import {
   ClipboardCheck, GitBranch, BarChart3, Plus, Search,
   AlertTriangle, CheckCircle2, TrendingUp, Wrench, Shield, MessageSquare,
 } from "lucide-react";
-import type { CAPA as PrismaCAPA, CAPADocument as PrismaCAPADocument } from "@prisma/client";
+import type { CAPA as PrismaCAPA } from "@prisma/client";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -18,8 +18,10 @@ import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   setCAPAs,
   addCAPA, updateCAPA as updateCAPAAction, closeCAPA,
-  type CAPA, type CAPARisk, type CAPAStatus, type CAPASource, type RCAMethod,
+  type CAPA, type RCAMethod,
 } from "@/store/capa.slice";
+import { isOverdue } from "@/types/capa";
+import { mapCAPAFromPrisma } from "@/lib/mappers/capaMapper";
 import { closeFinding } from "@/store/findings.slice";
 import { updateObservation } from "@/actions/fda483";
 import { auditLog } from "@/lib/audit";
@@ -58,45 +60,10 @@ const QMS_PROCESSES = [
 
 /* ══════════════════════════════════════ */
 
-type PrismaCAPAWithDocuments = PrismaCAPA & { documents?: PrismaCAPADocument[] };
-
-/* ── Adapt Prisma CAPA → slice CAPA shape ── */
-function adaptCAPA(p: PrismaCAPAWithDocuments): CAPA {
-  // Slice CAPARisk is "Critical" | "High" | "Low" — coerce "Medium" to "High".
-  const risk: CAPARisk = (p.risk === "Medium" ? "High" : (p.risk as CAPARisk)) ?? "Low";
-  return {
-    id: p.id,
-    tenantId: p.tenantId,
-    siteId: p.siteId ?? "",
-    findingId: p.findingId ?? undefined,
-    source: p.source as CAPASource,
-    risk,
-    owner: p.owner,
-    dueDate: p.dueDate ? p.dueDate.toISOString() : "",
-    status: p.status as CAPAStatus,
-    description: p.description,
-    rca: p.rca ?? undefined,
-    rcaMethod: (p.rcaMethod ?? undefined) as RCAMethod | undefined,
-    correctiveActions: p.correctiveActions ?? undefined,
-    effectivenessCheck: p.effectivenessCheck,
-    effectivenessDate: p.effectivenessDate ? p.effectivenessDate.toISOString() : undefined,
-    evidenceLinks: [],
-    diGate: p.diGate,
-    diGateStatus: (p.diGateStatus ?? undefined) as CAPA["diGateStatus"],
-    diGateNotes: p.diGateNotes ?? undefined,
-    diGateReviewedBy: p.diGateReviewedBy ?? undefined,
-    diGateReviewDate: p.diGateReviewDate ? p.diGateReviewDate.toISOString() : undefined,
-    closedAt: p.closedAt ? p.closedAt.toISOString() : undefined,
-    closedBy: p.closedBy ?? undefined,
-    createdAt: p.createdAt.toISOString(),
-    documents: undefined,
-  };
-}
-
 interface CAPAPageProps {
   openCapaId?: string;
   /** Server-fetched CAPAs (Prisma rows) — seeded into Redux on mount. */
-  capas?: PrismaCAPAWithDocuments[];
+  capas?: PrismaCAPA[];
 }
 
 export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {}) {
@@ -106,7 +73,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   // Seed Redux from server-fetched CAPAs on mount / when props change.
   useEffect(() => {
     if (serverCAPAs) {
-      dispatch(setCAPAs(serverCAPAs.map(adaptCAPA)));
+      dispatch(setCAPAs(serverCAPAs.map(mapCAPAFromPrisma)));
     }
   }, [serverCAPAs, dispatch]);
   const [, startTransition] = useTransition();
@@ -134,6 +101,13 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   const [addOpen, setAddOpen] = useState(false);
   const [addedPopup, setAddedPopup] = useState(false);
   const [signOpen, setSignOpen] = useState(false);
+  // Substage 6.4 — optional CC-block override carried from ActionsPanel's
+  // pre-flight gate to signAndCloseCAPA. Stays null on the normal flow
+  // (no incomplete linked CCs) so the server-action call shape matches
+  // the pre-6.4 behaviour exactly.
+  const [pendingCCOverride, setPendingCCOverride] = useState<
+    { reason: string } | null
+  >(null);
   const [signedPopup, setSignedPopup] = useState(false);
   const [submittedPopup, setSubmittedPopup] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -150,17 +124,17 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   }, [openCapaId, capas]);
 
   /* ── Computed ── */
-  const openCAPAs = capas.filter((c) => c.status !== "Closed");
-  const overdueCAPAs = openCAPAs.filter((c) => dayjs.utc(c.dueDate).isBefore(dayjs()));
-  const closedCAPAs = capas.filter((c) => c.status === "Closed");
+  const openCAPAs = capas.filter((c) => c.status !== "closed");
+  const overdueCAPAs = capas.filter(isOverdue);
+  const closedCAPAs = capas.filter((c) => c.status === "closed");
 
-  const noRCACount = capas.filter((c) => c.status !== "Closed" && c.status !== "Pending QA Review" && (!c.rca || c.rca.trim().length === 0)).length;
-  const criticalOpenCount = capas.filter((c) => c.risk === "Critical" && c.status !== "Closed").length;
-  const pendingReviewCount = capas.filter((c) => c.status === "Pending QA Review").length;
+  const noRCACount = capas.filter((c) => c.status !== "closed" && c.status !== "pending_qa_review" && (!c.rca || c.rca.trim().length === 0)).length;
+  const criticalOpenCount = capas.filter((c) => c.risk === "Critical" && c.status !== "closed").length;
+  const pendingReviewCount = capas.filter((c) => c.status === "pending_qa_review").length;
 
   const onTimeRate = closedCAPAs.length === 0 ? 0 : Math.round((closedCAPAs.filter((c) => !dayjs.utc(c.closedAt || c.dueDate).isAfter(dayjs.utc(c.dueDate))).length / closedCAPAs.length) * 100);
   const overdueRate = openCAPAs.length === 0 ? 0 : Math.round((overdueCAPAs.length / openCAPAs.length) * 100);
-  const diExceptions = capas.filter((c) => c.diGate && c.status !== "Closed").length;
+  const diExceptions = capas.filter((c) => c.diGate && c.status !== "closed").length;
   const effectivenessCount = capas.filter((c) => c.effectivenessCheck).length;
 
   const riskSignalData = useMemo(() => {
@@ -177,10 +151,10 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
 
   const statusDonut = useMemo(() =>
     ([
-      { name: "Open", value: capas.filter((c) => c.status === "Open").length, fill: "#3B82F6" },
-      { name: "In Progress", value: capas.filter((c) => c.status === "In Progress").length, fill: "#F59E0B" },
-      { name: "Pending QA", value: capas.filter((c) => c.status === "Pending QA Review").length, fill: "#6366f1" },
-      { name: "Closed", value: capas.filter((c) => c.status === "Closed").length, fill: "#0F6E56" },
+      { name: "Open", value: capas.filter((c) => c.status === "open").length, fill: "#3B82F6" },
+      { name: "In Progress", value: capas.filter((c) => c.status === "in_progress").length, fill: "#F59E0B" },
+      { name: "Pending QA", value: capas.filter((c) => c.status === "pending_qa_review").length, fill: "#6366f1" },
+      { name: "Closed", value: capas.filter((c) => c.status === "closed").length, fill: "#0F6E56" },
     ] as const).filter((d) => d.value > 0),
   [capas]);
 
@@ -193,7 +167,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   /* ── Blueprint helpers ── */
   function getProcessMetrics(sourceKey: string) {
     const src = capas.filter((c) => c.source === sourceKey);
-    return { open: src.filter((c) => c.status !== "Closed").length, thisMonth: src.filter((c) => c.createdAt && dayjs.utc(c.createdAt).format("MMM YYYY") === dayjs().format("MMM YYYY")).length, overdue: src.filter((c) => c.status !== "Closed" && dayjs.utc(c.dueDate).isBefore(dayjs())).length };
+    return { open: src.filter((c) => c.status !== "closed").length, thisMonth: src.filter((c) => c.createdAt && dayjs.utc(c.createdAt).format("MMM YYYY") === dayjs().format("MMM YYYY")).length, overdue: src.filter(isOverdue).length };
   }
 
   function stepHasProblem(step: number): boolean {
@@ -217,7 +191,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   function handleAddCAPA(data: CAPAForm) {
     const newId = `CAPA-${String(Date.now()).slice(-4)}`;
     // Optimistic Redux update so UI feels instant.
-    dispatch(addCAPA({ ...data, id: newId, tenantId: tenantId ?? "", evidenceLinks: [], status: "Open", createdAt: dayjs().toISOString(), rcaMethod: data.rcaMethod as RCAMethod | undefined, rca: undefined, correctiveActions: undefined, findingId: data.findingId || undefined }));
+    dispatch(addCAPA({ ...data, id: newId, tenantId: tenantId ?? "", status: "open", createdAt: dayjs().toISOString(), rcaMethod: data.rcaMethod as RCAMethod | undefined, rca: undefined, correctiveActions: undefined, findingId: data.findingId || undefined }));
     setAddOpen(false);
     setAddedPopup(true);
     startTransition(async () => {
@@ -238,7 +212,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
 
   function handleEditSave(data: EditForm) {
     if (!selectedCAPA) return;
-    const autoAdvance = selectedCAPA.status === "Open" && data.rca?.trim();
+    const autoAdvance = selectedCAPA.status === "open" && data.rca?.trim();
     dispatch(updateCAPAAction({
       id: selectedCAPA.id,
       patch: {
@@ -251,7 +225,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         diGateNotes: data.diGateNotes ?? "",
         diGateReviewedBy: data.diGateReviewedBy ?? "",
         diGateReviewDate: data.diGateReviewDate ?? "",
-        ...(autoAdvance ? { status: "In Progress" as const } : {}),
+        ...(autoAdvance ? { status: "in_progress" as const } : {}),
       },
     }));
     setEditModalOpen(false);
@@ -266,7 +240,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         rcaMethod: (data.rcaMethod as string) || undefined,
         rca: data.rca ?? "",
         correctiveActions: data.correctiveActions ?? "",
-        status: autoAdvance ? "In Progress" : undefined,
+        status: autoAdvance ? "in_progress" : undefined,
       });
       if (!res.success) console.error("[CAPA] update failed:", res.error);
       router.refresh();
@@ -274,7 +248,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   }
 
   function handleSubmitForReview(id: string) {
-    dispatch(updateCAPAAction({ id, patch: { status: "Pending QA Review" } }));
+    dispatch(updateCAPAAction({ id, patch: { status: "pending_qa_review" } }));
     setSubmittedPopup(true);
     setSelectedCAPA(null);
     startTransition(async () => {
@@ -315,8 +289,13 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     setSignOpen(false);
     setSignedPopup(true);
     setSelectedCAPA(null);
+    const ccOverride = pendingCCOverride;
+    setPendingCCOverride(null);
     startTransition(async () => {
-      const res = await signAndCloseCAPAServer(capaId);
+      const res = await signAndCloseCAPAServer(
+        capaId,
+        ccOverride ?? undefined,
+      );
       if (!res.success) console.error("[CAPA] sign & close failed:", res.error);
       router.refresh();
     });
@@ -363,7 +342,10 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
           isDark={isDark} isViewOnly={isViewOnly} users={users} user={user} sites={allSites}
           timezone={timezone} dateFormat={dateFormat}
           onAddOpen={() => setAddOpen(true)} onEditOpen={() => setEditModalOpen(true)}
-          onSignOpen={() => setSignOpen(true)} onSubmitForReview={handleSubmitForReview}
+          onSignOpen={(override) => {
+            setPendingCCOverride(override ?? null);
+            setSignOpen(true);
+          }} onSubmitForReview={handleSubmitForReview}
           onNavigateGap={(fid) => router.push(`/gap-assessment?openFindingId=${encodeURIComponent(fid)}`)}
           onNavigateCapa={() => router.push("/gap-assessment")}
         />
@@ -382,7 +364,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
       {/* Modals */}
       <AddCAPAModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddCAPA} users={complianceUsers} sites={allSites} lockedSiteId={selectedSiteId} />
       <EditCAPAModal isOpen={editModalOpen} onClose={() => setEditModalOpen(false)} onSave={handleEditSave} capa={selectedCAPA} users={complianceUsers} />
-      <SignCloseModal isOpen={signOpen} onClose={() => setSignOpen(false)} onSign={handleSignClose} capa={selectedCAPA} />
+      <SignCloseModal isOpen={signOpen} onClose={() => { setSignOpen(false); setPendingCCOverride(null); }} onSign={handleSignClose} capa={selectedCAPA} ccBlockOverride={pendingCCOverride} />
 
       {/* Popups */}
       <Popup isOpen={editSavedPopup} variant="success" title="CAPA updated" description="Changes saved. Submit for QA review when RCA and corrective actions are complete." onDismiss={() => setEditSavedPopup(false)} />

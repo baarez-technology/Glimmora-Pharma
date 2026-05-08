@@ -50,6 +50,11 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "gap-assessment", label: "Gap Assessment", icon: Search },
       { path: "deviation", label: "Deviation Management", icon: AlertTriangle },
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
+      // "Change Control" entry hidden in the sidebar pending wider release.
+      // The /change-control route still exists and remains reachable from
+      // the CAPA detail modal's linked-CC section; only the standalone nav
+      // entry is suppressed. Restore the line below to re-expose it.
+      // { path: "change-control", label: "Change Control", icon: Settings },
       { path: "csv-csa", label: "CSV / CSA Validation", icon: Monitor },
       { path: "fda-483", label: "FDA 483 & Regulatory", icon: Building2 },
       { path: "evidence", label: "Evidence & Documents", icon: FileText },
