@@ -15,6 +15,7 @@ import type {
   ValidationStage as PrismaValidationStage,
   RTMEntry as PrismaRTMEntry,
   RoadmapActivity as PrismaRoadmapActivity,
+  StageDocument as PrismaStageDocument,
 } from "@prisma/client";
 
 /* ══════════════════════════════════════
@@ -56,17 +57,23 @@ export const VALIDATION_STAGE_KEYS: ValidationStageKey[] = ["URS", "FS", "DS", "
  * SYSTEMS — interfaces
  * ══════════════════════════════════════ */
 
+// Stage document shape used by the UI. Mirrors the Prisma StageDocument
+// model 1:1 plus a derived `isLocked` flag — set by the adapter when the
+// parent stage's status is "approved", letting the UI hide delete buttons
+// without re-deriving the rule per render.
 export interface StageDocument {
   id: string;
   fileName: string;
+  originalFileName: string;
+  fileSize: number;
   fileType: string;
-  fileSize: string;
-  version: string;
-  status: "draft" | "in_review" | "approved";
-  uploadedBy: string;
+  fileUrl: string;
+  contentHashSha256: string;
+  retainUntil: string;
+  uploadedById: string;
+  uploadedByName: string;
   uploadedAt: string;
-  approvedBy?: string;
-  approvedAt?: string;
+  isLocked: boolean;
 }
 
 export interface ValidationStage {
@@ -194,9 +201,15 @@ export interface RTMEntry {
  * Server-component prop adapters
  * ══════════════════════════════════════ */
 
-/** Prisma row + included relations (server-fetched). */
+/** Prisma row + included relations (server-fetched). Stage documents
+ *  arrive nested under each ValidationStage — the read-path query in
+ *  src/lib/queries/systems.ts filters out soft-deleted rows. */
+type ValidationStageWithDocs = PrismaValidationStage & {
+  documents: PrismaStageDocument[];
+};
+
 export type SystemFromPrisma = PrismaGxPSystem & {
-  validationStages: PrismaValidationStage[];
+  validationStages: ValidationStageWithDocs[];
   rtmEntries: PrismaRTMEntry[];
   roadmapActivities: PrismaRoadmapActivity[];
 };
@@ -242,7 +255,12 @@ export function adaptPrismaSystem(s: SystemFromPrisma): GxPSystem {
   };
 }
 
-function adaptPrismaStage(s: PrismaValidationStage): ValidationStage {
+function adaptPrismaStage(s: ValidationStageWithDocs): ValidationStage {
+  // Stage is locked once approved — once the lock fires, the UI hides
+  // upload + delete affordances, and the server actions reject mutations
+  // with the same locked-stage message. Computed once here so every doc
+  // in the stage carries the same flag without per-doc re-derivation.
+  const isLocked = s.status === "approved";
   return {
     // Schema field is `stageName`; slice uses `key`.
     key: (s.stageName as ValidationStageKey) ?? "URS",
@@ -254,8 +272,28 @@ function adaptPrismaStage(s: PrismaValidationStage): ValidationStage {
     approvedDate: s.approvedDate ? s.approvedDate.toISOString() : undefined,
     rejectedBy: s.rejectedBy ?? undefined,
     rejectionReason: s.rejectionReason ?? undefined,
-    documents: [],
+    documents: s.documents.map((d) => adaptPrismaStageDocument(d, isLocked)),
     prismaId: s.id,
+  };
+}
+
+function adaptPrismaStageDocument(
+  d: PrismaStageDocument,
+  isLocked: boolean,
+): StageDocument {
+  return {
+    id: d.id,
+    fileName: d.fileName,
+    originalFileName: d.originalFileName,
+    fileSize: d.fileSize,
+    fileType: d.fileType,
+    fileUrl: d.fileUrl,
+    contentHashSha256: d.contentHashSha256,
+    retainUntil: d.retainUntil.toISOString(),
+    uploadedById: d.uploadedById,
+    uploadedByName: d.uploadedByName,
+    uploadedAt: d.uploadedAt.toISOString(),
+    isLocked,
   };
 }
 

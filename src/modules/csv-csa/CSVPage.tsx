@@ -3,12 +3,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
-import type {
-  GxPSystem as PrismaGxPSystem,
-  ValidationStage as PrismaValidationStage,
-  RTMEntry as PrismaRTMEntry,
-  RoadmapActivity as PrismaRoadmapActivity,
-} from "@prisma/client";
 import { Database, GitBranch, Plus, Info, X, Link2 } from "lucide-react";
 import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { NoSitesPopup, TabBar, PageHeader } from "@/components/shared";
@@ -25,7 +19,7 @@ import {
   addRoadmapActivity,
   updateRoadmapActivity,
 } from "@/actions/systems";
-import type { GxPSystem, RoadmapActivity, ValidationStageKey, ValidationStage } from "@/types/csv-csa";
+import type { GxPSystem, RoadmapActivity, ValidationStageKey, ValidationStage, SystemFromPrisma } from "@/types/csv-csa";
 import { VALIDATION_STAGE_LABELS, VALIDATION_STAGE_KEYS, adaptPrismaSystem, adaptPrismaRoadmap, adaptPrismaRTM } from "@/types/csv-csa";
 import { auditLog } from "@/lib/audit";
 import { Button } from "@/components/ui/Button";
@@ -51,11 +45,11 @@ const TABS: { id: TabId; label: string; Icon: typeof Database }[] = [
 
 /* ── Server Component props ── */
 
-type PrismaSystemWithRelations = PrismaGxPSystem & {
-  validationStages: PrismaValidationStage[];
-  rtmEntries: PrismaRTMEntry[];
-  roadmapActivities: PrismaRoadmapActivity[];
-};
+// Server Component prop type — was previously a local duplicate of the
+// canonical SystemFromPrisma in @/types/csv-csa. Removed in favour of the
+// imported type so the StageDocument relation flows through automatically
+// when the read-path query includes it (substage stage-document feature).
+type PrismaSystemWithRelations = SystemFromPrisma;
 
 export interface CSVPageStats {
   total: number;
