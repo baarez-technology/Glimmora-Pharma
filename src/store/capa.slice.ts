@@ -1,8 +1,7 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { LinkedDocument } from "@/components/shared/DocumentUpload";
+import type { CAPAStatus } from "@/types/capa";
 
-export type CAPARisk = "Critical" | "High" | "Low";
-export type CAPAStatus = "Open" | "In Progress" | "Pending QA Review" | "Closed";
+export type CAPARisk = "Critical" | "High" | "Medium" | "Low";
 export type RCAMethod = "5 Why" | "Fishbone" | "Fault Tree" | "Other";
 export type CAPASource = "483" | "Internal Audit" | "Deviation" | "Complaint" | "OOS" | "Change Control" | "Gap Assessment";
 
@@ -27,7 +26,6 @@ export interface CAPA {
   correctiveActions?: string;
   effectivenessCheck: boolean;
   effectivenessDate?: string;
-  evidenceLinks: string[];
   diGate: boolean;
   linkedSystemId?: string;
   linkedSystemName?: string;
@@ -35,10 +33,30 @@ export interface CAPA {
   diGateNotes?: string;
   diGateReviewedBy?: string;
   diGateReviewDate?: string;
+  // Substage 4.7 — Action-to-Cause Alignment Review fields. Optional in
+  // the Redux shape because legacy in-memory CAPAs created before the
+  // migration won't have them; every persisted row populates these (or
+  // leaves them null) after migration add_capa_alignment_review.
+  alignmentStatus?: "aligned" | "cosmetic" | "needs_review";
+  alignmentReviewedBy?: string;
+  alignmentReviewedById?: string;
+  alignmentReviewedAt?: string;
+  alignmentNotes?: string;
+  alignmentOverrideBy?: string;
+  alignmentOverrideById?: string;
+  alignmentOverrideAt?: string;
+  alignmentOverrideReason?: string;
+  // Substage 6.4 — Linked CC dependency override metadata. Populated only
+  // when a Medium/Low CAPA was sealed while linked CCs were still
+  // incomplete (the soft-gate path). Null on the normal flow so an
+  // inspector can tell at a glance whether an override was applied.
+  ccBlockOverrideReason?: string;
+  ccBlockOverrideById?: string;
+  ccBlockOverrideByName?: string;
+  ccBlockOverrideAt?: string;
   closedAt?: string;
   closedBy?: string;
   createdAt: string;
-  documents?: LinkedDocument[];
 }
 
 interface CAPAState {
@@ -64,33 +82,13 @@ const capaSlice = createSlice({
     closeCAPA(state, { payload }: PayloadAction<{ id: string; closedBy: string; closedAt: string }>) {
       const item = state.items.find((c) => c.id === payload.id);
       if (item) {
-        item.status = "Closed";
+        item.status = "closed";
         item.closedBy = payload.closedBy;
         item.closedAt = payload.closedAt;
       }
     },
-    addEvidence(state, { payload }: PayloadAction<{ id: string; link: string }>) {
-      const item = state.items.find((c) => c.id === payload.id);
-      if (item) item.evidenceLinks.push(payload.link);
-    },
-    addCAPADocument(state, { payload }: PayloadAction<{ capaId: string; doc: LinkedDocument }>) {
-      const item = state.items.find((c) => c.id === payload.capaId);
-      if (item) {
-        if (!item.documents) item.documents = [];
-        item.documents.push(payload.doc);
-      }
-    },
-    removeCAPADocument(state, { payload }: PayloadAction<{ capaId: string; docId: string }>) {
-      const item = state.items.find((c) => c.id === payload.capaId);
-      if (item && item.documents) item.documents = item.documents.filter((d) => d.id !== payload.docId);
-    },
-    approveCAPADocument(state, { payload }: PayloadAction<{ capaId: string; docId: string; approvedBy: string }>) {
-      const item = state.items.find((c) => c.id === payload.capaId);
-      const doc = item?.documents?.find((d) => d.id === payload.docId);
-      if (doc) { doc.status = "approved"; doc.approvedBy = payload.approvedBy; doc.approvedAt = new Date().toISOString(); }
-    },
   },
 });
 
-export const { setCAPAs, addCAPA, updateCAPA, closeCAPA, addEvidence, addCAPADocument, removeCAPADocument, approveCAPADocument } = capaSlice.actions;
+export const { setCAPAs, addCAPA, updateCAPA, closeCAPA } = capaSlice.actions;
 export default capaSlice.reducer;
