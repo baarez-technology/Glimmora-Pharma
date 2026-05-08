@@ -1,0 +1,276 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/auth";
+import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
+import { getCAPAEffectivenessCriteria } from "@/lib/queries/capa-criteria";
+
+// ── Result type ──
+
+type ActionResult<T = unknown> =
+  | { success: true; data: T }
+  | { success: false; error: string; fieldErrors?: Record<string, string[]> };
+
+// ── Constants ──
+
+const AUDIT_MODULE = "CAPA / Effectiveness";
+
+const LOCKED_CAPA_MESSAGE =
+  "Cannot add criteria — CAPA has progressed to QA review. Re-open the CAPA to modify.";
+const LOCKED_CRITERION_MESSAGE =
+  "Cannot modify a locked criterion — CAPA has progressed to QA review. Re-open the CAPA to modify.";
+
+// ── Schemas ──
+
+const CriterionSchema = z.object({
+  description: z.string().min(5, "Description must be at least 5 characters"),
+  targetMetric: z.string().min(3, "Target metric must be at least 3 characters"),
+  measurementMethod: z
+    .string()
+    .min(5, "Measurement method must be at least 5 characters"),
+  targetValue: z
+    .string()
+    .min(1, "Target value is required")
+    .max(500, "Target value must be 500 characters or fewer"),
+  monitoringPeriod: z
+    .string()
+    .min(3, "Monitoring period must be at least 3 characters"),
+});
+
+// ── Actions ──
+
+/**
+ * Client-callable read wrapper for the criteria panel. Mirrors
+ * loadEvidenceForCAPA in src/actions/evidence.ts: requireAuth() + tenant
+ * scope on the parent CAPA, then delegates to the cached query so the
+ * read is request-deduped.
+ */
+export async function loadCriteriaForCAPA(
+  capaId: string,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const capa = await prisma.cAPA.findFirst({
+    where: { id: capaId, tenantId: session.user.tenantId },
+    select: { id: true },
+  });
+  if (!capa) return { success: false, error: "CAPA not found" };
+  const items = await getCAPAEffectivenessCriteria(
+    session.user.tenantId,
+    capaId,
+  );
+  return { success: true, data: items };
+}
+
+/**
+ * Create a new effectiveness criterion attached to a CAPA in the current
+ * tenant. Rejected if the CAPA has progressed past investigation per
+ * substage 4.6's "locked at this stage, not modifiable post-implementation"
+ * rule.
+ */
+export async function createCriterion(
+  capaId: string,
+  input: z.input<typeof CriterionSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = CriterionSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const capa = await prisma.cAPA.findFirst({
+    where: { id: capaId, tenantId: session.user.tenantId },
+    select: { id: true, status: true, description: true },
+  });
+  if (!capa) return { success: false, error: "CAPA not found" };
+  if (LOCKED_CAPA_STATUSES.has(capa.status)) {
+    return { success: false, error: LOCKED_CAPA_MESSAGE };
+  }
+
+  try {
+    const criterion = await prisma.cAPAEffectivenessCriterion.create({
+      data: {
+        ...parsed.data,
+        capaId,
+        tenantId: session.user.tenantId,
+        createdBy: session.user.name,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: AUDIT_MODULE,
+        action: "EFFECTIVENESS_CRITERION_CREATED",
+        recordId: criterion.id,
+        recordTitle: capa.description.slice(0, 80),
+        newValue: JSON.stringify(parsed.data),
+      },
+    });
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${capaId}`);
+    return { success: true, data: criterion };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string } | null)?.code;
+    console.error("[action] createCriterion failed:", { code, message, err });
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Failed to create effectiveness criterion"
+          : `Failed to create effectiveness criterion: ${code ? `[${code}] ` : ""}${message}`,
+    };
+  }
+}
+
+/**
+ * Update an existing criterion. Two-layer lock check: (a) the criterion's
+ * own lockedAt (set by lockCriteriaForCAPA when the parent CAPA crosses
+ * into a LOCKED_CAPA_STATUSES state); (b) the parent CAPA's status
+ * (defence in depth — protects against the rare race where a criterion
+ * was created while the CAPA was in flight to a locked state).
+ */
+export async function updateCriterion(
+  criterionId: string,
+  input: z.input<typeof CriterionSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = CriterionSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const existing = await prisma.cAPAEffectivenessCriterion.findFirst({
+    where: { id: criterionId, tenantId: session.user.tenantId },
+    include: {
+      capa: { select: { id: true, status: true, description: true } },
+    },
+  });
+  if (!existing) return { success: false, error: "Criterion not found" };
+  if (existing.lockedAt !== null) {
+    return { success: false, error: LOCKED_CRITERION_MESSAGE };
+  }
+  if (LOCKED_CAPA_STATUSES.has(existing.capa.status)) {
+    return { success: false, error: LOCKED_CAPA_MESSAGE };
+  }
+
+  try {
+    const before = {
+      description: existing.description,
+      targetMetric: existing.targetMetric,
+      measurementMethod: existing.measurementMethod,
+      targetValue: existing.targetValue,
+      monitoringPeriod: existing.monitoringPeriod,
+    };
+    const criterion = await prisma.cAPAEffectivenessCriterion.update({
+      where: { id: criterionId },
+      data: {
+        ...parsed.data,
+        updatedBy: session.user.name,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: AUDIT_MODULE,
+        action: "EFFECTIVENESS_CRITERION_UPDATED",
+        recordId: criterionId,
+        recordTitle: existing.capa.description.slice(0, 80),
+        oldValue: JSON.stringify(before),
+        newValue: JSON.stringify(parsed.data),
+      },
+    });
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${existing.capa.id}`);
+    return { success: true, data: criterion };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string } | null)?.code;
+    console.error("[action] updateCriterion failed:", { code, message, err });
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Failed to update effectiveness criterion"
+          : `Failed to update effectiveness criterion: ${code ? `[${code}] ` : ""}${message}`,
+    };
+  }
+}
+
+/**
+ * Hard-delete a criterion. The audit row's oldValue captures the full
+ * pre-delete snapshot — no soft-delete column needed for inspection
+ * traceability since the deletion event itself is part of the immutable
+ * audit log.
+ */
+export async function deleteCriterion(
+  criterionId: string,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+
+  const existing = await prisma.cAPAEffectivenessCriterion.findFirst({
+    where: { id: criterionId, tenantId: session.user.tenantId },
+    include: {
+      capa: { select: { id: true, status: true, description: true } },
+    },
+  });
+  if (!existing) return { success: false, error: "Criterion not found" };
+  if (existing.lockedAt !== null) {
+    return { success: false, error: LOCKED_CRITERION_MESSAGE };
+  }
+  if (LOCKED_CAPA_STATUSES.has(existing.capa.status)) {
+    return { success: false, error: LOCKED_CAPA_MESSAGE };
+  }
+
+  try {
+    const snapshot = {
+      description: existing.description,
+      targetMetric: existing.targetMetric,
+      measurementMethod: existing.measurementMethod,
+      targetValue: existing.targetValue,
+      monitoringPeriod: existing.monitoringPeriod,
+    };
+    await prisma.cAPAEffectivenessCriterion.delete({
+      where: { id: criterionId },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: AUDIT_MODULE,
+        action: "EFFECTIVENESS_CRITERION_DELETED",
+        recordId: criterionId,
+        recordTitle: existing.capa.description.slice(0, 80),
+        oldValue: JSON.stringify(snapshot),
+      },
+    });
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${existing.capa.id}`);
+    return { success: true, data: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string } | null)?.code;
+    console.error("[action] deleteCriterion failed:", { code, message, err });
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Failed to delete effectiveness criterion"
+          : `Failed to delete effectiveness criterion: ${code ? `[${code}] ` : ""}${message}`,
+    };
+  }
+}
