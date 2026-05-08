@@ -29,9 +29,10 @@ import { prisma } from "@/lib/prisma";
  * separate hygiene job.
  */
 
+import { BCRYPT_COST } from "@/lib/passwords";
+
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_ATTEMPTS = 5;
-const BCRYPT_COST = 10;
 
 function generateCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");

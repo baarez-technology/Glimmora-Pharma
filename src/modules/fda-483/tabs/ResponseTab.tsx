@@ -16,6 +16,7 @@ import { addResponseDocument, removeResponseDocument } from "@/actions/fda483";
 import { DocumentUpload } from "@/components/shared";
 import type { FDA483Event, EventStatus } from "@/types/fda483";
 import type { CAPA } from "@/store/capa.slice";
+import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
@@ -119,7 +120,7 @@ export function ResponseTab({
   const totalObs = liveEvent.observations.length;
   const capasRaised = totalObs > 0 && liveEvent.observations.every((o) => !!o.capaId);
   const allCapasClosed = capasRaised && linkedCapas.length > 0
-    && linkedCapas.every((c) => c.status === "Closed");
+    && linkedCapas.every((c) => c.status === "closed");
 
   const obsWithCapa = liveEvent.observations.filter((o) => (o.capaIds?.length ?? 0) > 0 || !!o.capaId).length;
   const hasResponseDocs = (liveEvent.responseDocuments?.length ?? 0) > 0;
@@ -222,11 +223,11 @@ export function ResponseTab({
           {linkedCapas.length > 0 && (
             <div className="mt-4 pt-3" style={{ borderTop: "1px solid rgba(16,185,129,0.25)" }}>
               <p className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: "var(--text-muted)" }}>
-                Linked CAPAs ({linkedCapas.filter((c) => c.status === "Closed").length} of {linkedCapas.length} closed)
+                Linked CAPAs ({linkedCapas.filter((c) => c.status === "closed").length} of {linkedCapas.length} closed)
               </p>
               <ul className="space-y-1.5 list-none p-0">
                 {linkedCapas.map((c) => {
-                  const isClosed = c.status === "Closed";
+                  const isClosed = c.status === "closed";
                   return (
                     <li key={c.id} className="flex items-center justify-between gap-2 text-[11px]">
                       <div className="flex items-center gap-2 min-w-0">
@@ -236,8 +237,8 @@ export function ResponseTab({
                         </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <Badge variant={isClosed ? "green" : c.status === "Pending QA Review" ? "purple" : c.status === "In Progress" ? "amber" : "blue"}>
-                          {c.status}
+                        <Badge variant={isClosed ? "green" : c.status === "pending_qa_review" ? "purple" : c.status === "in_progress" ? "amber" : "blue"}>
+                          {CAPA_STATUS_LABEL[c.status]}
                         </Badge>
                         {isClosed && c.closedAt && (
                           <span style={{ color: "var(--text-muted)" }}>

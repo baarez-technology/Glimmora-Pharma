@@ -33,16 +33,9 @@ export const FINDING_STATUSES: Record<string, StatusDef> = {
 export const CAPA_STATUSES: Record<string, StatusDef> = {
   open: { value: "open", label: "Open", color: "#3B82F6", bg: "#EFF6FF", description: "CAPA created, root cause analysis not yet started", nextActions: ["Add RCA", "Add action plan"] },
   in_progress: { value: "in_progress", label: "In Progress", color: "#F59E0B", bg: "#FEF9EC", description: "RCA complete, corrective actions being implemented", nextActions: ["Attach evidence", "Submit for review"] },
-  pending_di_review: { value: "pending_di_review", label: "Pending DI Review", color: "#EF4444", bg: "#FEF2F2", description: "Data integrity review required before QA can close", nextActions: ["QA Head to clear DI gate"] },
   pending_qa_review: { value: "pending_qa_review", label: "Pending QA Review", color: "#8B5CF6", bg: "#F5F3FF", description: "Submitted to QA Head for review and sign-off", nextActions: ["QA Head to review"] },
   closed: { value: "closed", label: "Closed", color: "#0F6E56", bg: "#E8F5F1", description: "QA Head signed and closed. Effectiveness check due in 90 days.", nextActions: ["Monitor effectiveness"] },
   rejected: { value: "rejected", label: "Rejected", color: "#A32D2D", bg: "#FEF2F2", description: "QA Head rejected. Rework required.", nextActions: ["Review rejection reason", "Rework and resubmit"] },
-  overdue: { value: "overdue", label: "Overdue", color: "#A32D2D", bg: "#FEF2F2", description: "Past due date. Immediate action required.", nextActions: ["Escalate to QA Head"] },
-  // Backward compat
-  Open: { value: "Open", label: "Open", color: "#3B82F6", bg: "#EFF6FF", description: "CAPA created", nextActions: [] },
-  "In Progress": { value: "In Progress", label: "In Progress", color: "#F59E0B", bg: "#FEF9EC", description: "Corrective actions ongoing", nextActions: [] },
-  "Pending QA Review": { value: "Pending QA Review", label: "Pending QA Review", color: "#8B5CF6", bg: "#F5F3FF", description: "Awaiting QA sign-off", nextActions: [] },
-  Closed: { value: "Closed", label: "Closed", color: "#0F6E56", bg: "#E8F5F1", description: "Closed by QA Head", nextActions: [] },
 };
 
 /* ── FDA 483 — Event statuses ── */

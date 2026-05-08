@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
  * landing page in one round-trip and computes derived stats server-side.
  *
  * Status casing matches actual stored values (mixed across tables):
- *   - CAPA.status:        "Open" / "Closed" / "rejected" / "pending_qa_review"
+ *   - CAPA.status:        "open" / "in_progress" / "pending_qa_review" / "closed" / "rejected" (canonical, see src/types/capa.ts)
  *   - Deviation.status:   "open" / "closed" / "rejected" (lowercase)
  *   - Finding.status:     "Open" / "Closed" / "In Progress"
  *   - FDA483Event.status: "Open" / "Response Submitted" / "Closed" (PascalCase with spaces)
@@ -44,15 +44,20 @@ export const getDashboardStats = cache(async (tenantId: string) => {
     }),
   ]);
 
-  // Treat anything other than "Closed"/"closed" as open.
-  const isOpen = (status: string) => status !== "Closed" && status !== "closed";
-  const isRejected = (status: string) => status === "rejected" || status === "Rejected";
+  // Treat anything other than "closed" as open. Finding still uses
+  // Title-Case "Closed" so the helper accepts both for cross-table use;
+  // CAPA-only call sites can rely on canonical snake_case.
+  const isOpen = (status: string) => status !== "closed" && status !== "Closed";
+  const isRejected = (status: string) => status === "rejected";
 
   const criticalFindings = findings.filter((f) => f.severity === "Critical" && f.status !== "Closed").length;
   const openFindings = findings.filter((f) => f.status !== "Closed").length;
 
+  // "Overdue" matches the canonical isOverdue helper in src/types/capa.ts:
+  // only open or in_progress CAPAs past dueDate. Inlined here because
+  // c.status is the raw Prisma string, not the typed slice CAPAStatus.
   const overdueCAPAs = capas.filter(
-    (c) => isOpen(c.status) && !isRejected(c.status) && c.dueDate && new Date(c.dueDate) < now,
+    (c) => (c.status === "open" || c.status === "in_progress") && c.dueDate && new Date(c.dueDate) < now,
   ).length;
   const openCAPAs = capas.filter((c) => isOpen(c.status) && !isRejected(c.status)).length;
 

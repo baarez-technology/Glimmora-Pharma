@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { BCRYPT_COST } from "../src/lib/passwords";
 
 const prisma = new PrismaClient();
 
@@ -10,8 +11,8 @@ async function main() {
   // (manual edits, partial migrations, stale rows from earlier seed values).
   // Without this the upsert update branch was a no-op and login could
   // silently break with no way to recover short of `db:reset`.
-  const superAdminHash = await bcrypt.hash("1", 10);
-  const demoHash = await bcrypt.hash("Admin@123", 10);
+  const superAdminHash = await bcrypt.hash("1", BCRYPT_COST);
+  const demoHash = await bcrypt.hash("Admin@123", BCRYPT_COST);
 
   // ── Super Admin tenant ──
   const superAdmin = await prisma.tenant.upsert({
@@ -88,10 +89,17 @@ async function main() {
     { name: "Dr. Nisha Rao", email: "qc@pharmaglimmora.com", username: "nisha.rao", role: "qc_lab_director", gxpSignatory: true, siteId: chennai.id },
     { name: "Vikram Singh", email: "it@pharmaglimmora.com", username: "vikram.singh", role: "it_cdo", gxpSignatory: false, siteId: bangalore.id },
     { name: "Suresh Kumar", email: "ops@pharmaglimmora.com", username: "suresh.kumar", role: "operations_head", gxpSignatory: false, siteId: hyderabad.id },
+    // Substage 5.2 — second qa_head + second regulatory_affairs. The
+    // simplified Critical tier needs 1 qa_head + 1 regulatory_affairs;
+    // keeping a second qa_head (Suresh) gives us 2 total so the
+    // distinct-user dedup ("same person can't approve twice on a single
+    // CAPA") is still testable. Sanjay (ra2) is symmetric on the RA side.
+    { name: "Dr. Suresh Iyer", email: "qa2@pharmaglimmora.com", username: "suresh.iyer", role: "qa_head", gxpSignatory: true, siteId: chennai.id },
+    { name: "Sanjay Verma", email: "ra2@pharmaglimmora.com", username: "sanjay.verma", role: "regulatory_affairs", gxpSignatory: true, siteId: bangalore.id },
   ];
   // Hash once — bcrypt generates a fresh random salt per call, so calling it
   // inside the loop wasted CPU and made re-runs slower than necessary.
-  const userPasswordHash = await bcrypt.hash("Demo@123", 10);
+  const userPasswordHash = await bcrypt.hash("Demo@123", BCRYPT_COST);
   for (const u of users) {
     await prisma.user.upsert({
       where: {

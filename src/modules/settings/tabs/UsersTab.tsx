@@ -30,6 +30,7 @@ import {
   updateTenantUser,
   type TenantUserConfig,
 } from "@/store/auth.slice";
+import { createUser, updateUser } from "@/actions/settings";
 import { Popup } from "@/components/ui/Popup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -84,9 +85,15 @@ function makeUserSchema(mode: "add" | "edit") {
     status: z.enum(["Active", "Inactive"]),
     allSites: z.boolean(),
     assignedSites: z.array(z.string()),
+    // Mirrors the server zod min(6) in src/actions/settings.ts so the user
+    // sees the inline error before the round-trip. Edit mode allows blank
+    // (= keep current); a non-blank value still has to meet min(6).
     password: mode === "add"
-      ? z.string().min(1, "Password is required")
-      : z.string().optional(),
+      ? z.string().min(6, "Password must be at least 6 characters")
+      : z.string().refine(
+          (s) => s === "" || s.length >= 6,
+          "Password must be at least 6 characters",
+        ),
     confirmPassword: z.string().optional(),
   });
   return base.refine((d) => !d.password || d.password === d.confirmPassword, {
@@ -396,6 +403,7 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
   const [userToDeactivate, setUserToDeactivate] = useState<string | null>(null);
   const [planLimitOpen, setPlanLimitOpen] = useState(false);
   const [subPopupOpen, setSubPopupOpen] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const roleOptions = isSuperAdmin
     ? ROLE_OPTIONS_ALL
@@ -404,20 +412,66 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
   const getRoleLabel = (value: string) =>
     ROLES.find((r) => r.value === value)?.label ?? value;
 
-  const handleAdd = (data: UserFormValues) => {
+  // The form has no separate username field; derive a deterministic one from
+  // the email local-part. Server-side @@unique([tenantId, username]) catches
+  // collisions and surfaces them as P2002 → "Email or username already exists".
+  const deriveUsername = (email: string) => email.trim().toLowerCase().split("@")[0] ?? "";
+
+  const surfaceFieldErrors = (
+    where: string,
+    result: { error: string; fieldErrors?: Record<string, string[]> },
+  ) => {
+    console.error(`[settings/users] ${where} failed:`, {
+      error: result.error,
+      fieldErrors: result.fieldErrors,
+    });
+    const fieldDetail = result.fieldErrors
+      ? Object.entries(result.fieldErrors)
+          .map(([field, msgs]) => `${field}: ${msgs.join(", ")}`)
+          .join("; ")
+      : "";
+    setSyncError(fieldDetail ? `${result.error} — ${fieldDetail}` : result.error);
+  };
+
+  const handleAdd = async (data: UserFormValues) => {
+    setSyncError(null);
+    const username = deriveUsername(data.email);
+    // Schema only persists a single siteId today; multi-site (allSites /
+    // assignedSites) is a UI-only concept that lives in Redux. Pick the first
+    // assigned site when the user is constrained to a subset.
+    const siteId = data.allSites
+      ? undefined
+      : data.assignedSites[0] ?? undefined;
+    const result = await createUser({
+      name: data.name,
+      email: data.email,
+      username,
+      role: data.role,
+      siteId,
+      password: data.password ?? "",
+      gxpSignatory: data.gxpSignatory,
+    });
+    if (!result.success) {
+      surfaceFieldErrors("createUser", result);
+      return;
+    }
+    const created = result.data as { id: string };
     dispatch(
       addTenantUser({
         tenantId,
         user: {
+          id: created.id,
           name: data.name,
           email: data.email,
+          username,
           role: data.role,
           gxpSignatory: data.gxpSignatory,
           status: data.status,
           allSites: data.allSites,
-          id: crypto.randomUUID(),
           assignedSites: data.allSites ? [] : data.assignedSites,
-          password: data.password,
+          // password intentionally NOT mirrored into Redux post-fix — the
+          // server stores it as a bcrypt hash; client memory should never hold
+          // plaintext credentials.
         },
       }),
     );
@@ -430,34 +484,82 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
     setEditModal(true);
   };
 
-  const handleEdit = (data: UserFormValues) => {
-    if (editingUser) {
-      const patch: Partial<TenantUserConfig> = {
-        name: data.name,
-        email: data.email,
-        role: data.role,
-        gxpSignatory: data.gxpSignatory,
-        status: data.status,
-        allSites: data.allSites,
-        assignedSites: data.allSites ? [] : data.assignedSites,
-      };
-      if (data.password) patch.password = data.password;
-      dispatch(updateTenantUser({ tenantId, userId: editingUser.id, patch }));
+  const handleEdit = async (data: UserFormValues) => {
+    if (!editingUser) return;
+    setSyncError(null);
+    const siteId = data.allSites
+      ? undefined
+      : data.assignedSites[0] ?? undefined;
+    const result = await updateUser(editingUser.id, {
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      siteId,
+      gxpSignatory: data.gxpSignatory,
+      isActive: data.status === "Active",
+      ...(data.password ? { password: data.password } : {}),
+    });
+    if (!result.success) {
+      surfaceFieldErrors("updateUser", result);
+      return;
     }
+    const patch: Partial<TenantUserConfig> = {
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      gxpSignatory: data.gxpSignatory,
+      status: data.status,
+      allSites: data.allSites,
+      assignedSites: data.allSites ? [] : data.assignedSites,
+    };
+    dispatch(updateTenantUser({ tenantId, userId: editingUser.id, patch }));
     setEditModal(false);
     setEditingUser(null);
     setSavedPopup(true);
   };
 
-  const handleStatusChange = (userId: string, value: string) => {
+  const handleStatusChange = async (userId: string, value: string) => {
     if (value === "Inactive") {
       setUserToDeactivate(userId);
       setDeactivatePopup(true);
-    } else {
-      dispatch(
-        updateTenantUser({ tenantId, userId, patch: { status: "Active" } }),
-      );
+      return;
     }
+    setSyncError(null);
+    const result = await updateUser(userId, { isActive: true });
+    if (!result.success) {
+      surfaceFieldErrors("updateUser (activate)", result);
+      return;
+    }
+    dispatch(
+      updateTenantUser({ tenantId, userId, patch: { status: "Active" } }),
+    );
+  };
+
+  const handleDeactivateConfirm = async () => {
+    if (!userToDeactivate) return;
+    setSyncError(null);
+    const userId = userToDeactivate;
+    const result = await updateUser(userId, { isActive: false });
+    if (!result.success) {
+      surfaceFieldErrors("updateUser (deactivate)", result);
+      return;
+    }
+    dispatch(
+      updateTenantUser({ tenantId, userId, patch: { status: "Inactive" } }),
+    );
+  };
+
+  const handleGxpToggle = async (userId: string, current: boolean) => {
+    setSyncError(null);
+    const next = !current;
+    const result = await updateUser(userId, { gxpSignatory: next });
+    if (!result.success) {
+      surfaceFieldErrors("updateUser (gxpSignatory)", result);
+      return;
+    }
+    dispatch(
+      updateTenantUser({ tenantId, userId, patch: { gxpSignatory: next } }),
+    );
   };
 
   return (
@@ -493,6 +595,21 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
           </Button>
         )}
       </div>
+
+      {/* Sync error banner — surfaced when a server action fails */}
+      {syncError && (
+        <div role="alert" className="alert alert-danger flex items-start justify-between gap-3">
+          <p className="text-[12px]">{syncError}</p>
+          <button
+            type="button"
+            onClick={() => setSyncError(null)}
+            className="text-[11px] underline border-none bg-transparent cursor-pointer"
+            aria-label="Dismiss error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Subscription badge */}
       <div
@@ -705,15 +822,7 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
                 <Toggle
                   id={`sig-${u.id}`}
                   checked={u.gxpSignatory}
-                  onChange={() =>
-                    dispatch(
-                      updateTenantUser({
-                        tenantId,
-                        userId: u.id,
-                        patch: { gxpSignatory: !u.gxpSignatory },
-                      }),
-                    )
-                  }
+                  onChange={() => void handleGxpToggle(u.id, u.gxpSignatory)}
                   label={`GxP Signatory for ${u.name}`}
                   disabled={readOnly}
                   hideLabel
@@ -885,14 +994,7 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
             label: "Yes, deactivate",
             style: "primary",
             onClick: () => {
-              if (userToDeactivate)
-                dispatch(
-                  updateTenantUser({
-                    tenantId,
-                    userId: userToDeactivate,
-                    patch: { status: "Inactive" },
-                  }),
-                );
+              void handleDeactivateConfirm();
               setDeactivatePopup(false);
               setUserToDeactivate(null);
             },

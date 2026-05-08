@@ -5,6 +5,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { BCRYPT_COST } from "@/lib/passwords";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -44,12 +45,12 @@ export async function createTenant(
   if (!parsed.success) {
     return {
       success: false,
-      error: parsed.error.flatten().fieldErrors.email?.[0] ?? "Validation failed",
+      error: "Validation failed",
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
   try {
-    const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+    const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_COST);
     const tenant = await prisma.tenant.create({
       data: {
         name: parsed.data.name,
@@ -80,8 +81,16 @@ export async function createTenant(
     if ((err as { code?: string }).code === "P2002") {
       return { success: false, error: "Email, username, or code already exists" };
     }
-    console.error("[action] createTenant failed:", err);
-    return { success: false, error: "Failed to create account" };
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string } | null)?.code;
+    console.error("[action] createTenant failed:", { code, message, err });
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Failed to create account"
+          : `Failed to create account: ${code ? `[${code}] ` : ""}${message}`,
+    };
   }
 }
 
@@ -101,7 +110,7 @@ export async function updateTenant(
     const { password, ...rest } = parsed.data;
     const data: Record<string, unknown> = { ...rest };
     if (rest.email) data.email = rest.email.toLowerCase();
-    if (password) data.passwordHash = await bcrypt.hash(password, 10);
+    if (password) data.passwordHash = await bcrypt.hash(password, BCRYPT_COST);
 
     const tenant = await prisma.tenant.update({
       where: { id },

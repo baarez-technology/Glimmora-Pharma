@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { StatCard, CardSection, SetupChecklist } from "@/components/shared";
+import { isOverdue, STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 
 /* ══════════════════════════════════════ */
 
@@ -108,8 +109,8 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
   });
 
   /* ── KPIs — all derived from filtered data ── */
-  const openCAPAs = filteredCAPAs.filter((c) => c.status !== "Closed");
-  const overdueCAPAs = openCAPAs.filter((c) => dayjs.utc(c.dueDate).isBefore(dayjs()));
+  const openCAPAs = filteredCAPAs.filter((c) => c.status !== "closed");
+  const overdueCAPAs = filteredCAPAs.filter(isOverdue);
   const criticalCount = filteredFindings.filter((f) => f.severity === "Critical" && f.status !== "Closed").length;
   const capaOverdueRate = openCAPAs.length === 0 ? null : Math.round((overdueCAPAs.length / openCAPAs.length) * 100);
   // CSV high risk = HIGH risk systems that are not yet validated (consistent with heatmap + action plan)
@@ -168,7 +169,7 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
 
   /* ── Action plan ── */
   const actionPlan = (() => {
-    const items: { id: string; priority: "Critical" | "High" | "Low"; area: string; action: string; owner: string; dueDate: string; status: string; module: string; refId: string; agiRisk: "High" | "Medium" | "Low" }[] = [];
+    const items: { id: string; priority: "Critical" | "High" | "Medium" | "Low"; area: string; action: string; owner: string; dueDate: string; status: string; module: string; refId: string; agiRisk: "High" | "Medium" | "Low" }[] = [];
     filteredFindings.filter((f) => f.status !== "Closed" && (f.severity === "Critical" || f.severity === "High")).forEach((f) => items.push({ id: f.id, priority: f.severity, area: f.area, action: f.requirement.length > 60 ? f.requirement.slice(0, 60) + "..." : f.requirement, owner: f.owner, dueDate: f.targetDate ?? "", status: f.status, module: "gap-assessment", refId: f.id, agiRisk: f.severity === "Critical" ? "High" : "Medium" }));
     overdueCAPAs.slice(0, 5).forEach((c) => {
       const linkedFinding = findings.find((f) => f.id === c.findingId);
@@ -194,14 +195,14 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
   if (agiSettings.mode !== "manual" && (filteredFindings.length > 0 || filteredCAPAs.length > 0)) {
     if (criticalCount > 0) insights.push({ id: "critical-findings", type: "warning", text: `${criticalCount} critical finding${criticalCount > 1 ? "s" : ""} open \u2014 immediate attention required.`, action: "View findings", link: "/gap-assessment" });
     if (overdueCAPAs.length > 0) insights.push({ id: "overdue-capas", type: "warning", text: `${overdueCAPAs.length} CAPA${overdueCAPAs.length > 1 ? "s" : ""} past due. Risk of inspection finding.`, action: "View CAPAs", link: "/capa" });
-    const diOpen = filteredCAPAs.filter((c) => c.diGate && c.status !== "Closed").length;
+    const diOpen = filteredCAPAs.filter((c) => c.diGate && c.status !== "closed").length;
     if (diOpen > 0) insights.push({ id: "di-gate-open", type: "warning", text: `${diOpen} open DI gate CAPA${diOpen > 1 ? "s" : ""}. Data integrity unresolved.`, action: "View DI issues", link: "/capa" });
     if (csvHighRisk > 0) insights.push({ id: "csv-high-risk-unvalidated", type: "warning", text: `${csvHighRisk} HIGH-risk system${csvHighRisk > 1 ? "s" : ""} not yet validated \u2014 FDA inspection exposure.`, action: "View systems", link: "/csv-csa" });
     const overdueVal = filteredSystems.filter((s) => s.validationStatus === "Overdue").length;
     if (overdueVal > 0) insights.push({ id: "validation-overdue", type: "warning", text: `${overdueVal} system${overdueVal > 1 ? "s" : ""} with overdue validation.`, action: "View systems", link: "/csv-csa" });
     const reviewOverdue = filteredSystems.filter((s) => s.nextReview && dayjs.utc(s.nextReview).isBefore(dayjs())).length;
     if (reviewOverdue > 0) insights.push({ id: "periodic-review-overdue", type: "warning", text: `${reviewOverdue} system${reviewOverdue > 1 ? "s" : ""} with periodic review overdue.`, action: "View systems", link: "/csv-csa" });
-    const pending = filteredCAPAs.filter((c) => c.status === "Pending QA Review").length;
+    const pending = filteredCAPAs.filter((c) => c.status === "pending_qa_review").length;
     if (pending > 0) insights.push({ id: "capa-pending-qa", type: "info", text: `${pending} CAPA${pending > 1 ? "s" : ""} awaiting QA sign-off.`, action: "Review", link: "/capa" });
     if (criticalCount === 0 && overdueCAPAs.length === 0) insights.push({ id: "all-clear", type: "success", text: "No critical findings or overdue CAPAs. Maintain current trajectory." });
   }
@@ -309,7 +310,7 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
                       <td><p className="text-[12px]" style={{ color: "var(--text-primary)", maxWidth: 200 }}>{item.action}</p></td>
                       <td className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{ownerName(item.owner)}</td>
                       <td>{item.dueDate ? (<><div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(item.dueDate).tz(timezone).format(dateFormat)}</div>{dayjs.utc(item.dueDate).isBefore(dayjs()) && <div className="text-[10px] text-[#ef4444]">Overdue</div>}</>) : <span className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
-                      <td><Badge variant={item.status === "Closed" ? "green" : item.status === "In Progress" ? "amber" : item.status === "Pending QA Review" ? "purple" : "blue"}>{item.status}</Badge></td>
+                      <td><Badge variant={item.status === "Closed" || item.status === "closed" ? "green" : item.status === "In Progress" || item.status === "in_progress" ? "amber" : item.status === "Pending QA Review" || item.status === "pending_qa_review" ? "purple" : "blue"}>{CAPA_STATUS_LABEL[item.status as keyof typeof CAPA_STATUS_LABEL] ?? item.status}</Badge></td>
                       <td><Badge variant={item.agiRisk === "High" ? "red" : item.agiRisk === "Medium" ? "amber" : "green"}>{item.agiRisk}</Badge></td>
                       <td><Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${item.refId}`} onClick={() => { if (item.module === "gap-assessment") router.push("/gap-assessment"); else if (item.module === "capa") router.push("/capa"); else if (item.module === "csv-csa") router.push("/csv-csa"); }} /></td>
                     </tr>

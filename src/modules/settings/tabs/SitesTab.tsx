@@ -22,6 +22,7 @@ import {
   removeTenantSite,
   type TenantSiteConfig,
 } from "@/store/auth.slice";
+import { createSite, updateSite, deleteSite } from "@/actions/settings";
 import { Popup } from "@/components/ui/Popup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -163,10 +164,40 @@ export function SitesTab({ readOnly = false }: { readOnly?: boolean }) {
   const [savedPopup, setSavedPopup] = useState(false);
   const [deletePopup, setDeletePopup] = useState(false);
   const [siteToDelete, setSiteToDelete] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  const handleAdd = (data: SiteFormValues) => {
+  const handleAdd = async (data: SiteFormValues) => {
+    setSyncError(null);
+    const result = await createSite({
+      name: data.name,
+      location: data.location,
+      gmpScope: data.gmpScope,
+      risk: data.risk,
+    });
+    if (!result.success) {
+      console.error("[settings/sites] createSite failed:", {
+        error: result.error,
+        fieldErrors: result.fieldErrors,
+      });
+      setSyncError(result.error ?? "Failed to add site.");
+      return;
+    }
+    // Server-issued id + persisted state. Mirror into Redux so the existing
+    // useTenantConfig() readers update immediately, without waiting for the
+    // next AppShell tenant-rehydration on relogin.
+    const created = result.data as { id: string };
     dispatch(
-      addTenantSite({ tenantId, site: { ...data, id: crypto.randomUUID() } }),
+      addTenantSite({
+        tenantId,
+        site: {
+          id: created.id,
+          name: data.name,
+          location: data.location,
+          gmpScope: data.gmpScope,
+          risk: data.risk,
+          status: data.status,
+        },
+      }),
     );
     setAddModal(false);
     setAddedPopup(true);
@@ -177,15 +208,44 @@ export function SitesTab({ readOnly = false }: { readOnly?: boolean }) {
     setEditModal(true);
   };
 
-  const handleEdit = (data: SiteFormValues) => {
-    if (editingSite) {
-      dispatch(
-        updateTenantSite({ tenantId, siteId: editingSite.id, patch: data }),
-      );
+  const handleEdit = async (data: SiteFormValues) => {
+    if (!editingSite) return;
+    setSyncError(null);
+    const result = await updateSite(editingSite.id, {
+      name: data.name,
+      location: data.location,
+      gmpScope: data.gmpScope,
+      risk: data.risk,
+      isActive: data.status === "Active",
+    });
+    if (!result.success) {
+      console.error("[settings/sites] updateSite failed:", {
+        error: result.error,
+        fieldErrors: result.fieldErrors,
+      });
+      setSyncError(result.error ?? "Failed to save site.");
+      return;
     }
+    dispatch(
+      updateTenantSite({ tenantId, siteId: editingSite.id, patch: data }),
+    );
     setEditModal(false);
     setEditingSite(null);
     setSavedPopup(true);
+  };
+
+  const handleDelete = async (siteId: string) => {
+    setSyncError(null);
+    const result = await deleteSite(siteId);
+    if (!result.success) {
+      console.error("[settings/sites] deleteSite failed:", {
+        error: result.error,
+        fieldErrors: result.fieldErrors,
+      });
+      setSyncError(result.error ?? "Failed to remove site.");
+      return;
+    }
+    dispatch(removeTenantSite({ tenantId, siteId }));
   };
 
   return (
@@ -220,6 +280,21 @@ export function SitesTab({ readOnly = false }: { readOnly?: boolean }) {
           </Button>
         )}
       </div>
+
+      {/* Sync error banner — surfaced when a server action fails */}
+      {syncError && (
+        <div role="alert" className="alert alert-danger flex items-start justify-between gap-3">
+          <p className="text-[12px]">{syncError}</p>
+          <button
+            type="button"
+            onClick={() => setSyncError(null)}
+            className="text-[11px] underline border-none bg-transparent cursor-pointer"
+            aria-label="Dismiss error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Usage bar */}
       <PlanLimitUsageBar
@@ -441,8 +516,7 @@ export function SitesTab({ readOnly = false }: { readOnly?: boolean }) {
             label: "Yes, remove",
             style: "primary",
             onClick: () => {
-              if (siteToDelete)
-                dispatch(removeTenantSite({ tenantId, siteId: siteToDelete }));
+              if (siteToDelete) void handleDelete(siteToDelete);
               setDeletePopup(false);
               setSiteToDelete(null);
             },

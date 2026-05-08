@@ -12,6 +12,7 @@ import { useTenantConfig } from "@/hooks/useTenantConfig";
 import type { Finding, FindingSeverity, FindingStatus } from "@/store/findings.slice";
 import { updateFinding as updateFindingAction } from "@/actions/findings";
 import type { CAPA } from "@/store/capa.slice";
+import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -35,8 +36,9 @@ function statusBadge(s: FindingStatus) {
   return <span className={m[s]}>{s}</span>;
 }
 function capaStatusBadge(s: string) {
-  const m: Record<string, string> = { Open: "badge badge-blue", "In Progress": "badge badge-amber", "Pending QA Review": "badge badge-purple", Closed: "badge badge-green" };
-  return <span className={m[s] ?? "badge badge-gray"}>{s}</span>;
+  const m: Record<string, string> = { open: "badge badge-blue", in_progress: "badge badge-amber", pending_qa_review: "badge badge-purple", closed: "badge badge-green", rejected: "badge badge-red" };
+  const label = CAPA_STATUS_LABEL[s as keyof typeof CAPA_STATUS_LABEL] ?? s;
+  return <span className={m[s] ?? "badge badge-gray"}>{label}</span>;
 }
 
 const LABEL = "text-[11px] font-semibold uppercase tracking-wider text-(--text-muted) mb-1 block";
@@ -444,8 +446,8 @@ export function GapRegisterTab({
                     </button>
                     {linkedCapa && capaStatusBadge(linkedCapa.status)}
                   </div>
-                  {linkedCapa?.status === "Pending QA Review" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--info-bg)", color: "var(--info)" }}>CAPA pending QA review. Once closed, this finding will be automatically closed.</p>}
-                  {linkedCapa?.status === "Closed" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--success-bg)", color: "var(--success)" }}>CAPA closed. This finding has been automatically closed.</p>}
+                  {linkedCapa?.status === "pending_qa_review" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--info-bg)", color: "var(--info)" }}>CAPA pending QA review. Once closed, this finding will be automatically closed.</p>}
+                  {linkedCapa?.status === "closed" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--success-bg)", color: "var(--success)" }}>CAPA closed. This finding has been automatically closed.</p>}
                 </div>
               ) : (
                 !isViewOnly && selectedFinding.status !== "Closed" && (

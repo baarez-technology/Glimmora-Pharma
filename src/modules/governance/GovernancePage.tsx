@@ -116,10 +116,10 @@ export function GovernancePage({ readinessScore: readinessScoreProp, raidItems: 
   function ownerName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
 
   /* ── Computed KPIs ── */
-  const closedCAPAs = capas.filter((c) => c.status === "Closed");
+  const closedCAPAs = capas.filter((c) => c.status === "closed");
   const onTimeCAPAs = closedCAPAs.filter((c) => !dayjs.utc(c.closedAt || c.dueDate).isAfter(dayjs.utc(c.dueDate)));
   const capaTimeliness = closedCAPAs.length === 0 ? 0 : Math.round((onTimeCAPAs.length / closedCAPAs.length) * 100);
-  const diExceptions = capas.filter((c) => c.diGate && c.status !== "Closed").length;
+  const diExceptions = capas.filter((c) => c.diGate && c.status !== "closed").length;
   const csvDrift = systems.filter((s) => s.validationStatus === "Overdue" || s.part11Status === "Non-Compliant" || s.annex11Status === "Non-Compliant").length;
   const overdueCommitments = fda483.reduce((sum, e) => sum + e.commitments.filter((c) => c.status !== "Complete" && dayjs.utc(c.dueDate).isBefore(dayjs())).length, 0);
   const repeatObservationRisk = fda483.reduce((sum, e) => sum + e.observations.filter((o) => o.status !== "Closed").length, 0);
@@ -247,18 +247,18 @@ export function GovernancePage({ readinessScore: readinessScoreProp, raidItems: 
   }
 
   /* ── Chart data ── */
-  const capaTrend = (() => { const m = []; for (let i = 5; i >= 0; i--) { const mo = dayjs().subtract(i, "month"); const mc = capas.filter((c) => c.status === "Closed" && c.closedAt && dayjs.utc(c.closedAt).format("MMM YYYY") === mo.format("MMM YYYY")); const ot = mc.filter((c) => !dayjs.utc(c.closedAt).isAfter(dayjs.utc(c.dueDate))).length; m.push({ month: mo.format("MMM"), onTime: ot, late: mc.length - ot }); } return m; })();
+  const capaTrend = (() => { const m = []; for (let i = 5; i >= 0; i--) { const mo = dayjs().subtract(i, "month"); const mc = capas.filter((c) => c.status === "closed" && c.closedAt && dayjs.utc(c.closedAt).format("MMM YYYY") === mo.format("MMM YYYY")); const ot = mc.filter((c) => !dayjs.utc(c.closedAt).isAfter(dayjs.utc(c.dueDate))).length; m.push({ month: mo.format("MMM"), onTime: ot, late: mc.length - ot }); } return m; })();
   const capaTrendEmpty = capaTrend.every((d) => d.onTime === 0 && d.late === 0);
   const valBreakdown = [{ name: "Validated", value: systems.filter((s) => s.validationStatus === "Validated").length, color: "#10b981" }, { name: "In Progress", value: systems.filter((s) => s.validationStatus === "In Progress").length, color: "#f59e0b" }, { name: "Overdue", value: systems.filter((s) => s.validationStatus === "Overdue").length, color: "#ef4444" }, { name: "Not Started", value: systems.filter((s) => s.validationStatus === "Not Started").length, color: "#64748b" }].filter((d) => d.value > 0);
   const diByArea = (() => { return ["Manufacturing", "QC Lab", "QMS", "CSV/IT", "Warehouse", "Utilities"].map((a) => {
-    const diCapas = capas.filter((c) => c.diGate && c.status !== "Closed" && findings.filter((f) => f.area === a).some((f) => f.id === c.findingId)).length;
+    const diCapas = capas.filter((c) => c.diGate && c.status !== "closed" && findings.filter((f) => f.area === a).some((f) => f.id === c.findingId)).length;
     // For CSV/IT area, also count systems with non-compliant Part 11 or Annex 11
     const diSystems = a === "CSV/IT" ? systems.filter((s) => s.part11Status === "Non-Compliant" || s.annex11Status === "Non-Compliant").length : 0;
     return { area: a === "Manufacturing" ? "Mfg" : a, value: diCapas + diSystems };
   }).filter((d) => d.value > 0); })();
 
   /* ── Site readiness ── */
-  const siteReadiness = visibleSites.map((site) => { const sf = findings.filter((f) => f.siteId === site.id && f.status !== "Closed"); const sc = capas.filter((c) => { const lf = findings.find((f) => f.id === c.findingId); return lf?.siteId === site.id && c.status !== "Closed"; }); const cr = sf.filter((f) => f.severity === "Critical").length; const sysRisk = systems.filter((s) => s.siteId === site.id && (s.part11Status === "Non-Compliant" || s.annex11Status === "Non-Compliant" || (s.riskLevel === "HIGH" && s.validationStatus !== "Validated"))).length; const score = Math.max(0, 100 - cr * 15 - sf.length * 5 - sysRisk * 25); return { site, findingsCount: sf.length, capasCount: sc.length, criticalCount: cr, score }; });
+  const siteReadiness = visibleSites.map((site) => { const sf = findings.filter((f) => f.siteId === site.id && f.status !== "Closed"); const sc = capas.filter((c) => { const lf = findings.find((f) => f.id === c.findingId); return lf?.siteId === site.id && c.status !== "closed"; }); const cr = sf.filter((f) => f.severity === "Critical").length; const sysRisk = systems.filter((s) => s.siteId === site.id && (s.part11Status === "Non-Compliant" || s.annex11Status === "Non-Compliant" || (s.riskLevel === "HIGH" && s.validationStatus !== "Validated"))).length; const score = Math.max(0, 100 - cr * 15 - sf.length * 5 - sysRisk * 25); return { site, findingsCount: sf.length, capasCount: sc.length, criticalCount: cr, score }; });
 
   /* ── Export functions ── */
   function dl(html: string, fn: string) { const b = new Blob([html], { type: "text/html;charset=utf-8" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = fn; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u); auditLog({ action: "GOVERNANCE_REPORT_EXPORTED", module: "governance", recordId: fn, newValue: { filename: fn, exportedBy: user?.id } }); }

@@ -161,17 +161,32 @@ function AccountDrawer({
   const set = <K extends keyof AccountFormData>(key: K, value: AccountFormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  // Mirrors the server zod rules in src/actions/tenants.ts (CreateTenantSchema
+  // / UpdateTenantSchema). Keep these in sync — server is the security
+  // boundary, but matching here means failures show inline on the offending
+  // field rather than as a generic "Validation failed" toast post-submit.
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!form.customerName.trim()) e.customerName = "Required";
-    if (!form.username.trim()) e.username = "Required";
-    if (!form.email.trim()) e.email = "Required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = "Enter a valid email";
+    const name = form.customerName.trim();
+    if (!name) e.customerName = "Required";
+    else if (name.length < 2) e.customerName = "Name must be at least 2 characters";
+
+    const username = form.username.trim();
+    if (!username) e.username = "Required";
+    else if (username.length < 2) e.username = "Username must be at least 2 characters";
+
+    const email = form.email.trim();
+    if (!email) e.email = "Required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Enter a valid email";
+
     if (mode === "create") {
       if (!form.newPassword) e.newPassword = "Required";
+      else if (form.newPassword.length < 6) e.newPassword = "Password must be at least 6 characters";
       if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords do not match";
-    } else if (form.newPassword && form.newPassword !== form.confirmPassword) {
-      e.confirmPassword = "Passwords do not match";
+    } else if (form.newPassword) {
+      // Edit mode: blank password = keep current. Non-blank must still meet min(6).
+      if (form.newPassword.length < 6) e.newPassword = "Password must be at least 6 characters";
+      if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords do not match";
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -463,8 +478,19 @@ export function CustomerAccountsPage({
         isActive: data.active,
       });
       if (!result.success) {
-        console.error("[admin] createTenant failed:", result.error);
-        setSyncError(result.error ?? "Failed to create account.");
+        console.error("[admin] createTenant failed:", {
+          error: result.error,
+          fieldErrors: result.fieldErrors,
+        });
+        const fieldDetail = result.fieldErrors
+          ? Object.entries(result.fieldErrors)
+              .map(([field, msgs]) => `${field}: ${msgs.join(", ")}`)
+              .join("; ")
+          : "";
+        const userMsg = fieldDetail
+          ? `${result.error} — ${fieldDetail}`
+          : (result.error ?? "Failed to create account.");
+        setSyncError(userMsg);
         return;
       }
       const created = result.data as { id: string };

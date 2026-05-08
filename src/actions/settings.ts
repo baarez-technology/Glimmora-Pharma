@@ -5,6 +5,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { BCRYPT_COST } from "@/lib/passwords";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -15,6 +16,12 @@ const CreateSiteSchema = z.object({
   location: z.string().optional(),
   gmpScope: z.string().optional(),
   risk: z.string().default("MEDIUM"),
+});
+
+const UpdateSiteSchema = CreateSiteSchema.partial().extend({
+  // Site row.status in the Redux model maps to Prisma Site.isActive.
+  // Settings UI sends "Active"/"Inactive"; the tab adapter converts to boolean.
+  isActive: z.boolean().optional(),
 });
 
 const CreateUserSchema = z.object({
@@ -29,6 +36,8 @@ const CreateUserSchema = z.object({
 
 const UpdateUserSchema = CreateUserSchema.partial().extend({
   password: z.string().min(6).optional(),
+  // Status toggle (Active/Inactive) maps to Prisma User.isActive.
+  isActive: z.boolean().optional(),
 });
 
 function isAdmin(role: string): boolean {
@@ -67,8 +76,73 @@ export async function createSite(
     revalidatePath("/settings");
     return { success: true, data: site };
   } catch (err) {
-    console.error("[action] createSite failed:", err);
-    return { success: false, error: "Failed to create site" };
+    if ((err as { code?: string }).code === "P2002") {
+      return { success: false, error: "A site with this name already exists" };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string } | null)?.code;
+    console.error("[action] createSite failed:", { code, message, err });
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Failed to create site"
+          : `Failed to create site: ${code ? `[${code}] ` : ""}${message}`,
+    };
+  }
+}
+
+export async function updateSite(
+  id: string,
+  input: z.input<typeof UpdateSiteSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (!isAdmin(session.user.role)) {
+    return { success: false, error: "Access denied" };
+  }
+  const parsed = UpdateSiteSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  if (session.user.role !== "super_admin") {
+    const owned = await prisma.site.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+      select: { id: true },
+    });
+    if (!owned) return { success: false, error: "FORBIDDEN" };
+  }
+  try {
+    const site = await prisma.site.update({
+      where: { id },
+      data: parsed.data,
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "Settings",
+        action: "SITE_UPDATED",
+        recordId: id,
+        recordTitle: parsed.data.name,
+      },
+    });
+    revalidatePath("/settings");
+    return { success: true, data: site };
+  } catch (err) {
+    if ((err as { code?: string }).code === "P2002") {
+      return { success: false, error: "A site with this name already exists" };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string } | null)?.code;
+    console.error("[action] updateSite failed:", { code, message, err });
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Failed to update site"
+          : `Failed to update site: ${code ? `[${code}] ` : ""}${message}`,
+    };
   }
 }
 
@@ -121,7 +195,7 @@ export async function createUser(
     };
   }
   try {
-    const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+    const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_COST);
     const user = await prisma.user.create({
       data: {
         name: parsed.data.name,
@@ -182,7 +256,7 @@ export async function updateUser(
   try {
     const { password, ...rest } = parsed.data;
     const data: Record<string, unknown> = { ...rest };
-    if (password) data.passwordHash = await bcrypt.hash(password, 10);
+    if (password) data.passwordHash = await bcrypt.hash(password, BCRYPT_COST);
 
     const user = await prisma.user.update({
       where: { id },

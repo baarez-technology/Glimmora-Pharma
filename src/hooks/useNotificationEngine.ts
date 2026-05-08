@@ -3,6 +3,7 @@ import { useAppDispatch } from "./useAppDispatch";
 import { useAppSelector } from "./useAppSelector";
 import { useTenantData } from "./useTenantData";
 import { addNotification, type AppNotification, type NotificationType } from "@/store/notifications.slice";
+import { isOverdue } from "@/types/capa";
 import dayjs from "@/lib/dayjs";
 
 function make(id: string, type: NotificationType, title: string, message: string, link?: string, linkState?: Record<string, unknown>, read = false): AppNotification {
@@ -35,16 +36,16 @@ export function useNotificationEngine() {
 
   // CAPA
   useEffect(() => {
-    capas.filter((c) => c.status !== "Closed" && dayjs.utc(c.dueDate).isBefore(dayjs())).forEach((c) =>
+    capas.filter(isOverdue).forEach((c) =>
       push(make(`capa-overdue-${c.id}`, "capa_overdue", "CAPA overdue", `${c.id} is past due date.`, "/capa", { openCapaId: c.id })),
     );
-    capas.filter((c) => c.status === "Pending QA Review").forEach((c) =>
+    capas.filter((c) => c.status === "pending_qa_review").forEach((c) =>
       push(make(`capa-review-${c.id}`, "capa_pending_review", "CAPA awaiting QA sign-off", `${c.id} ready for review and closure.`, "/capa", { openCapaId: c.id })),
     );
-    capas.filter((c) => c.owner === currentUser?.id && c.status !== "Closed").forEach((c) =>
+    capas.filter((c) => c.owner === currentUser?.id && c.status !== "closed").forEach((c) =>
       push(make(`capa-assigned-${c.id}-${currentUser?.id}`, "capa_assigned", "CAPA assigned to you", `${c.id}: ${c.description.slice(0, 60)}`, "/capa", { openCapaId: c.id })),
     );
-    capas.filter((c) => c.diGate && c.status !== "Closed").forEach((c) =>
+    capas.filter((c) => c.diGate && c.status !== "closed").forEach((c) =>
       push(make(`capa-digate-${c.id}`, "capa_di_gate", "DI gate CAPA open", `${c.id} \u2014 data integrity review required.`, "/capa", { openCapaId: c.id })),
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps

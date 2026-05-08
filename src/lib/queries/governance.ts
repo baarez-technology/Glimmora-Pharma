@@ -31,6 +31,45 @@ export const getDocuments = cache(async (tenantId: string) => {
   });
 });
 
+/**
+ * Band-aid for the Evidence & Documents global view: surface CAPA-side
+ * EvidenceFile rows alongside the Document table. Tenant scope is enforced
+ * via the parent CAPA (EvidenceFile → EvidenceItem → CAPA.tenantId).
+ *
+ * Throwaway aggregator. Phase 4 of the document-store unification will
+ * fold these rows into the main Document table and drop this query.
+ */
+export const getCAPAEvidenceFiles = cache(async (tenantId: string) => {
+  return prisma.evidenceFile.findMany({
+    where: {
+      deletedAt: null,
+      evidenceItem: {
+        capa: { tenantId },
+      },
+    },
+    include: {
+      evidenceItem: {
+        include: {
+          capa: {
+            select: {
+              id: true,
+              reference: true,
+              tenantId: true,
+              siteId: true,
+              // Surfaced into the global Evidence view's complianceTags as
+              // ["CAPA", capa.source] — matches the existing CAPA-Redux
+              // upload-row convention so the page-level source filter
+              // ("Inspection", "Internal Audit", etc.) catches these rows.
+              source: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+});
+
 export const getDocumentStats = cache(async (tenantId: string) => {
   const docs = await getDocuments(tenantId);
   return {

@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import clsx from "clsx";
 import {
   AlertTriangle, Plus, Search, ChevronRight, Clock, CheckCircle2,
@@ -20,7 +19,7 @@ import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   setDeviations, addDeviationDocument, removeDeviationDocument,
-  type Deviation, type DeviationStatus, type DeviationSeverity, type ImpactLevel,
+  type DeviationSeverity,
 } from "@/store/deviation.slice";
 import {
   createDeviation as createDeviationAction,
@@ -36,74 +35,11 @@ import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
 import { PageHeader, StatCard, DocumentUpload, StatusGuide } from "@/components/shared";
 import { DEVIATION_STATUSES } from "@/constants/statusTaxonomy";
-
-/* ── Adapt Prisma Deviation → slice Deviation shape ── */
-function adaptDeviation(p: PrismaDeviation): Deviation {
-  return {
-    id: p.id,
-    tenantId: p.tenantId,
-    siteId: p.siteId ?? "",
-    title: p.title,
-    description: p.description,
-    type: p.type as Deviation["type"],
-    category: p.category as Deviation["category"],
-    severity: p.severity as DeviationSeverity,
-    area: p.area,
-    detectedBy: p.detectedBy,
-    detectedDate: p.detectedDate.toISOString(),
-    reportedBy: p.detectedBy,
-    reportedDate: p.detectedDate.toISOString(),
-    owner: p.owner,
-    dueDate: p.dueDate ? p.dueDate.toISOString() : "",
-    status: p.status as DeviationStatus,
-    immediateAction: p.immediateAction ?? "",
-    rootCause: p.rootCause ?? undefined,
-    rcaMethod: (p.rcaMethod ?? undefined) as Deviation["rcaMethod"],
-    patientSafetyImpact: (p.patientSafetyImpact ?? "none") as ImpactLevel,
-    productQualityImpact: (p.productQualityImpact ?? "none") as ImpactLevel,
-    regulatoryImpact: (p.regulatoryImpact ?? "none") as ImpactLevel,
-    batchesAffected: p.batchesAffected
-      ? p.batchesAffected.split(",").map((b) => b.trim()).filter(Boolean)
-      : undefined,
-    linkedCAPAId: p.linkedCAPAId ?? undefined,
-    documents: [],
-    closedBy: p.closedBy ?? undefined,
-    closedDate: p.closedDate ? p.closedDate.toISOString() : undefined,
-    closureNotes: p.closureNotes ?? undefined,
-    createdAt: p.createdAt.toISOString(),
-    updatedAt: p.updatedAt.toISOString(),
-  };
-}
-
-/* ── Constants ── */
-const STATUS_VARIANT: Record<DeviationStatus, "gray" | "blue" | "amber" | "purple" | "green" | "red"> = {
-  draft: "gray", open: "blue", under_investigation: "amber", pending_qa_review: "purple", closed: "green", rejected: "red",
-};
-const STATUS_LABEL: Record<DeviationStatus, string> = {
-  draft: "Draft", open: "Open", under_investigation: "Under Investigation", pending_qa_review: "Pending QA Review", closed: "Closed", rejected: "Rejected",
-};
-const SEV_VARIANT: Record<DeviationSeverity, "red" | "amber" | "green"> = { critical: "red", major: "amber", minor: "green" };
-const IMPACT_COLOR: Record<string, string> = { high: "#ef4444", medium: "#f59e0b", low: "#10b981", none: "#64748b" };
-const CATEGORIES = ["process", "equipment", "material", "environmental", "personnel", "documentation", "system", "other"];
-const AREAS = ["QC Lab", "Manufacturing", "Warehouse", "Utilities", "QMS", "R&D", "Packaging"];
-
-const addSchema = z.object({
-  title: z.string().min(5, "Title required (min 5 chars)"),
-  description: z.string().min(10, "Description required"),
-  type: z.enum(["planned", "unplanned"]),
-  category: z.enum(["process", "equipment", "material", "environmental", "personnel", "documentation", "system", "other"]),
-  severity: z.enum(["critical", "major", "minor"]),
-  area: z.string().min(1, "Area required"),
-  immediateAction: z.string().min(5, "Immediate action required"),
-  patientSafetyImpact: z.enum(["high", "medium", "low", "none"]),
-  productQualityImpact: z.enum(["high", "medium", "low", "none"]),
-  regulatoryImpact: z.enum(["high", "medium", "low", "none"]),
-  owner: z.string().min(1, "Owner required"),
-  dueDate: z.string().min(1, "Due date required"),
-  batchesAffected: z.string().optional(),
-  raiseCAPA: z.boolean().optional(),
-});
-type AddForm = z.infer<typeof addSchema>;
+import {
+  STATUS_VARIANT, STATUS_LABEL, SEV_VARIANT, IMPACT_COLOR, CATEGORIES, AREAS,
+} from "./DeviationPage.constants";
+import { addSchema, type AddForm } from "./DeviationPage.schemas";
+import { adaptDeviation } from "./DeviationPage.adapter";
 
 /* ══════════════════════════════════════ */
 
