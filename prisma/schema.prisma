@@ -144,10 +144,30 @@ model CAPA {
   risk               String
   owner              String
   dueDate            DateTime?
-  status             String    @default("Open")
+  // Valid values: "open" | "in_progress" | "pending_qa_review" | "closed" | "rejected".
+  // Kept as String (not a Prisma enum) for SQLite portability — see
+  // src/types/capa.ts for the canonical type and CAPA_STATUS_VALUES list.
+  status             String    @default("open")
   rca                String?
   rcaMethod          String?
   correctiveActions  String?
+  // ── Substage 4.7 — Action-to-Cause Alignment Review (manual reviewer flag) ──
+  // alignmentStatus values: "aligned" | "cosmetic" | "needs_review" | null.
+  // Validated at the application layer via ALIGNMENT_STATUSES in
+  // src/lib/capa-alignment.ts (kept as String for SQLite portability —
+  // same convention as EvidenceItem.status / CAPA.status). Override fields
+  // capture separation-of-duties: a different qa_head (by id) can clear a
+  // cosmetic flag for submission. Status changes always wipe the override
+  // — a fresh review starts a fresh decision.
+  alignmentStatus           String?
+  alignmentReviewedBy       String?
+  alignmentReviewedById     String?
+  alignmentReviewedAt       DateTime?
+  alignmentNotes            String?
+  alignmentOverrideBy       String?
+  alignmentOverrideById     String?
+  alignmentOverrideAt       DateTime?
+  alignmentOverrideReason   String?
   effectivenessCheck Boolean   @default(false)
   effectivenessDate  DateTime?
   diGate             Boolean   @default(false)
@@ -157,15 +177,28 @@ model CAPA {
   diGateReviewDate   DateTime?
   closedBy           String?
   closedAt           DateTime?
+  // Substage 6.4 — Linked CC dependency override metadata. Populated only
+  // when a Medium/Low risk CAPA is marked implemented while linked Change
+  // Controls are still incomplete and the owner has elected to override
+  // the soft-gate. Critical/High CAPAs cannot use this — they hard-gate.
+  // Stays null on the normal flow (all linked CCs Implemented or Closed).
+  ccBlockOverrideReason   String?
+  ccBlockOverrideById     String?
+  ccBlockOverrideByName   String?
+  ccBlockOverrideAt       DateTime?
   createdBy          String
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  site           Site?          @relation(fields: [siteId], references: [id])
-  finding        Finding?       @relation(fields: [findingId], references: [id])
-  documents      CAPADocument[]
-  evidenceItems  EvidenceItem[]
+  tenant                 Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  site                   Site?                        @relation(fields: [siteId], references: [id])
+  finding                Finding?                     @relation(fields: [findingId], references: [id])
+  documents              CAPADocument[]
+  evidenceItems          EvidenceItem[]
+  effectivenessCriteria  CAPAEffectivenessCriterion[]
+  approvals              CAPAApproval[]
+  comments               CAPAComment[]
+  changeControlLinks     CAPAChangeControlLink[]
 }
 
 model CAPADocument {
@@ -338,7 +371,45 @@ model ValidationStage {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  system GxPSystem @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  system    GxPSystem       @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  documents StageDocument[]
+}
+
+// CSV/CSA stage documents — Part 11 immutable, soft-delete only. Mirrors
+// EvidenceFile (substage 3.2) but scoped to a ValidationStage rather than
+// a CAPA's EvidenceItem. Locking is implicit: once the parent stage's
+// status flips to "approved", the action layer rejects further uploads
+// and deletes (no separate lockedAt column needed — the stage itself is
+// the lock signal).
+model StageDocument {
+  id                String    @id @default(cuid())
+  tenantId          String
+
+  validationStageId String
+  validationStage   ValidationStage @relation(fields: [validationStageId], references: [id], onDelete: Cascade)
+
+  fileName          String    // sanitized stored name
+  originalFileName  String    // user's upload name (post-sanitize, kept for audit)
+  fileSize          Int       // bytes
+  fileType          String    // MIME type
+  fileUrl           String    // storage key relative to fileStorage root
+  contentHashSha256 String    // SHA-256 hex of file contents at upload time
+
+  retainUntil       DateTime  // upload + 7 years (Part 11 retention floor)
+
+  // Soft delete — Part 11 §11.10(e). Bytes survive on disk; row stays.
+  deletedAt         DateTime?
+  deletedById       String?
+  deletedByName     String?
+  deletionReason    String?
+
+  uploadedById      String
+  uploadedByName    String
+  uploadedAt        DateTime  @default(now())
+
+  @@index([validationStageId])
+  @@index([tenantId, uploadedAt])
+  @@index([deletedAt])
 }
 
 model RTMEntry {
@@ -385,9 +456,28 @@ model RoadmapActivity {
 
 // ── EVIDENCE ──
 
+// Document — being unified into the cross-module attachment store.
+//
+// Phase 1.3a (this migration `unify_documents_phase1`):
+//   • Adds 11 nullable columns alongside the legacy ones.
+//   • Legacy columns (linkedModule, linkedRecordId, fileType, fileSize,
+//     createdAt, status default "draft") are kept untouched so existing
+//     callers (createDocument metadata-only path) keep working.
+//
+// Phase 1.3b (next migration, after Session 2 backfill):
+//   • Backfill sourceModule/sourceId/sha256/storageKey/etc. from
+//     linkedModule/linkedRecordId/EvidenceFile joins.
+//   • Rename fileType → mimeType, createdAt → uploadedAt; drop the
+//     legacy linkedModule/linkedRecordId; retype fileSize String → Int;
+//     promote sourceModule/sourceId/sha256/storageKey/originalFileName/
+//     mimeType/retainUntil/fileSize to NOT NULL.
+//   • Add siteId/category as nullable; add (tenantId, uploadedAt) index;
+//     flip status default to "Pending".
 model Document {
   id             String    @id @default(cuid())
   tenantId       String
+
+  // ── Legacy columns (1.3a keeps intact; 1.3b backfills + drops/renames) ──
   fileName       String
   fileType       String?
   fileSize       String?
@@ -402,7 +492,30 @@ model Document {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  // ── 1.3a additions — all nullable for now ──
+  sourceModule     String?
+  sourceId         String?
+  siteId           String?
+  category         String?
+  sha256           String?
+  storageKey       String?
+  originalFileName String?
+  fileExtension    String?
+  retainUntil      DateTime?
+  deletedAt        DateTime?
+  deletedBy        String?
+  deletionReason   String?
+  notes            String?
+  // New canonical timestamp — written by the Phase 2 upload service.
+  // 1.3b backfills NULLs from createdAt, marks NOT NULL, then drops createdAt.
+  uploadedAt       DateTime?
+
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sourceModule, sourceId])
+  @@index([tenantId, uploadedAt])
+  @@index([sha256])
+  @@index([deletedAt])
 }
 
 // ── GOVERNANCE ──
@@ -651,6 +764,259 @@ model EvidenceFile {
 
   @@index([evidenceItemId])
   @@index([deletedAt])
+}
+
+// ── CAPA EFFECTIVENESS CRITERIA (substage 4.6) ──
+// Measurable, time-bound success criteria defined per CAPA. Locked when the
+// CAPA progresses to QA review (LOCKED_CAPA_STATUSES in src/lib/evidence-lock.ts);
+// the lock mirrors EvidenceItem's pattern. lockedSignatureId stays null until
+// the e-signature substage lands. Hard-deleted (no soft-delete column) — the
+// audit trail captures the deletion event with the full pre-delete snapshot.
+model CAPAEffectivenessCriterion {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  capaId             String
+
+  description        String
+  targetMetric       String
+  measurementMethod  String
+  targetValue        String
+  monitoringPeriod   String
+
+  createdBy          String
+  createdAt          DateTime  @default(now())
+  updatedBy          String?
+  updatedAt          DateTime  @updatedAt
+
+  lockedAt           DateTime?
+  lockedBy           String?
+  lockedSignatureId  String?
+
+  capa               CAPA      @relation(fields: [capaId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, capaId])
+  @@index([capaId])
+}
+
+// ── SIGNED RECORDS (Part 11 §11.50, §11.70, §11.200) ──
+// Polymorphic e-signature ledger. One row per discrete signing event —
+// approval, revocation, closure, FDA 483 response, etc. Linked to the
+// signed record via the (recordType, recordId) pair (no formal FK so the
+// same table can serve every signing surface). The contentHash binds the
+// signature to the signed record's canonical state at signing time, so
+// any subsequent change to the underlying record is detectable. Rows
+// here are immutable — never updated, never deleted.
+model SignedRecord {
+  id                  String    @id @default(cuid())
+  tenantId            String
+
+  // What was signed
+  recordType          String    // "CAPA_APPROVAL" | "CAPA_APPROVAL_REVOCATION" | "CAPA_CLOSURE" | "FDA483_RESPONSE" | …
+  recordId            String    // FK target id — polymorphic, no formal FK constraint
+
+  // Who signed
+  signerId            String
+  signerName          String
+  signerRole          String
+  signerEmail         String    // captured at signing time (immutable even if user later changes email)
+
+  // What the signature means (Part 11 §11.50)
+  signatureMeaning    String    // "Approved" | "Rejected" | "Reviewed" | "Authored" | "Revoked" …
+
+  // Integrity (Part 11 §11.50 — link signature to record)
+  contentHash         String    // SHA-256 hex of the canonical record state at signing time
+  contentSummary     String     // human-readable snapshot for audit display
+
+  // Authentication metadata (Part 11 §11.200(a)(1)(ii))
+  passwordVerifiedAt  DateTime  // exact moment password re-verification succeeded
+
+  // Provenance — best-effort; not all server contexts provide these.
+  ipAddress           String?
+  userAgent           String?
+
+  createdAt           DateTime  @default(now())
+
+  approval            CAPAApproval?
+
+  @@index([recordType, recordId])
+  @@index([tenantId, signerId])
+  @@index([createdAt])
+}
+
+// ── CAPA TIERED APPROVALS (substage 5.2) ──
+// Count-based approval rows. The required count by risk tier lives in
+// src/lib/capa-approvals.ts (APPROVAL_REQUIREMENTS). Each row captures one
+// approver's verdict on the CAPA; the CAPA cannot be closed until the
+// per-tier requirements are satisfied. signatureId stays null until the
+// e-signature substage lands. Rows are hard-deleted via revokeCAPAApproval
+// — the audit trail captures the snapshot in oldValue.
+model CAPAApproval {
+  id           String   @id @default(cuid())
+  tenantId     String
+  capaId       String
+
+  approverRole String
+  approverName String
+  approverId   String
+  approvedAt   DateTime @default(now())
+  comment      String?
+  // Substage 5.4 — Part 11 e-signature link. Required for new approvals
+  // created by the post-substage-5.4 codepath; nullable to keep migrations
+  // simple for any pre-existing approval rows that predate the e-sig
+  // requirement. @@unique enforces the 1:1 — a given SignedRecord backs at
+  // most one approval row (a revocation event creates a NEW SignedRecord).
+  signatureId  String?  @unique
+  signature    SignedRecord? @relation(fields: [signatureId], references: [id])
+
+  // Revocation soft-delete — Part 11 records are immutable, so revokeCAPAApproval
+  // marks the row revoked instead of deleting it. The revocation event itself
+  // is also signed; revokedSignatureId points to the revocation SignedRecord
+  // (kept as a free string so we don't need a second relation slot on
+  // SignedRecord — the SignedRecord.recordId column links back via
+  // recordType = "CAPA_APPROVAL_REVOCATION").
+  revokedAt          DateTime?
+  revokedSignatureId String?
+
+  capa         CAPA     @relation(fields: [capaId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, capaId])
+  @@index([capaId])
+  @@index([revokedAt])
+}
+
+// ── CAPA DISCUSSION THREAD (substage 5.2 §5.3) ──
+// Threaded comments attached to a CAPA. Comments flagged as `isConcern` block
+// final approval until resolved (see evaluateApprovalProgress in
+// src/lib/capa-approvals.ts). Soft-delete only — Part 11 immutability; the
+// "[deleted]" placeholder is rendered client-side, replies under a deleted
+// parent stay visible.
+model CAPAComment {
+  id              String    @id @default(cuid())
+  tenantId        String
+  capaId          String
+  parentId        String?
+
+  body            String
+  isConcern       Boolean   @default(false)
+
+  resolvedAt      DateTime?
+  resolvedById    String?
+  resolvedByName  String?
+  resolvedComment String?
+
+  deletedAt       DateTime?
+  deletedById     String?
+  deletedByName   String?
+  deletionReason  String?
+
+  authorId        String
+  authorName      String
+  authorRole      String
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  capa            CAPA          @relation(fields: [capaId], references: [id], onDelete: Cascade)
+  parent          CAPAComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies         CAPAComment[] @relation("CommentReplies")
+
+  @@index([capaId, createdAt])
+  @@index([tenantId, capaId])
+  @@index([parentId])
+}
+
+// ── CHANGE CONTROL (substage 4.8) ──
+// SOP, equipment, process, or product changes routed through Change Control
+// with bidirectional CAPA traceability. Spec §4.8: "SOP/equipment/process
+// changes routed through Change Control with bidirectional CAPA traceability."
+//
+// Reference scheme: CC-YYYY-NNN, per-tenant per-year sequence (mirrors
+// CAPA.reference). Globally unique to match the existing CAPA pattern; the
+// retry-on-P2002 logic in createChangeControl handles intra-tenant races.
+//
+// Soft-delete only — Part 11 immutability. Status state machine enforced
+// at the action layer (transitionChangeControlStatus). Approval workflow
+// here is intentionally simple (Draft → In Review → Approved …); the
+// SignedRecord-backed signing pattern from substage 5.4 will be adopted
+// for CC approvals later as a separate substage.
+model ChangeControl {
+  id              String    @id @default(cuid())
+  tenantId        String
+  reference       String?   @unique
+
+  title           String
+  description     String
+  // Allowed values: "SOP" | "Equipment" | "Process" | "Product" |
+  // "Computer System" | "Material" | "Other". Validated at the action
+  // layer via zod (same pattern as CAPA.source / CAPA.risk).
+  changeType      String
+  rationale       String
+
+  // Allowed values: "Critical" | "High" | "Medium" | "Low".
+  risk            String
+  impactAssessment String?
+  affectedSystems String?
+
+  // Allowed values: "Draft" | "In Review" | "Approved" |
+  // "In Implementation" | "Implemented" | "Closed" | "Rejected".
+  status          String    @default("Draft")
+
+  owner           String
+  ownerName       String
+
+  targetImplementationDate DateTime?
+  actualImplementationDate DateTime?
+  closedAt        DateTime?
+  closedById      String?
+  closedByName    String?
+
+  // Soft-delete metadata (Part 11 — never hard-delete).
+  deletedAt       DateTime?
+  deletedById     String?
+  deletedByName   String?
+  deletionReason  String?
+
+  createdBy       String
+  createdByName   String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  capaLinks       CAPAChangeControlLink[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([deletedAt])
+}
+
+// Many-to-many join table between CAPA and ChangeControl. The
+// `initiatedFrom` column records which side filed the link (so reverse
+// queries can show "linked from this CC" vs "linked from this CAPA"
+// without ambiguity). Hard-deleted on unlink — links are not Part 11
+// records themselves; the audit trail is the immutable history.
+model CAPAChangeControlLink {
+  id              String    @id @default(cuid())
+  tenantId        String
+
+  capaId          String
+  capa            CAPA      @relation(fields: [capaId], references: [id], onDelete: Cascade)
+
+  changeControlId String
+  changeControl   ChangeControl @relation(fields: [changeControlId], references: [id], onDelete: Cascade)
+
+  // "CAPA" | "ChangeControl" — which side initiated the link.
+  initiatedFrom   String
+
+  linkRationale   String?
+
+  linkedById      String
+  linkedByName    String
+
+  createdAt       DateTime  @default(now())
+
+  @@unique([capaId, changeControlId])
+  @@index([capaId])
+  @@index([changeControlId])
+  @@index([tenantId])
 }
 
 // ── EMAIL OTP (MFA) ──
