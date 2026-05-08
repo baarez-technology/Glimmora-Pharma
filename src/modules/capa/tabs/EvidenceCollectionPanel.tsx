@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Download,
   FileText,
@@ -107,6 +109,42 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Per-category expanded state. Categories with any activity (status not
+  // Pending OR files OR notes) seed expanded on first load; truly empty
+  // categories collapse so the tab doesn't render seven near-empty cards
+  // that bury the few that matter. The user's explicit toggles after that
+  // win — `expandedSet === null` is the "before first items load" sentinel
+  // so the seed-from-items effect can run exactly once.
+  const [expandedSet, setExpandedSet] = useState<Set<string> | null>(null);
+
+  function isItemSelfActive(it: EvidenceItemSummary): boolean {
+    return (
+      it.status !== "PENDING" ||
+      it.files.length > 0 ||
+      (it.notes ?? "").length > 0
+    );
+  }
+
+  function toggleExpanded(category: string) {
+    setExpandedSet((prev) => {
+      const next = new Set(prev ?? []);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  }
+
+  function expandAll() {
+    setExpandedSet(new Set(EVIDENCE_CATEGORIES));
+  }
+
+  function collapseAll() {
+    setExpandedSet(new Set());
+  }
+
+  const isExpanded = (category: string): boolean =>
+    (expandedSet ?? new Set<string>()).has(category);
+
   const refresh = useCallback(async () => {
     const result = await loadEvidenceForCAPA(capaId);
     if (!result.success) {
@@ -141,6 +179,20 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
     refresh();
   }, [refresh]);
 
+  // Seed the expanded set once items first arrive. Categories that are
+  // already in motion (status, files, or notes) start expanded; truly
+  // empty Pending categories start collapsed. Only runs once per panel
+  // mount — subsequent refreshes don't re-seed, so a user's manual
+  // toggle isn't undone by a save round-trip.
+  useEffect(() => {
+    if (expandedSet !== null || items === null) return;
+    const seeded = new Set<string>();
+    for (const it of items) {
+      if (isItemSelfActive(it)) seeded.add(it.category);
+    }
+    setExpandedSet(seeded);
+  }, [items, expandedSet]);
+
   if (loading && items === null) {
     return (
       <div role="status" aria-live="polite" className="py-8 text-center text-[12px]" style={{ color: "var(--text-muted)" }}>
@@ -162,16 +214,58 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
     (it) => it.status === "COMPLETE" || it.status === "NOT_APPLICABLE",
   ).length;
   const progressPct = Math.round((completedCount / totalCategories) * 100);
+  // Whole-CAPA lock state — set when the CAPA has progressed to QA review,
+  // closed, or rejected. lockEvidenceForCAPA flips every item at once, so
+  // .some() and .every() agree. We use .some() for an early-warning banner
+  // even if a future change ever lands a partial-lock state.
+  const isLocked = (items ?? []).some((it) => it.isLocked);
 
   return (
     <div className="space-y-3">
-      {/* Progress summary */}
+      {/* Whole-tab lock banner (REQ-3). Per-card warning still appears below. */}
+      {isLocked && (
+        <div role="status" className="alert alert-info flex items-start gap-2">
+          <Lock className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="text-[12px] font-semibold">Evidence collection locked</p>
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
+              The parent CAPA has progressed to QA review. Re-open the CAPA to
+              modify evidence.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Progress summary + expand/collapse toggle. The toggle is purely
+          UI convenience; expansion state is transient (lost on tab swap)
+          per spec — it isn't a user preference worth persisting. */}
       <div className="rounded-lg p-3" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>
             {completedCount} of {totalCategories} categories complete
           </span>
-          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{progressPct}%</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={expandAll}
+              className="text-[11px] underline border-none bg-transparent cursor-pointer p-0"
+              style={{ color: "var(--brand)" }}
+              aria-label="Expand all categories"
+            >
+              Expand all
+            </button>
+            <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>·</span>
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="text-[11px] underline border-none bg-transparent cursor-pointer p-0"
+              style={{ color: "var(--brand)" }}
+              aria-label="Collapse all categories"
+            >
+              Collapse all
+            </button>
+            <span className="text-[11px] ml-2" style={{ color: "var(--text-muted)" }}>{progressPct}%</span>
+          </div>
         </div>
         <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-border)" }}>
           <div
@@ -183,7 +277,14 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
       </div>
 
       {(items ?? []).map((item) => (
-        <EvidenceCard key={item.id} item={item} readOnly={readOnly} onChange={refresh} />
+        <EvidenceCard
+          key={item.id}
+          item={item}
+          readOnly={readOnly}
+          onChange={refresh}
+          isExpanded={isExpanded(item.category)}
+          onToggleExpanded={() => toggleExpanded(item.category)}
+        />
       ))}
     </div>
   );
@@ -195,9 +296,15 @@ interface CardProps {
   item: EvidenceItemSummary;
   readOnly: boolean;
   onChange: () => void;
+  /** When false, the card renders as a single-row collapsed summary
+   *  with a chevron. Click anywhere on the row toggles via
+   *  onToggleExpanded. The card body (status, notes, files, drop area)
+   *  is unmounted in collapsed state so its useEffects don't run. */
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
 }
 
-function EvidenceCard({ item, readOnly, onChange }: CardProps) {
+function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }: CardProps) {
   const Icon = CATEGORY_ICON[item.category];
   const locked = item.isLocked;
   const disabled = readOnly || locked;
@@ -245,21 +352,89 @@ function EvidenceCard({ item, readOnly, onChange }: CardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes, item.id, disabled]);
 
-  const handleStatusChange = async (next: EvidenceStatus) => {
-    if (disabled) return;
+  // Track an NA-related transition that needs a reason. Setting this opens
+  // the NAReasonModal; submitting it calls commitStatusChange with the
+  // reason; cancelling reverts the dropdown to its previous value.
+  const [pendingNATransition, setPendingNATransition] = useState<EvidenceStatus | null>(null);
+
+  const commitStatusChange = async (
+    next: EvidenceStatus,
+    naReason?: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
     const previous = status;
     setStatus(next);
     setSavingStatus(true);
     setCardError(null);
-    const result = await updateEvidenceStatus(item.id, { status: next, notes });
+    const result = await updateEvidenceStatus(item.id, {
+      status: next,
+      notes,
+      ...(naReason ? { naReason } : {}),
+    });
     setSavingStatus(false);
     if (!result.success) {
       setStatus(previous);
       setCardError(result.error);
-      return;
+      return { ok: false, error: result.error };
     }
     onChange();
+    return { ok: true };
   };
+
+  const handleStatusChange = async (next: EvidenceStatus) => {
+    if (disabled) return;
+    if (next === status) return;
+    // NA transitions (to or from) require a reason — defer until the modal
+    // collects it. Server still re-validates min length (defence in depth).
+    const transitioningToNA = status !== "NOT_APPLICABLE" && next === "NOT_APPLICABLE";
+    const transitioningFromNA = status === "NOT_APPLICABLE" && next !== "NOT_APPLICABLE";
+    if (transitioningToNA || transitioningFromNA) {
+      setPendingNATransition(next);
+      return;
+    }
+    await commitStatusChange(next);
+  };
+
+  // Collapsed-row variant — single-line summary the user can click to
+  // expand. Defined after all the card's hooks so React's hook ordering
+  // stays stable as expansion state toggles. The expanded variant below
+  // is rendered when isExpanded is true.
+  if (!isExpanded) {
+    return (
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        aria-expanded={false}
+        aria-label={`Expand ${CATEGORY_LABEL[item.category]}`}
+        className="w-full flex items-center gap-3 rounded-lg p-2.5 text-left cursor-pointer transition-colors duration-150 hover:bg-(--bg-hover)"
+        style={{
+          background: "var(--card-bg)",
+          border: "1px solid var(--card-border)",
+        }}
+      >
+        <div
+          className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
+          style={{ background: "var(--brand-muted)" }}
+          aria-hidden="true"
+        >
+          <Icon className="w-3.5 h-3.5" style={{ color: "var(--brand)" }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>
+            {CATEGORY_LABEL[item.category]}
+          </p>
+          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            Not yet started
+          </p>
+        </div>
+        <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
+        <ChevronRight
+          className="w-3.5 h-3.5 shrink-0"
+          style={{ color: "var(--text-muted)" }}
+          aria-hidden="true"
+        />
+      </button>
+    );
+  }
 
   return (
     <article
@@ -285,6 +460,18 @@ function EvidenceCard({ item, readOnly, onChange }: CardProps) {
             {item.deletedFileCount > 0 && ` · ${item.deletedFileCount} removed`}
           </p>
         </div>
+        {/* Collapse button — always available on the expanded card so the
+            user can re-fold a category they're done with. */}
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          aria-label={`Collapse ${CATEGORY_LABEL[item.category]}`}
+          className="p-1 rounded border-none bg-transparent cursor-pointer"
+          style={{ color: "var(--text-muted)" }}
+          title="Collapse"
+        >
+          <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+        </button>
         <div className="flex items-center gap-2 shrink-0">
           {item.hasNoteHistory && (
             <button
@@ -356,6 +543,22 @@ function EvidenceCard({ item, readOnly, onChange }: CardProps) {
           evidenceItemId={item.id}
           categoryLabel={CATEGORY_LABEL[item.category]}
           onClose={() => setHistoryOpen(false)}
+        />
+      )}
+
+      {/* NA-transition reason modal (REQ-1) */}
+      {pendingNATransition && (
+        <NAReasonModal
+          fromStatus={status}
+          toStatus={pendingNATransition}
+          categoryLabel={CATEGORY_LABEL[item.category]}
+          onCancel={() => setPendingNATransition(null)}
+          onSubmit={async (reason) => {
+            const target = pendingNATransition;
+            const result = await commitStatusChange(target, reason);
+            if (result.ok) setPendingNATransition(null);
+            return result;
+          }}
         />
       )}
     </article>
@@ -682,6 +885,76 @@ function NoteHistoryModal({ evidenceItemId, categoryLabel, onClose }: HistoryPro
       )}
       <div className="flex justify-end pt-3 mt-3" style={{ borderTop: "1px solid var(--bg-border)" }}>
         <Button variant="secondary" size="sm" icon={X} onClick={onClose}>Close</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── NA-transition reason modal ── */
+
+interface NAReasonProps {
+  fromStatus: EvidenceStatus;
+  toStatus: EvidenceStatus;
+  categoryLabel: string;
+  onCancel: () => void;
+  onSubmit: (reason: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+}
+
+function NAReasonModal({ fromStatus, toStatus, categoryLabel, onCancel, onSubmit }: NAReasonProps) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const direction = toStatus === "NOT_APPLICABLE" ? "to-na" : "from-na";
+  const title =
+    direction === "to-na"
+      ? `Mark ${categoryLabel} as Not Applicable`
+      : `Change ${categoryLabel} from Not Applicable`;
+  const blurb =
+    direction === "to-na"
+      ? "Per Part 11 ALCOA+, marking a category Not Applicable requires a recorded rationale (≥10 characters)."
+      : `Reverting from Not Applicable to ${STATUS_LABEL[toStatus]} requires a recorded rationale (≥10 characters).`;
+
+  const reasonValid = reason.trim().length >= 10;
+
+  return (
+    <Modal open onClose={busy ? () => undefined : onCancel} title={title}>
+      <p className="text-[12px] mb-3" style={{ color: "var(--text-secondary)" }}>
+        {blurb}
+      </p>
+      <p className="text-[11px] mb-2" style={{ color: "var(--text-muted)" }}>
+        {STATUS_LABEL[fromStatus]} → {STATUS_LABEL[toStatus]}
+      </p>
+      <textarea
+        className="input text-[12px] min-h-[80px] mb-2"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Why is this category being marked / unmarked Not Applicable?"
+        aria-label="NA transition reason"
+        maxLength={2000}
+        disabled={busy}
+      />
+      {err && (
+        <p role="alert" className="text-[11px] mb-2" style={{ color: "var(--danger)" }}>
+          {err}
+        </p>
+      )}
+      <div className="flex justify-end gap-2 pt-2" style={{ borderTop: "1px solid var(--bg-border)" }}>
+        <Button variant="secondary" size="sm" onClick={onCancel} disabled={busy}>Cancel</Button>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={busy || !reasonValid}
+          onClick={async () => {
+            setBusy(true);
+            setErr(null);
+            const result = await onSubmit(reason.trim());
+            setBusy(false);
+            if (!result.ok) setErr(result.error);
+          }}
+        >
+          {busy ? "Saving…" : "Confirm"}
+        </Button>
       </div>
     </Modal>
   );

@@ -43,6 +43,10 @@ const AUDIT_MODULE = "CAPA / Evidence";
 const StatusUpdateSchema = z.object({
   status: z.enum(EVIDENCE_STATUSES as readonly [EvidenceStatus, ...EvidenceStatus[]]),
   notes: z.string().max(10_000).optional(),
+  // Required when transitioning TO or FROM NOT_APPLICABLE (Part 11 ALCOA+:
+  // every NA decision needs an auditable rationale). Server enforces the
+  // requirement based on the actual oldStatus → newStatus transition.
+  naReason: z.string().min(10).max(2000).optional(),
 });
 
 const RemoveFileSchema = z.object({
@@ -155,19 +159,38 @@ export async function updateEvidenceStatus(
   const { session, item } = await loadEvidenceItemScoped(evidenceItemId);
   if (!item) return { success: false, error: "Evidence item not found" };
   if (item.lockedAt !== null) {
-    return { success: false, error: "FORBIDDEN: Evidence item is locked" };
+    return {
+      success: false,
+      error:
+        "Evidence is locked because the CAPA has progressed to QA review. Re-open the CAPA to modify.",
+    };
+  }
+
+  const oldStatus = item.status;
+  const oldNotes = item.notes;
+  const newStatus = parsed.data.status;
+  const newNotes = parsed.data.notes ?? item.notes;
+  const notesChanged = oldNotes !== (parsed.data.notes ?? null);
+  const statusChanged = oldStatus !== newStatus;
+
+  // NA-transition gate (REQ-1). Reason required moving TO or FROM
+  // NOT_APPLICABLE; stored as an extra EvidenceNoteVersion so the rationale
+  // is preserved for inspection alongside regular note history.
+  const transitioningToNA = statusChanged && newStatus === "NOT_APPLICABLE";
+  const transitioningFromNA = statusChanged && oldStatus === "NOT_APPLICABLE";
+  const requiresReason = transitioningToNA || transitioningFromNA;
+  if (requiresReason && (!parsed.data.naReason || parsed.data.naReason.trim().length < 10)) {
+    return {
+      success: false,
+      error:
+        "A reason of at least 10 characters is required when changing to or from Not Applicable",
+    };
   }
 
   try {
-    const oldStatus = item.status;
-    const oldNotes = item.notes;
-    const newStatus = parsed.data.status;
-    const newNotes = parsed.data.notes ?? item.notes;
-    const notesChanged = oldNotes !== (parsed.data.notes ?? null);
-
     await prisma.$transaction(async (tx) => {
-      // If notes changed, snapshot the OLD value before updating — preserves
-      // ALCOA+ Original. statusAtTime captures the state at snapshot time.
+      // Snapshot prior notes value when notes changed (existing behaviour;
+      // preserves ALCOA+ Original).
       if (notesChanged && oldNotes !== null) {
         await tx.evidenceNoteVersion.create({
           data: {
@@ -178,21 +201,45 @@ export async function updateEvidenceStatus(
           },
         });
       }
+      // NA-transition rationale: separate EvidenceNoteVersion row tagged with
+      // statusAtTime = "NOT_APPLICABLE" (per spec: store as a note version
+      // with statusAtTime "NOT_APPLICABLE" when going to NA; for from-NA,
+      // tag with the destination status so the rationale clearly belongs to
+      // the exit transition).
+      if (requiresReason && parsed.data.naReason) {
+        await tx.evidenceNoteVersion.create({
+          data: {
+            evidenceItemId,
+            notes: parsed.data.naReason.trim(),
+            statusAtTime: transitioningToNA ? "NOT_APPLICABLE" : newStatus,
+            createdBy: session.user.name,
+          },
+        });
+      }
       await tx.evidenceItem.update({
         where: { id: evidenceItemId },
         data: { status: newStatus, notes: newNotes },
       });
+      // Differentiate audit action so the trail distinguishes status changes
+      // from notes-only edits (REQ-2 / REQ-4).
+      const auditAction = statusChanged
+        ? "EVIDENCE_STATUS_CHANGED"
+        : "EVIDENCE_NOTE_UPDATED";
       await tx.auditLog.create({
         data: {
           tenantId: item.capa.tenantId,
           userName: session.user.name,
           userRole: session.user.role,
           module: AUDIT_MODULE,
-          action: "EVIDENCE_STATUS_UPDATED",
+          action: auditAction,
           recordId: evidenceItemId,
           recordTitle: item.capa.description.slice(0, 80),
-          oldValue: JSON.stringify({ status: oldStatus, notes: oldNotes }),
-          newValue: JSON.stringify({ status: newStatus, notes: newNotes }),
+          oldValue: statusChanged ? oldStatus : (oldNotes ?? ""),
+          newValue: JSON.stringify({
+            status: newStatus,
+            ...(notesChanged ? { notesChanged: true } : {}),
+            ...(parsed.data.naReason ? { naReason: parsed.data.naReason.trim() } : {}),
+          }),
         },
       });
     });
@@ -201,8 +248,16 @@ export async function updateEvidenceStatus(
     revalidatePath("/capa");
     return { success: true, data: null };
   } catch (err) {
-    console.error("[action] updateEvidenceStatus failed:", err);
-    return { success: false, error: "Failed to update evidence status" };
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string } | null)?.code;
+    console.error("[action] updateEvidenceStatus failed:", { code, message, err });
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Failed to update evidence status"
+          : `Failed to update evidence status: ${code ? `[${code}] ` : ""}${message}`,
+    };
   }
 }
 
@@ -233,7 +288,11 @@ export async function addEvidenceFile(
   const { session, item } = await loadEvidenceItemScoped(evidenceItemId);
   if (!item) return { success: false, error: "Evidence item not found" };
   if (item.lockedAt !== null) {
-    return { success: false, error: "FORBIDDEN: Evidence item is locked" };
+    return {
+      success: false,
+      error:
+        "Evidence is locked because the CAPA has progressed to QA review. Re-open the CAPA to modify.",
+    };
   }
 
   try {
@@ -326,15 +385,17 @@ export async function removeEvidenceFile(
     return { success: false, error: "File is already removed" };
   }
   if (file.evidenceItem.lockedAt !== null) {
-    return { success: false, error: "FORBIDDEN: Evidence item is locked" };
-  }
-  if (Date.now() < file.retainUntil.getTime()) {
-    const until = file.retainUntil.toISOString().slice(0, 10);
     return {
       success: false,
-      error: `RETENTION_PERIOD_NOT_MET: file must be retained until ${until}`,
+      error:
+        "Evidence is locked because the CAPA has progressed to QA review. Re-open the CAPA to modify.",
     };
   }
+  // Retention applies to destroying the file bytes, not to this soft-delete:
+  // the row stays (deletedAt + reason + audit row), and fileStorage.delete()
+  // is intentionally not called below — bytes survive on disk for the full
+  // retainUntil window. A future hard-delete/purge job is where the
+  // retainUntil check belongs.
 
   try {
     await prisma.$transaction(async (tx) => {

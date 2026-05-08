@@ -7,6 +7,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Package, Plus, Download } from "lucide-react";
 import type { Document as PrismaDocument } from "@prisma/client";
+// Type-only import — band-aid for the global view to surface CAPA Evidence
+// files. Phase 4 of the document-store unification removes this.
+import type { getCAPAEvidenceFiles } from "@/lib/queries/governance";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -41,9 +44,14 @@ export interface EvidencePageStats {
   rejected: number;
 }
 
+// Derived directly from getCAPAEvidenceFiles' include shape — keeps this
+// type in sync with the query without duplicating the include literal.
+type CAPAEvidenceFileRow = Awaited<ReturnType<typeof getCAPAEvidenceFiles>>[number];
+
 export interface EvidencePageProps {
   docs: PrismaDocument[];
   stats: EvidencePageStats;
+  capaEvidenceFiles: CAPAEvidenceFileRow[];
 }
 
 /**
@@ -160,7 +168,7 @@ type DocForm = z.infer<typeof docSchema>;
 
 /* ══════════════════════════════════════ */
 
-export function EvidencePage({ docs: prismaDocs }: EvidencePageProps) {
+export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePageProps) {
   // `stats` prop is accepted by EvidencePageProps but not destructured here —
   // the page derives richer counts (currentCount/missingCount) from the full
   // cross-module aggregation, so the standalone Prisma stats would be misleading.
@@ -168,7 +176,6 @@ export function EvidencePage({ docs: prismaDocs }: EvidencePageProps) {
   const dispatch = useAppDispatch();
   const {
     findings,
-    capas,
     systems,
     fda483Events,
     deviations,
@@ -212,29 +219,12 @@ export function EvidencePage({ docs: prismaDocs }: EvidencePageProps) {
         });
       }
     });
-    capas.forEach((c) => {
-      c.evidenceLinks.forEach((link, i) => {
-        if (!docs.find((d) => d.reference === link)) {
-          docs.push({
-            id: `capa-${c.id}-${i}`,
-            title: `${c.id} \u2014 Evidence ${i + 1}`,
-            reference: link,
-            type: "Record",
-            area: "QMS",
-            capaId: c.id,
-            version: "1.0",
-            status: c.status === "Closed" ? "Current" : "Under Review",
-            author: c.owner,
-            effectiveDate: c.createdAt,
-            tags: ["CAPA", c.source],
-            complianceTags: [c.source],
-            createdAt: c.createdAt,
-            tenantId: c.tenantId ?? "",
-            siteId: "",
-          });
-        }
-      });
-    });
+    // CAPA-side document aggregation moved to the dedicated capaEvidenceFiles
+     // loop below \u2014 substage 3.2 replaced the legacy in-memory `evidenceLinks`
+     // and `documents` arrays on the CAPA Redux row with the EvidenceFile DB
+     // model. The forEach blocks that read `c.evidenceLinks` and
+     // `c.documents` were removed; their iterations were always empty after
+     // 3.2 shipped.
     fda483Events.forEach((e) => {
       if (e.responseDraft?.trim() && !docs.find((d) => d.eventId === e.id)) {
         docs.push({
@@ -292,19 +282,37 @@ export function EvidencePage({ docs: prismaDocs }: EvidencePageProps) {
       });
     };
 
-    capas.forEach((c) => {
-      (c.documents ?? []).forEach((doc) =>
-        pushUploaded(doc, {
-          sourcePrefix: "capa-doc",
-          recordId: c.id,
-          recordTitle: c.description,
-          area: "QMS",
-          complianceTags: ["CAPA", c.source],
-          tenantId: c.tenantId ?? "",
-          siteId: c.siteId ?? "",
-          capaId: c.id,
-        }),
-      );
+    /* ── CAPA Evidence files (server-fetched from EvidenceFile table) ──
+       Band-aid until Phase 4 of the document-store unification — see
+       getCAPAEvidenceFiles in src/lib/queries/governance.ts. Inlined rather
+       than routed through pushUploaded() because the reference label format
+       (`<CAPA reference> · <category>`) differs from pushUploaded's. */
+    capaEvidenceFiles.forEach((ef) => {
+      const capa = ef.evidenceItem.capa;
+      const capaRef = capa.reference ?? capa.id;
+      const humanCategory = ef.evidenceItem.category
+        .toLowerCase()
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      docs.push({
+        id: `evidencefile-${ef.id}`,
+        title: ef.originalFileName,
+        reference: `${capaRef} · ${humanCategory}`,
+        type: "Record",
+        area: "QMS",
+        capaId: capa.id,
+        version: "1.0",
+        status: "Current",
+        author: ef.uploadedBy,
+        effectiveDate: ef.createdAt.toISOString(),
+        tags: [ef.fileType.toUpperCase(), humanCategory],
+        complianceTags: ["CAPA", capa.source],
+        createdAt: ef.createdAt.toISOString(),
+        tenantId: capa.tenantId,
+        siteId: capa.siteId ?? "",
+        sizeKb: Math.round(ef.fileSize / 1024),
+      });
     });
 
     deviations.forEach((d) => {
