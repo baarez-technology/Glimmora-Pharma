@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, ShieldAlert, X } from "lucide-react";
+// CHANGE CONTROL HIDDEN — ShieldAlert dropped because its only consumer
+// (the "Implemented with override" badge below) is commented out. To
+// re-enable, restore `ShieldAlert` to this import and uncomment the
+// badge JSX a few lines below.
+import { Pencil, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
@@ -176,12 +180,19 @@ export function CAPADetailModal({
           <Badge variant={RISK_VARIANT[capa.risk]}>{capa.risk}</Badge>
           <Badge variant={STATUS_VARIANT[capa.status]}>{STATUS_LABEL[capa.status]}</Badge>
           {overdue && <Badge variant="red">Overdue</Badge>}
+          {/* CHANGE CONTROL HIDDEN — "Implemented with override" badge
+              suppressed alongside the rest of the CC user-facing surface.
+              `capa.ccBlockOverrideReason` is still written to by legacy
+              closures; the column stays in the schema. To re-enable,
+              uncomment this block and re-add `ShieldAlert` to the
+              lucide-react import above.
           {capa.ccBlockOverrideReason && (
             <Badge variant="amber">
               <ShieldAlert className="w-3 h-3 inline mr-0.5" aria-hidden="true" />
               Implemented with override
             </Badge>
           )}
+          */}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {editAllowed && (

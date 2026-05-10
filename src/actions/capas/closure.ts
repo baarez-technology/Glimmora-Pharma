@@ -9,11 +9,16 @@ import {
   evaluateApprovalProgress,
   type ApprovalTier,
 } from "@/lib/capa-approvals";
-import {
-  canMarkCAPAImplemented,
-  ccDepsSnapshot,
-  evaluateCCDependencies,
-} from "@/lib/cc-dependencies";
+// CHANGE CONTROL HIDDEN — 6.4 dependency gate bypassed inside
+// signAndCloseCAPA. `evaluateCCDependencies` stays imported because
+// `loadCAPACCDeps` (the read-only helper exported from this file) still
+// works for any future caller. The two gate-only helpers below are
+// commented and re-added when the gate is restored.
+import { evaluateCCDependencies } from "@/lib/cc-dependencies";
+// import {
+//   canMarkCAPAImplemented,
+//   ccDepsSnapshot,
+// } from "@/lib/cc-dependencies";
 import {
   canonicalizeCAPAClosureContent,
   computeContentHash,
@@ -84,7 +89,11 @@ export async function signAndCloseCAPA(
     },
   });
   if (!existing) return { success: false, error: "CAPA not found" };
-  const [approvals, comments, ccLinks] = await Promise.all([
+  // CHANGE CONTROL HIDDEN — ccLinks query removed from the Promise.all
+  // since the 6.4 gate that consumed it is bypassed. The destructure is
+  // back to two items. To re-enable: restore the third query + the
+  // ccLinks identifier here, plus the gate block below.
+  const [approvals, comments] = await Promise.all([
     prisma.cAPAApproval.findMany({
       // revokedAt: null filters out approvals that were soft-revoked —
       // those slots are open again and don't count toward the gate.
@@ -99,20 +108,20 @@ export async function signAndCloseCAPA(
       where: { capaId: id, tenantId: session.user.tenantId },
       select: { isConcern: true, resolvedAt: true, deletedAt: true },
     }),
-    prisma.cAPAChangeControlLink.findMany({
-      where: { capaId: id, tenantId: session.user.tenantId },
-      include: {
-        changeControl: {
-          select: {
-            id: true,
-            reference: true,
-            status: true,
-            targetImplementationDate: true,
-            deletedAt: true,
-          },
-        },
-      },
-    }),
+    // prisma.cAPAChangeControlLink.findMany({
+    //   where: { capaId: id, tenantId: session.user.tenantId },
+    //   include: {
+    //     changeControl: {
+    //       select: {
+    //         id: true,
+    //         reference: true,
+    //         status: true,
+    //         targetImplementationDate: true,
+    //         deletedAt: true,
+    //       },
+    //     },
+    //   },
+    // }),
   ]);
   const progress = evaluateApprovalProgress(
     existing.risk as ApprovalTier,
@@ -138,37 +147,43 @@ export async function signAndCloseCAPA(
     };
   }
 
-  // Substage 6.4 — CC dependency gate. Risk-proportionate: Critical/High
-  // hard-block; Medium/Low allow override-with-reason. Rejected CCs always
-  // hard-block regardless of risk.
-  const deps = evaluateCCDependencies(ccLinks);
-  const gate = canMarkCAPAImplemented({
-    capaRisk: existing.risk,
-    deps,
-    overrideProvided: Boolean(ccBlockOverride),
-    overrideReason: ccBlockOverride?.reason,
-  });
-  if (!gate.allowed) {
-    if (gate.reason === "HARD_GATE_BLOCKED") {
-      return {
-        success: false,
-        error: `Cannot mark CAPA as implemented: ${gate.details ?? "linked change controls not satisfied."}`,
-      };
-    }
-    if (gate.reason === "SOFT_GATE_REQUIRES_OVERRIDE") {
-      return {
-        success: false,
-        error: gate.details ?? "Linked change controls are still incomplete. Provide an override reason (min 20 chars) to proceed.",
-      };
-    }
-    if (gate.reason === "OVERRIDE_REASON_TOO_SHORT") {
-      return {
-        success: false,
-        error: gate.details ?? "Override reason must be at least 20 characters.",
-      };
-    }
-  }
-  const overrideUsed = gate.allowed && Boolean(ccBlockOverride) && deps.incompleteCount > 0;
+  // CHANGE CONTROL HIDDEN — 6.4 dependency gate bypassed. CAPAs now close
+  // without consulting linked CC status. The action still accepts
+  // ccBlockOverride in its input schema for backward compatibility, but
+  // the value is ignored. To re-enable: uncomment the gate block below
+  // and the dependent audit rows further down (CAPA_MARKED_IMPLEMENTED
+  // carrying ccDepsSnapshot, CAPA_CC_BLOCK_OVERRIDDEN). The
+  // ccBlockOverrideReason / ccBlockOverrideById / ccBlockOverrideByName /
+  // ccBlockOverrideAt fields on the CAPA model are preserved.
+  // const deps = evaluateCCDependencies(ccLinks);
+  // const gate = canMarkCAPAImplemented({
+  //   capaRisk: existing.risk,
+  //   deps,
+  //   overrideProvided: Boolean(ccBlockOverride),
+  //   overrideReason: ccBlockOverride?.reason,
+  // });
+  // if (!gate.allowed) {
+  //   if (gate.reason === "HARD_GATE_BLOCKED") {
+  //     return {
+  //       success: false,
+  //       error: `Cannot mark CAPA as implemented: ${gate.details ?? "linked change controls not satisfied."}`,
+  //     };
+  //   }
+  //   if (gate.reason === "SOFT_GATE_REQUIRES_OVERRIDE") {
+  //     return {
+  //       success: false,
+  //       error: gate.details ?? "Linked change controls are still incomplete. Provide an override reason (min 20 chars) to proceed.",
+  //     };
+  //   }
+  //   if (gate.reason === "OVERRIDE_REASON_TOO_SHORT") {
+  //     return {
+  //       success: false,
+  //       error: gate.details ?? "Override reason must be at least 20 characters.",
+  //     };
+  //   }
+  // }
+  // const overrideUsed = gate.allowed && Boolean(ccBlockOverride) && deps.incompleteCount > 0;
+  const overrideUsed = false;
 
   // §11.200(a)(1)(ii) — re-authenticate at the moment of signing. Mirrors
   // the approveCAPA pattern: verify before any state change so a wrong
@@ -280,7 +295,9 @@ export async function signAndCloseCAPA(
       });
     }
 
-    const depsForAudit = ccDepsSnapshot(deps);
+    // CHANGE CONTROL HIDDEN — depsForAudit removed because the gate it
+    // backed is bypassed. To re-enable, uncomment.
+    // const depsForAudit = ccDepsSnapshot(deps);
     // Existing CAPA_CLOSED audit (kept verbatim for analytics continuity).
     await prisma.auditLog.create({
       data: {
@@ -314,46 +331,48 @@ export async function signAndCloseCAPA(
         }),
       },
     });
-    // Substage 6.4 — paired CAPA_MARKED_IMPLEMENTED row carrying the
-    // dependency snapshot for forensic clarity. Lets an inspector ask
-    // "what was the linked-CC state at the moment this CAPA was sealed?"
-    // without joining through the link table at the historical timestamp.
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
-        module: "CAPA",
-        action: "CAPA_MARKED_IMPLEMENTED",
-        recordId: id,
-        recordTitle: capa.description.slice(0, 80),
-        newValue: JSON.stringify({
-          capaRisk: existing.risk,
-          ccDepsSnapshot: depsForAudit,
-          overrideUsed,
-        }),
-      },
-    });
-    if (overrideUsed) {
-      await prisma.auditLog.create({
-        data: {
-          tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
-          module: "CAPA",
-          action: "CAPA_CC_BLOCK_OVERRIDDEN",
-          recordId: id,
-          recordTitle: capa.description.slice(0, 80),
-          newValue: JSON.stringify({
-            overrideReason: ccBlockOverride!.reason.trim(),
-            capaRisk: existing.risk,
-            incompleteCCs: depsForAudit.incompleteRefs,
-          }),
-        },
-      });
-    }
+    // CHANGE CONTROL HIDDEN — Substage 6.4 audit rows
+    // (CAPA_MARKED_IMPLEMENTED carrying the ccDepsSnapshot, plus the
+    // conditional CAPA_CC_BLOCK_OVERRIDDEN row) are suppressed because
+    // the underlying gate is bypassed. The action strings remain available
+    // for any future re-enable. To re-enable: restore depsForAudit above
+    // plus this block.
+    // await prisma.auditLog.create({
+    //   data: {
+    //     tenantId: session.user.tenantId,
+    //     userId: session.user.id,
+    //     userName: session.user.name,
+    //     userRole: session.user.role,
+    //     module: "CAPA",
+    //     action: "CAPA_MARKED_IMPLEMENTED",
+    //     recordId: id,
+    //     recordTitle: capa.description.slice(0, 80),
+    //     newValue: JSON.stringify({
+    //       capaRisk: existing.risk,
+    //       ccDepsSnapshot: depsForAudit,
+    //       overrideUsed,
+    //     }),
+    //   },
+    // });
+    // if (overrideUsed) {
+    //   await prisma.auditLog.create({
+    //     data: {
+    //       tenantId: session.user.tenantId,
+    //       userId: session.user.id,
+    //       userName: session.user.name,
+    //       userRole: session.user.role,
+    //       module: "CAPA",
+    //       action: "CAPA_CC_BLOCK_OVERRIDDEN",
+    //       recordId: id,
+    //       recordTitle: capa.description.slice(0, 80),
+    //       newValue: JSON.stringify({
+    //         overrideReason: ccBlockOverride!.reason.trim(),
+    //         capaRisk: existing.risk,
+    //         incompleteCCs: depsForAudit.incompleteRefs,
+    //       }),
+    //     },
+    //   });
+    // }
 
     revalidatePath("/capa");
     revalidatePath(`/capa/${id}`);

@@ -9,17 +9,22 @@ import {
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { Button } from "@/components/ui/Button";
-import { loadCAPACCDeps } from "@/actions/capas";
-import {
-  isHardGateRisk,
-  type CCDependencyState,
-} from "@/lib/cc-dependencies";
+// CHANGE CONTROL HIDDEN — pre-flight CC dependency gate bypassed. The
+// loadCAPACCDeps action, cc-dependencies helpers, and CCOverrideModal
+// are all still on disk; only the wire-up here is disconnected. To
+// re-enable: restore the three imports below and the handleSignClick /
+// CCOverrideModal blocks further down.
+// import { loadCAPACCDeps } from "@/actions/capas";
+// import {
+//   isHardGateRisk,
+//   type CCDependencyState,
+// } from "@/lib/cc-dependencies";
 import type { CAPA } from "@/store/capa.slice";
 import type { UserConfig } from "@/store/settings.slice";
 import { AlignmentReviewSection } from "./sections/AlignmentReviewSection";
 import { ApprovalsSection } from "./sections/ApprovalsSection";
 import { DiscussionSection } from "./sections/DiscussionSection";
-import { CCOverrideModal } from "./modals/CCOverrideModal";
+// import { CCOverrideModal } from "./modals/CCOverrideModal";
 
 /* ── ActionsPanel shell ──
  *
@@ -84,57 +89,54 @@ export function ActionsPanel({
     (isOwner || canCloseCapa);
   const hasRca = (capa.rca?.trim().length ?? 0) > 0;
 
-  // Substage 6.4 — pre-flight CC dependency gate state for the Sign &
-  // Close button. We resolve `loadCAPACCDeps` on click instead of on mount
-  // so the button itself stays cheap; the network round-trip is only paid
-  // when the operator actually attempts to close.
-  const [signGateBusy, setSignGateBusy] = useState(false);
-  const [signGateError, setSignGateError] = useState<string | null>(null);
-  const [ccOverrideOpen, setCCOverrideOpen] = useState<{
-    deps: CCDependencyState;
-  } | null>(null);
-
-  const handleSignClick = async () => {
-    setSignGateBusy(true);
-    setSignGateError(null);
-    const result = await loadCAPACCDeps(capa.id);
-    setSignGateBusy(false);
-    if (!result.success) {
-      setSignGateError(result.error);
-      return;
-    }
-    const { deps } = result.data as {
-      capaRisk: string;
-      deps: CCDependencyState;
-    };
-    // Hard-block: any rejected linked CC, regardless of risk.
-    if (deps.blockedCount > 0) {
-      const refs = deps.blockedCCs
-        .map((c) => c.reference ?? c.id.slice(0, 8))
-        .join(", ");
-      setSignGateError(
-        `Cannot sign & close — ${deps.blockedCount} linked change control${deps.blockedCount === 1 ? "" : "s"} rejected: ${refs}. Remove the link or initiate a replacement Change Control.`,
-      );
-      return;
-    }
-    // Hard-block: Critical/High CAPA + incomplete CCs.
-    if (deps.incompleteCount > 0 && isHardGateRisk(capa.risk)) {
-      const refs = deps.incompleteCCs
-        .map((c) => c.reference ?? c.id.slice(0, 8))
-        .join(", ");
-      setSignGateError(
-        `Cannot sign & close — ${deps.incompleteCount} linked change control${deps.incompleteCount === 1 ? "" : "s"} not yet implemented: ${refs}. ${capa.risk} risk CAPAs require all linked Change Controls to reach Implemented or Closed first.`,
-      );
-      return;
-    }
-    // Soft-gate: Medium/Low + incomplete → collect an override reason.
-    if (deps.incompleteCount > 0) {
-      setCCOverrideOpen({ deps });
-      return;
-    }
-    // No incomplete CCs → straight through to the existing sign flow.
-    onSignOpen();
-  };
+  // CHANGE CONTROL HIDDEN — pre-flight CC dependency gate bypassed. The
+  // signGateBusy / signGateError / ccOverrideOpen state and handleSignClick
+  // function are commented out below; the Sign & Close button now calls
+  // onSignOpen() directly. To re-enable: restore the imports above plus
+  // this block and the <CCOverrideModal/> render further down.
+  // const [signGateBusy, setSignGateBusy] = useState(false);
+  // const [signGateError, setSignGateError] = useState<string | null>(null);
+  // const [ccOverrideOpen, setCCOverrideOpen] = useState<{
+  //   deps: CCDependencyState;
+  // } | null>(null);
+  //
+  // const handleSignClick = async () => {
+  //   setSignGateBusy(true);
+  //   setSignGateError(null);
+  //   const result = await loadCAPACCDeps(capa.id);
+  //   setSignGateBusy(false);
+  //   if (!result.success) {
+  //     setSignGateError(result.error);
+  //     return;
+  //   }
+  //   const { deps } = result.data as {
+  //     capaRisk: string;
+  //     deps: CCDependencyState;
+  //   };
+  //   if (deps.blockedCount > 0) {
+  //     const refs = deps.blockedCCs
+  //       .map((c) => c.reference ?? c.id.slice(0, 8))
+  //       .join(", ");
+  //     setSignGateError(
+  //       `Cannot sign & close — ${deps.blockedCount} linked change control${deps.blockedCount === 1 ? "" : "s"} rejected: ${refs}. Remove the link or initiate a replacement Change Control.`,
+  //     );
+  //     return;
+  //   }
+  //   if (deps.incompleteCount > 0 && isHardGateRisk(capa.risk)) {
+  //     const refs = deps.incompleteCCs
+  //       .map((c) => c.reference ?? c.id.slice(0, 8))
+  //       .join(", ");
+  //     setSignGateError(
+  //       `Cannot sign & close — ${deps.incompleteCount} linked change control${deps.incompleteCount === 1 ? "" : "s"} not yet implemented: ${refs}. ${capa.risk} risk CAPAs require all linked Change Controls to reach Implemented or Closed first.`,
+  //     );
+  //     return;
+  //   }
+  //   if (deps.incompleteCount > 0) {
+  //     setCCOverrideOpen({ deps });
+  //     return;
+  //   }
+  //   onSignOpen();
+  // };
 
   return (
     <div
@@ -230,44 +232,31 @@ export function ActionsPanel({
           appear until the prerequisites are met. */}
 
       {canSign && canCloseCapa && capa.status === "pending_qa_review" && (
-        <>
-          {signGateError && (
-            <p
-              role="alert"
-              className="text-[11px] rounded-md p-2"
-              style={{
-                background: "var(--danger-bg)",
-                color: "var(--danger)",
-                border: "1px solid var(--danger)",
-              }}
-            >
-              {signGateError}
-            </p>
-          )}
-          <Button
-            variant="primary"
-            icon={ShieldCheck}
-            fullWidth
-            disabled={signGateBusy}
-            loading={signGateBusy}
-            onClick={() => void handleSignClick()}
-          >
-            Sign &amp; Close CAPA
-          </Button>
-        </>
+        <Button
+          variant="primary"
+          icon={ShieldCheck}
+          fullWidth
+          onClick={() => onSignOpen()}
+        >
+          Sign &amp; Close CAPA
+        </Button>
       )}
 
-      {ccOverrideOpen && (
-        <CCOverrideModal
-          deps={ccOverrideOpen.deps}
-          capa={capa}
-          onCancel={() => setCCOverrideOpen(null)}
-          onConfirm={(reason) => {
-            setCCOverrideOpen(null);
-            onSignOpen({ reason });
-          }}
-        />
-      )}
+      {/* CHANGE CONTROL HIDDEN — CCOverrideModal render suppressed. Modal
+       *  file remains on disk; only the wire-up here is gone. To re-enable:
+       *  restore the import + the state hooks above and uncomment this.
+       *  {ccOverrideOpen && (
+       *    <CCOverrideModal
+       *      deps={ccOverrideOpen.deps}
+       *      capa={capa}
+       *      onCancel={() => setCCOverrideOpen(null)}
+       *      onConfirm={(reason) => {
+       *        setCCOverrideOpen(null);
+       *        onSignOpen({ reason });
+       *      }}
+       *    />
+       *  )}
+       */}
 
       {capa.status === "closed" && capa.closedBy && (
         <div

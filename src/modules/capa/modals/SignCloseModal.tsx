@@ -1,6 +1,9 @@
 import { useState } from "react";
 import clsx from "clsx";
-import { ShieldAlert, ShieldCheck } from "lucide-react";
+// CHANGE CONTROL HIDDEN — ShieldAlert dropped because its only consumer
+// (the override-notice block below) is commented out. To re-enable:
+// restore `ShieldAlert` to this import and uncomment the override block.
+import { ShieldCheck } from "lucide-react";
 import type { CAPA } from "@/store/capa.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -22,7 +25,10 @@ interface SignCloseModalProps {
   ccBlockOverride?: { reason: string } | null;
 }
 
-export function SignCloseModal({ isOpen, onClose, onSign, capa, ccBlockOverride }: SignCloseModalProps) {
+// CHANGE CONTROL HIDDEN — `ccBlockOverride` is still in the props type so
+// callers (CAPAPage) don't need to change, but it's intentionally not
+// destructured because the override-notice block is commented out below.
+export function SignCloseModal({ isOpen, onClose, onSign, capa }: SignCloseModalProps) {
   const [signMeaning, setSignMeaning] = useState("");
   const [signPassword, setSignPassword] = useState("");
   const [effectivenessConfirmed, setEffectivenessConfirmed] = useState(false);
@@ -40,6 +46,10 @@ export function SignCloseModal({ isOpen, onClose, onSign, capa, ccBlockOverride 
     <Modal open={isOpen} onClose={onClose} title="Sign & Close CAPA">
       <div>
         <div id="sign-part11-notice" className="alert alert-info mb-4">This is a GxP electronic signature under 21 CFR Part 11. Your identity, the meaning of this signature, and a content hash will be recorded and cannot be altered.</div>
+        {/* CHANGE CONTROL HIDDEN — override notice suppressed alongside
+            the rest of the CC user-facing surface. To re-enable: re-add
+            ShieldAlert to the lucide-react import, restore ccBlockOverride
+            to the destructure, and uncomment this block.
         {ccBlockOverride && (
           <div
             role="status"
@@ -66,6 +76,7 @@ export function SignCloseModal({ isOpen, onClose, onSign, capa, ccBlockOverride 
             </div>
           </div>
         )}
+        */}
         <div className={clsx("rounded-lg p-3 mb-4 border", "bg-(--bg-surface) border-(--bg-border)")}>
           <div className="flex items-center gap-2">
             <span className="font-mono text-[12px] text-[#0ea5e9] font-semibold">{capa.id}</span>

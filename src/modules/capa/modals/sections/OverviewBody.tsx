@@ -16,7 +16,12 @@ import { CAPA_RISK_VARIANT as RISK_VARIANT } from "@/lib/badgeVariants";
 import type { CAPA } from "@/store/capa.slice";
 import type { UserConfig } from "@/store/settings.slice";
 import { SubmissionChecklist } from "../components/SubmissionChecklist";
-import { LinkedChangeControlsSection } from "./LinkedChangeControlsSection";
+// CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
+// code/schema retained. To re-enable: uncomment the import below and
+// the <LinkedChangeControlsSection /> render further down.
+// LinkedChangeControlsSection internally renders <CCDependencyBanner>,
+// so commenting this single line transitively disconnects both surfaces.
+// import { LinkedChangeControlsSection } from "./LinkedChangeControlsSection";
 import type { DetailSubTab } from "../helpers/getNextStep";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -207,10 +212,12 @@ export function OverviewBody({
         )}
       </div>
 
-      {/* Substage 4.8 — Linked Change Controls. Inline section in the
-       *  Overview body so the linkage is discoverable without opening a
-       *  separate tab. */}
-      <LinkedChangeControlsSection capa={capa} />
+      {/* CHANGE CONTROL HIDDEN — Linked Change Controls section
+       *  suppressed. CCDependencyBanner (rendered inside the section) is
+       *  transitively suppressed too. To re-enable: uncomment the import
+       *  above + the render below.
+       *  <LinkedChangeControlsSection capa={capa} />
+       */}
 
       {/* Audit trail — collapsed placeholder. Per-record audit log loading
        *  is deferred; today the full tenant audit log lives at Governance >

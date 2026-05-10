@@ -12,7 +12,13 @@ import { Button } from "@/components/ui/Button";
 import type { ChangeControlStatus } from "@/lib/change-control-constants";
 import type { CCDetail } from "../_shared";
 import { Card } from "../components/Card";
-import { CAPADependencyBanner } from "../components/CAPADependencyBanner";
+// CHANGE CONTROL HIDDEN — reciprocal CAPA-dependency banner suppressed
+// as part of disconnecting the CC user-facing surface. The /change-control
+// route is still reachable by direct URL; this just removes the
+// downstream-CAPA banner from the CC detail modal Overview tab. To
+// re-enable: uncomment this import and the <CAPADependencyBanner />
+// render below.
+// import { CAPADependencyBanner } from "../components/CAPADependencyBanner";
 
 /**
  * Change Control detail — Overview tab. Shows the descriptive cards,
@@ -39,13 +45,13 @@ export function OverviewTab({
 }) {
   return (
     <div className="space-y-3">
-      {/* Substage 6.4 — reciprocal CAPA dependency banner. Surfaces the
-       *  load this CC carries: how many CAPAs are blocked from sealing
-       *  while it stays unfinished, and whether any of those are
-       *  hard-gated (Critical/High). This is the mirror of the dep banner
-       *  on the CAPA side, designed so a CC owner sees the downstream
-       *  cost of slipping the schedule. */}
-      <CAPADependencyBanner cc={cc} />
+      {/* CHANGE CONTROL HIDDEN — reciprocal CAPA dependency banner
+       *  suppressed alongside the rest of the CC user-facing surface. The
+       *  /change-control route is still URL-reachable; this just removes
+       *  the downstream-CAPA banner from the Overview tab. To re-enable:
+       *  uncomment the import at the top of this file and the JSX below.
+       *  <CAPADependencyBanner cc={cc} />
+       */}
 
       <Card label="Description">{cc.description}</Card>
       <Card label="Rationale">{cc.rationale}</Card>
