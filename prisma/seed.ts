@@ -29,10 +29,96 @@ async function main() {
   await prisma.rAIDItem.deleteMany();
   await prisma.user.deleteMany();
   await prisma.site.deleteMany();
+  await prisma.payment.deleteMany();
   await prisma.subscription.deleteMany();
+  await prisma.pendingSignup.deleteMany();
+  await prisma.subscriptionPlan.deleteMany();
   await prisma.tenant.deleteMany();
 
   console.log("✓ Cleaned up existing data\n");
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SUBSCRIPTION PLANS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const starterPlan = await prisma.subscriptionPlan.create({
+    data: {
+      id: "plan-starter",
+      name: "starter",
+      displayName: "Starter",
+      description: "Perfect for small teams getting started with GxP compliance",
+      priceMonthly: 999900, // ₹9,999/month in paise
+      priceYearly: 9999900, // ₹99,999/year in paise (2 months free)
+      currency: "INR",
+      maxAccounts: 5,
+      maxSites: 1,
+      features: JSON.stringify([
+        "Gap Assessment",
+        "CAPA Management",
+        "Document Control",
+        "Audit Trail",
+        "Email Support",
+      ]),
+      trialDays: 14,
+      isActive: true,
+      isPopular: false,
+      sortOrder: 1,
+    },
+  });
+
+  const professionalPlan = await prisma.subscriptionPlan.create({
+    data: {
+      id: "plan-professional",
+      name: "professional",
+      displayName: "Professional",
+      description: "For growing organizations with multiple sites",
+      priceMonthly: 2499900, // ₹24,999/month in paise
+      priceYearly: 24999900, // ₹2,49,999/year in paise (2 months free)
+      currency: "INR",
+      maxAccounts: 15,
+      maxSites: 3,
+      features: JSON.stringify([
+        "Everything in Starter",
+        "FDA 483 Response Management",
+        "CSV/CSA Module",
+        "Inspection Readiness",
+        "Governance Dashboard",
+        "Priority Support",
+      ]),
+      trialDays: 14,
+      isActive: true,
+      isPopular: true,
+      sortOrder: 2,
+    },
+  });
+
+  const enterprisePlan = await prisma.subscriptionPlan.create({
+    data: {
+      id: "plan-enterprise",
+      name: "enterprise",
+      displayName: "Enterprise",
+      description: "Full platform access for large pharma organizations",
+      priceMonthly: 4999900, // ₹49,999/month in paise
+      priceYearly: 49999900, // ₹4,99,999/year in paise (2 months free)
+      currency: "INR",
+      maxAccounts: 50,
+      maxSites: 10,
+      features: JSON.stringify([
+        "Everything in Professional",
+        "AGI Console",
+        "Custom Integrations",
+        "Dedicated Account Manager",
+        "24/7 Phone Support",
+        "On-site Training",
+      ]),
+      trialDays: 30,
+      isActive: true,
+      isPopular: false,
+      sortOrder: 3,
+    },
+  });
+
+  console.log("✓ Subscription Plans: Starter, Professional, Enterprise");
 
   // ══════════════════════════════════════════════════════════════════════════
   // TENANTS & AUTH
@@ -69,17 +155,24 @@ async function main() {
   });
   console.log("✓ Demo tenant:", demo.id);
 
-  // Subscription
+  // Subscription with plan
   await prisma.subscription.create({
     data: {
       tenantId: demo.id,
+      planId: professionalPlan.id,
       maxAccounts: 15,
       startDate: new Date("2026-01-01"),
       expiryDate: new Date("2026-12-31"),
       status: "Active",
+      contractStartDate: new Date("2026-01-01"),
+      contractEndDate: new Date("2026-12-31"),
+      currentPeriodStart: new Date("2026-01-01"),
+      currentPeriodEnd: new Date("2026-12-31"),
+      currentYear: 1,
+      gracePeriodDays: 7,
     },
   });
-  console.log("✓ Subscription created");
+  console.log("✓ Subscription created (Professional Plan)");
 
   // ══════════════════════════════════════════════════════════════════════════
   // SITES - Use hardcoded IDs matching frontend Redux initial state

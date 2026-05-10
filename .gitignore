@@ -42,6 +42,8 @@ playwright-run-*.log
 /generated/prisma
 
 # Prisma SQLite database
+*.db
+*.db-journal
 prisma/*.db
 prisma/*.db-journal
 
