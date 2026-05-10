@@ -737,7 +737,10 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
           const result = await signSubmitFDA483Response(
             liveEvent.id,
             liveEvent.responseDraft ?? "",
-            signMeaning,
+            {
+              password: signPassword,
+              signatureMeaning: signMeaning,
+            },
           );
           if (!result.success) {
             console.error("[fda-483] signSubmit failed:", result.error);

@@ -89,6 +89,9 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   const [closeModal, setCloseModal] = useState(false);
   const [rejectModal, setRejectModal] = useState(false);
   const [closeNotes, setCloseNotes] = useState("");
+  const [closePassword, setClosePassword] = useState("");
+  const [closeError, setCloseError] = useState<string | null>(null);
+  const [closeBusy, setCloseBusy] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [successPopup, setSuccessPopup] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -183,13 +186,22 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
 
   async function handleClose() {
     if (!selected || !user) return;
-    const result = await closeDeviationAction(selected.id, closeNotes);
+    setCloseBusy(true);
+    setCloseError(null);
+    const result = await closeDeviationAction(selected.id, {
+      password: closePassword,
+      notes: closeNotes || undefined,
+    });
+    setCloseBusy(false);
     if (!result.success) {
       console.error("[deviation] closeDeviation failed:", result.error);
+      setCloseError(result.error);
       return;
     }
     setCloseModal(false);
     setCloseNotes("");
+    setClosePassword("");
+    setCloseError(null);
     setSelectedId(null);
     setSuccessMsg(`${selected.id} closed`);
     setSuccessPopup(true);
@@ -484,13 +496,81 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
       </Modal>
 
       {/* ═══ CLOSE MODAL ═══ */}
-      <Modal open={closeModal} onClose={() => setCloseModal(false)} title="Close Deviation">
+      <Modal
+        open={closeModal}
+        onClose={closeBusy ? () => undefined : () => { setCloseModal(false); setCloseError(null); }}
+        title="Sign &amp; Close Deviation"
+      >
         <div className="space-y-4">
-          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>Deviation <strong>{selected?.id}</strong> will be marked Closed. This action is recorded in the audit trail.</p>
-          <div><p className="text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Closure notes</p><textarea rows={3} className="input w-full resize-none" value={closeNotes} onChange={(e) => setCloseNotes(e.target.value)} placeholder="Summary of investigation outcome..." /></div>
+          <p id="sign-deviation-notice" className="alert alert-info text-[12px]">
+            This is a GxP electronic signature under 21 CFR Part 11. Your
+            identity, the meaning of this signature (Closed), and a content
+            hash will be recorded and cannot be altered.
+          </p>
+          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+            Deviation <strong>{selected?.id}</strong> will be marked Closed.
+          </p>
+          <div>
+            <p className="text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+              Closure notes
+            </p>
+            <textarea
+              rows={3}
+              className="input w-full resize-none"
+              value={closeNotes}
+              onChange={(e) => setCloseNotes(e.target.value)}
+              placeholder="Summary of investigation outcome..."
+              disabled={closeBusy}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="sign-deviation-pw"
+              className="text-[11px] font-medium mb-1 block"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Confirm your password <span style={{ color: "var(--danger)" }}>*</span>
+            </label>
+            <input
+              id="sign-deviation-pw"
+              type="password"
+              className="input text-[12px] w-full"
+              value={closePassword}
+              onChange={(e) => setClosePassword(e.target.value)}
+              placeholder="Re-enter your password"
+              disabled={closeBusy}
+              autoComplete="current-password"
+            />
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+              Required for identity verification under 21 CFR Part 11
+            </p>
+          </div>
+          {closeError && (
+            <p
+              role="alert"
+              className="text-[11px]"
+              style={{ color: "var(--danger)" }}
+            >
+              {closeError}
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
-            <Button variant="secondary" onClick={() => setCloseModal(false)}>Cancel</Button>
-            <Button variant="primary" icon={CheckCircle2} onClick={handleClose}>Sign & Close</Button>
+            <Button
+              variant="secondary"
+              onClick={() => { setCloseModal(false); setCloseError(null); }}
+              disabled={closeBusy}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              icon={CheckCircle2}
+              onClick={handleClose}
+              disabled={closeBusy || !closePassword}
+              loading={closeBusy}
+            >
+              Sign &amp; Close
+            </Button>
           </div>
         </div>
       </Modal>

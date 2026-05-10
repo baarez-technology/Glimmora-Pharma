@@ -1,4 +1,3 @@
-import clsx from "clsx";
 import { ShieldCheck } from "lucide-react";
 import type { FDA483Event, EventType } from "@/types/fda483";
 import { Modal } from "@/components/ui/Modal";
@@ -38,7 +37,6 @@ export function SignSubmitModal({
   onSignPasswordChange,
   onSubmit,
 }: SignSubmitModalProps) {
-  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
   return (
     <Modal
       open={open}
@@ -52,12 +50,11 @@ export function SignSubmitModal({
       </p>
       {liveEvent && (
         <div
-          className={clsx(
-            "rounded-lg p-3 mb-4",
-            isDark
-              ? "bg-[#071526] border border-[#1e3a5a]"
-              : "bg-[#f8fafc] border border-[#e2e8f0]",
-          )}
+          className="rounded-lg p-3 mb-4 border"
+          style={{
+            background: "var(--bg-surface)",
+            borderColor: "var(--bg-border)",
+          }}
         >
           <div className="flex items-center gap-2 flex-wrap">
             {eventTypeBadge(liveEvent.type)}

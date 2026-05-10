@@ -65,6 +65,8 @@ export function ChangeControlDetailModal({ ccId, onClose, onChanged }: Props) {
     useState<ChangeControlStatus | null>(null);
   const [transitionComment, setTransitionComment] = useState("");
   const [transitionDate, setTransitionDate] = useState("");
+  // Substage 5.4 — only populated when target ∈ {Approved, Rejected, Closed}.
+  const [transitionPassword, setTransitionPassword] = useState("");
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
 
@@ -177,6 +179,10 @@ export function ChangeControlDetailModal({ ccId, onClose, onChanged }: Props) {
     if (!cc || !transitionTarget) return;
     setTransitionBusy(true);
     setTransitionError(null);
+    const isSigned =
+      transitionTarget === "Approved" ||
+      transitionTarget === "Rejected" ||
+      transitionTarget === "Closed";
     const result = await transitionChangeControlStatus(cc.id, {
       newStatus: transitionTarget,
       ...(transitionComment.trim()
@@ -185,6 +191,7 @@ export function ChangeControlDetailModal({ ccId, onClose, onChanged }: Props) {
       ...(transitionTarget === "Implemented" && transitionDate
         ? { actualImplementationDate: transitionDate }
         : {}),
+      ...(isSigned ? { password: transitionPassword } : {}),
     });
     setTransitionBusy(false);
     if (!result.success) {
@@ -194,6 +201,7 @@ export function ChangeControlDetailModal({ ccId, onClose, onChanged }: Props) {
     setTransitionTarget(null);
     setTransitionComment("");
     setTransitionDate("");
+    setTransitionPassword("");
     setHistoryLoaded(false); // force history refetch on next visit
     await refresh();
     onChanged();
@@ -421,11 +429,17 @@ export function ChangeControlDetailModal({ ccId, onClose, onChanged }: Props) {
           transitionTarget={transitionTarget}
           transitionComment={transitionComment}
           transitionDate={transitionDate}
+          transitionPassword={transitionPassword}
           transitionBusy={transitionBusy}
           transitionError={transitionError}
           onCommentChange={setTransitionComment}
           onDateChange={setTransitionDate}
-          onCancel={() => setTransitionTarget(null)}
+          onPasswordChange={setTransitionPassword}
+          onCancel={() => {
+            setTransitionTarget(null);
+            setTransitionPassword("");
+            setTransitionError(null);
+          }}
           onConfirm={() => void handleTransitionSubmit()}
         />
       )}

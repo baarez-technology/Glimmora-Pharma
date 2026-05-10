@@ -151,6 +151,126 @@ export function canonicalizeCAPAApprovalRevocationContent(
   });
 }
 
+/** Input shape for canonicalising a CAPA closure (signAndCloseCAPA). */
+export interface CAPAClosureCanonicalInput {
+  capaId: string;
+  capaReference: string | null;
+  capaDescription: string;
+  riskLevel: string;
+  closedAt: Date;
+  closingComment: string | null;
+}
+
+export function canonicalizeCAPAClosureContent(
+  input: CAPAClosureCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "CAPA_CLOSURE",
+    capaDescription: input.capaDescription,
+    capaId: input.capaId,
+    capaReference: input.capaReference,
+    closedAt: input.closedAt.toISOString(),
+    closingComment: input.closingComment ?? null,
+    riskLevel: input.riskLevel,
+  });
+}
+
+/** Input shape for canonicalising an FDA 483 response submission. */
+export interface FDA483ResponseCanonicalInput {
+  eventId: string;
+  referenceNumber: string;
+  responseDraftHash: string;
+  signatureMeaning: string;
+  submittedAt: Date;
+}
+
+export function canonicalizeFDA483ResponseContent(
+  input: FDA483ResponseCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "FDA483_RESPONSE",
+    eventId: input.eventId,
+    referenceNumber: input.referenceNumber,
+    responseDraftHash: input.responseDraftHash,
+    signatureMeaning: input.signatureMeaning,
+    submittedAt: input.submittedAt.toISOString(),
+  });
+}
+
+/** Input shape for canonicalising a Document approval. */
+export interface DocumentApprovalCanonicalInput {
+  docId: string;
+  title: string;
+  version: string;
+  approvedAt: Date;
+  approverId: string;
+  approverRole: string;
+}
+
+export function canonicalizeDocumentApprovalContent(
+  input: DocumentApprovalCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "DOCUMENT_APPROVAL",
+    approvedAt: input.approvedAt.toISOString(),
+    approverId: input.approverId,
+    approverRole: input.approverRole,
+    docId: input.docId,
+    title: input.title,
+    version: input.version,
+  });
+}
+
+/** Input shape for canonicalising a Deviation closure. */
+export interface DeviationClosureCanonicalInput {
+  deviationId: string;
+  title: string;
+  severity: string;
+  rootCause: string | null;
+  closingComment: string | null;
+  closedAt: Date;
+}
+
+export function canonicalizeDeviationClosureContent(
+  input: DeviationClosureCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "DEVIATION_CLOSURE",
+    closedAt: input.closedAt.toISOString(),
+    closingComment: input.closingComment ?? null,
+    deviationId: input.deviationId,
+    rootCause: input.rootCause ?? null,
+    severity: input.severity,
+    title: input.title,
+  });
+}
+
+/** Input shape for canonicalising a Change Control consequential transition.
+ *  Only In Review→Approved, In Review→Rejected, and Implemented→Closed are
+ *  signed — administrative transitions (Draft→In Review, etc.) are not. */
+export interface ChangeControlTransitionCanonicalInput {
+  ccId: string;
+  ccReference: string | null;
+  fromStatus: string;
+  toStatus: string;
+  comment: string | null;
+  transitionedAt: Date;
+}
+
+export function canonicalizeChangeControlTransitionContent(
+  input: ChangeControlTransitionCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "CHANGE_CONTROL_TRANSITION",
+    ccId: input.ccId,
+    ccReference: input.ccReference,
+    comment: input.comment ?? null,
+    fromStatus: input.fromStatus,
+    toStatus: input.toStatus,
+    transitionedAt: input.transitionedAt.toISOString(),
+  });
+}
+
 /** Options for createSignedRecord — every field is required at the
  *  signing-surface level (callers compute or default before calling).
  *  Used for the non-transactional case; transactional callers (e.g. the

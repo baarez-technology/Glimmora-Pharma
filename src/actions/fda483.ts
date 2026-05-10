@@ -4,10 +4,24 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import {
+  canonicalizeFDA483ResponseContent,
+  computeContentHash,
+  verifyPasswordForSigning,
+} from "@/lib/signing";
+import { readSigningProvenance } from "@/actions/capas/_shared";
+import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
+
+const SignSubmitFDA483Schema = z.object({
+  // Re-authentication password (Part 11 §11.200(a)(1)(ii)).
+  password: z.string().min(1, "Password is required to sign"),
+  // From the SignSubmit modal dropdown — "approve" / "certify" / "authorize".
+  signatureMeaning: z.string().min(1, "Signature meaning is required"),
+});
 
 const CreateEventSchema = z.object({
   referenceNumber: z.string().min(1),
@@ -334,23 +348,103 @@ export async function saveAGIDraft(
 export async function signSubmitFDA483Response(
   eventId: string,
   draft: string,
-  signatureMeaning: string,
+  input: z.input<typeof SignSubmitFDA483Schema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const parsed = SignSubmitFDA483Schema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
   if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
     return { success: false, error: "Only QA Head can sign and submit FDA 483 response" };
   }
-  try {
-    const event = await prisma.fDA483Event.update({
-      where: { id: eventId, tenantId: session.user.tenantId },
+
+  const existing = await prisma.fDA483Event.findFirst({
+    where: { id: eventId, tenantId: session.user.tenantId },
+    select: { id: true, referenceNumber: true },
+  });
+  if (!existing) return { success: false, error: "FDA 483 event not found" };
+
+  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing.
+  const passwordOk = await verifyPasswordForSigning(
+    session.user.id,
+    parsed.data.password,
+  );
+  if (!passwordOk) {
+    await prisma.auditLog.create({
       data: {
-        status: "Response Submitted",
-        responseDraft: draft,
-        submittedAt: new Date(),
-        submittedBy: session.user.name,
-        signatureMeaning,
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: SIGNING_AUDIT_MODULE,
+        action: "SIGNING_PASSWORD_FAILED",
+        recordId: eventId,
+        recordTitle: existing.referenceNumber,
+        newValue: JSON.stringify({
+          recordType: "FDA483_RESPONSE",
+          attempt_at: new Date().toISOString(),
+        }),
       },
     });
+    return {
+      success: false,
+      error: "Password verification failed. Please try again.",
+    };
+  }
+
+  try {
+    const submittedAt = new Date();
+    // Hash the draft content separately so the canonical bound state is
+    // compact yet still detects any post-signing tampering of the response.
+    const responseDraftHash = computeContentHash(draft);
+    const canonicalContent = canonicalizeFDA483ResponseContent({
+      eventId: existing.id,
+      referenceNumber: existing.referenceNumber,
+      responseDraftHash,
+      signatureMeaning: parsed.data.signatureMeaning,
+      submittedAt,
+    });
+    const contentHash = computeContentHash(canonicalContent);
+    const contentSummary = `FDA 483 ${existing.referenceNumber} response submitted by ${session.user.name} (${session.user.role}) — meaning: ${parsed.data.signatureMeaning}`;
+    const provenance = await readSigningProvenance();
+
+    const { event, signedRecord } = await prisma.$transaction(async (tx) => {
+      const sig = await tx.signedRecord.create({
+        data: {
+          tenantId: session.user.tenantId,
+          recordType: "FDA483_RESPONSE",
+          recordId: existing.id,
+          signerId: session.user.id,
+          signerName: session.user.name,
+          signerRole: session.user.role,
+          signerEmail: session.user.email,
+          signatureMeaning: parsed.data.signatureMeaning,
+          contentHash,
+          contentSummary,
+          passwordVerifiedAt: submittedAt,
+          ipAddress: provenance.ipAddress,
+          userAgent: provenance.userAgent,
+        },
+      });
+      const updated = await tx.fDA483Event.update({
+        where: { id: eventId, tenantId: session.user.tenantId },
+        data: {
+          status: "Response Submitted",
+          responseDraft: draft,
+          submittedAt,
+          submittedBy: session.user.name,
+          signatureMeaning: parsed.data.signatureMeaning,
+          responseSignatureId: sig.id,
+        },
+      });
+      return { event: updated, signedRecord: sig };
+    });
+
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -359,7 +453,26 @@ export async function signSubmitFDA483Response(
         module: "FDA 483",
         action: "FDA483_RESPONSE_SUBMITTED",
         recordId: eventId,
-        newValue: signatureMeaning,
+        newValue: parsed.data.signatureMeaning,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: SIGNING_AUDIT_MODULE,
+        action: "FDA483_RESPONSE_SIGNED",
+        recordId: signedRecord.id,
+        recordTitle: existing.referenceNumber,
+        newValue: JSON.stringify({
+          signerId: session.user.id,
+          contentHashPrefix: contentHash.slice(0, 16),
+          signatureMeaning: parsed.data.signatureMeaning,
+          eventId: existing.id,
+          responseDraftHashPrefix: responseDraftHash.slice(0, 16),
+        }),
       },
     });
     revalidatePath("/fda-483");

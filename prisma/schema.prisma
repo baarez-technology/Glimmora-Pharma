@@ -186,6 +186,12 @@ model CAPA {
   ccBlockOverrideById     String?
   ccBlockOverrideByName   String?
   ccBlockOverrideAt       DateTime?
+  // Substage 5.4 — Part 11 e-signature link for the CAPA closure event.
+  // Stays null until signAndCloseCAPA mints a SignedRecord; @@unique
+  // enforces 1:1 with the SignedRecord row. Pre-existing CAPAs from
+  // before this column landed remain null (legacy closures predate the
+  // closure-signature requirement; the audit trail captures them).
+  closureSignatureId String? @unique
   createdBy          String
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -193,6 +199,7 @@ model CAPA {
   tenant                 Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   site                   Site?                        @relation(fields: [siteId], references: [id])
   finding                Finding?                     @relation(fields: [findingId], references: [id])
+  closureSignature       SignedRecord?                @relation("CAPAClosureSignature", fields: [closureSignatureId], references: [id])
   documents              CAPADocument[]
   evidenceItems          EvidenceItem[]
   effectivenessCriteria  CAPAEffectivenessCriterion[]
@@ -246,12 +253,17 @@ model Deviation {
   closedBy             String?
   closedDate           DateTime?
   closureNotes         String?
+  // Substage 5.4 — Part 11 e-signature link for the deviation closure
+  // event. Null until closeDeviation mints a SignedRecord. Legacy closures
+  // (predating this column) remain null.
+  closureSignatureId   String?   @unique
   createdBy            String
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  site   Site?  @relation(fields: [siteId], references: [id])
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  site              Site?          @relation(fields: [siteId], references: [id])
+  closureSignature  SignedRecord?  @relation("DeviationClosureSignature", fields: [closureSignatureId], references: [id])
 }
 
 // ── FDA 483 ──
@@ -272,14 +284,19 @@ model FDA483Event {
   submittedBy      String?
   signatureMeaning String?
   closedAt         DateTime?
+  // Substage 5.4 — Part 11 e-signature link for the response submission
+  // event. Null until signSubmitFDA483Response mints a SignedRecord.
+  // Legacy submissions (predating this column) remain null.
+  responseSignatureId String? @unique
   createdBy        String
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  observations FDA483Observation[]
-  commitments  FDA483Commitment[]
-  documents    FDA483Document[]
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  responseSignature SignedRecord?       @relation("FDA483ResponseSignature", fields: [responseSignatureId], references: [id])
+  observations      FDA483Observation[]
+  commitments       FDA483Commitment[]
+  documents         FDA483Document[]
 }
 
 model FDA483Document {
@@ -509,8 +526,12 @@ model Document {
   // New canonical timestamp — written by the Phase 2 upload service.
   // 1.3b backfills NULLs from createdAt, marks NOT NULL, then drops createdAt.
   uploadedAt       DateTime?
+  // Substage 5.4 — Part 11 e-signature link for the document approval
+  // event. Null until approveDocument mints a SignedRecord.
+  approvalSignatureId String? @unique
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  approvalSignature  SignedRecord?  @relation("DocumentApprovalSignature", fields: [approvalSignatureId], references: [id])
 
   @@index([tenantId, sourceModule, sourceId])
   @@index([tenantId, uploadedAt])
@@ -836,7 +857,18 @@ model SignedRecord {
 
   createdAt           DateTime  @default(now())
 
-  approval            CAPAApproval?
+  approval                  CAPAApproval?
+  // Back-references for substage 5.4 surfaces — each FK on the source
+  // model is at most 1:1 with a SignedRecord row. ChangeControl.latest...
+  // is N:1 (one SignedRecord backs at most one CC's "latest" pointer; the
+  // CC's full history lives in (recordType, recordId) lookups). All are
+  // nullable because the SignedRecord may also serve other recordTypes
+  // (CAPA_APPROVAL, CAPA_APPROVAL_REVOCATION) that don't link back here.
+  capaClosure               CAPA?            @relation("CAPAClosureSignature")
+  fda483Response            FDA483Event?     @relation("FDA483ResponseSignature")
+  documentApproval          Document?        @relation("DocumentApprovalSignature")
+  deviationClosure          Deviation?       @relation("DeviationClosureSignature")
+  changeControlTransition   ChangeControl[]  @relation("ChangeControlTransitionSignature")
 
   @@index([recordType, recordId])
   @@index([tenantId, signerId])
@@ -976,12 +1008,22 @@ model ChangeControl {
   deletedByName   String?
   deletionReason  String?
 
+  // Substage 5.4 — quick-lookup pointer at the most recent SignedRecord
+  // backing a consequential transition (In Review→Approved, In Review→
+  // Rejected, Implemented→Closed). Overwritten on each new consequential
+  // transition; the full history lives in the SignedRecord ledger keyed by
+  // (recordType="CHANGE_CONTROL_TRANSITION", recordId=<cc.id>) plus the
+  // paired audit-log rows. NOT @@unique — multiple transitions can sign
+  // against the same CC over its lifetime.
+  latestSignedTransitionId String?
+
   createdBy       String
   createdByName   String
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  capaLinks       CAPAChangeControlLink[]
+  capaLinks               CAPAChangeControlLink[]
+  latestSignedTransition  SignedRecord?           @relation("ChangeControlTransitionSignature", fields: [latestSignedTransitionId], references: [id])
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])

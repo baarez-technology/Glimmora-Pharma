@@ -260,7 +260,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
 
   const [diGateBlockPopup, setDiGateBlockPopup] = useState(false);
 
-  async function handleSignClose(data: { meaning: string }) {
+  async function handleSignClose(data: { meaning: string; password: string }) {
     if (!selectedCAPA) return;
     if (selectedCAPA.diGate && selectedCAPA.diGateStatus !== "cleared") {
       setSignOpen(false);
@@ -292,10 +292,11 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     const ccOverride = pendingCCOverride;
     setPendingCCOverride(null);
     startTransition(async () => {
-      const res = await signAndCloseCAPAServer(
-        capaId,
-        ccOverride ?? undefined,
-      );
+      const res = await signAndCloseCAPAServer(capaId, {
+        password: data.password,
+        signatureMeaning: data.meaning,
+        ccBlockOverride: ccOverride ?? undefined,
+      });
       if (!res.success) console.error("[CAPA] sign & close failed:", res.error);
       router.refresh();
     });

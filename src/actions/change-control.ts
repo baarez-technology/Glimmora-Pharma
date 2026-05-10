@@ -11,6 +11,22 @@ import {
   CHANGE_TYPES,
   type ChangeControlStatus,
 } from "@/lib/change-control-constants";
+import {
+  canonicalizeChangeControlTransitionContent,
+  computeContentHash,
+  verifyPasswordForSigning,
+} from "@/lib/signing";
+import { readSigningProvenance } from "@/actions/capas/_shared";
+import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
+
+/** Substage 5.4 — only these transitions require a Part 11 e-signature.
+ *  The rest (Draft↔In Review, Approved→In Implementation, In Implementation
+ *  →Implemented) are administrative and stay unsigned. */
+const SIGNED_TRANSITION_TARGETS: ReadonlySet<ChangeControlStatus> = new Set([
+  "Approved",
+  "Rejected",
+  "Closed",
+]);
 
 /**
  * Substage 4.8 — Change Control Linkage.
@@ -103,6 +119,11 @@ const TransitionStatusSchema = z.object({
   comment: z.string().max(2000).optional(),
   // Required when transitioning In Implementation → Implemented.
   actualImplementationDate: z.string().optional(),
+  // Substage 5.4 — required only when newStatus ∈ {Approved, Rejected,
+  // Closed}. Optional in the schema; the action enforces presence based
+  // on the target status and writes a SignedRecord row + paired audit
+  // event when the transition is consequential.
+  password: z.string().optional(),
 });
 
 const DeleteSchema = z.object({
@@ -602,7 +623,107 @@ export async function transitionChangeControlStatus(
     }
   }
 
+  // Substage 5.4 — consequential transitions (Approved / Rejected / Closed)
+  // require a Part 11 e-signature. Administrative transitions stay
+  // unsigned. The signing block runs BEFORE the state change so a wrong
+  // password yields zero side effects beyond the failed-attempt audit row.
+  const isSignedTransition = SIGNED_TRANSITION_TARGETS.has(toStatus);
+  if (isSignedTransition) {
+    if (!parsed.data.password || parsed.data.password.length === 0) {
+      return {
+        success: false,
+        error: `A password is required to sign a ${toStatus.toLowerCase()} transition under 21 CFR Part 11.`,
+      };
+    }
+    const passwordOk = await verifyPasswordForSigning(
+      session.user.id,
+      parsed.data.password,
+    );
+    if (!passwordOk) {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: existing.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: SIGNING_AUDIT_MODULE,
+          action: "SIGNING_PASSWORD_FAILED",
+          recordId: id,
+          recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
+          newValue: JSON.stringify({
+            recordType: "CHANGE_CONTROL_TRANSITION",
+            toStatus,
+            attempt_at: new Date().toISOString(),
+          }),
+        },
+      });
+      return {
+        success: false,
+        error: "Password verification failed. Please try again.",
+      };
+    }
+  }
+
   try {
+    const transitionedAt = new Date();
+    let signedRecordId: string | null = null;
+    let contentHash: string | null = null;
+
+    if (isSignedTransition) {
+      const canonicalContent = canonicalizeChangeControlTransitionContent({
+        ccId: existing.id,
+        ccReference: existing.reference,
+        fromStatus,
+        toStatus,
+        comment: parsed.data.comment ?? null,
+        transitionedAt,
+      });
+      contentHash = computeContentHash(canonicalContent);
+      const contentSummary = `${existing.reference ?? existing.id} ${fromStatus} → ${toStatus} signed by ${session.user.name} (${session.user.role})`;
+      const provenance = await readSigningProvenance();
+
+      const { signedRecord } = await prisma.$transaction(async (tx) => {
+        const sig = await tx.signedRecord.create({
+          data: {
+            tenantId: existing.tenantId,
+            recordType: "CHANGE_CONTROL_TRANSITION",
+            recordId: existing.id,
+            signerId: session.user.id,
+            signerName: session.user.name,
+            signerRole: session.user.role,
+            signerEmail: session.user.email,
+            signatureMeaning: toStatus, // "Approved" | "Rejected" | "Closed"
+            contentHash: contentHash!,
+            contentSummary,
+            passwordVerifiedAt: transitionedAt,
+            ipAddress: provenance.ipAddress,
+            userAgent: provenance.userAgent,
+          },
+        });
+        await tx.changeControl.update({
+          where: { id },
+          data: {
+            status: toStatus,
+            latestSignedTransitionId: sig.id,
+            ...(toStatus === "Closed"
+              ? {
+                  closedAt: transitionedAt,
+                  closedById: session.user.id,
+                  closedByName: session.user.name,
+                }
+              : {}),
+          },
+        });
+        return { signedRecord: sig };
+      });
+      signedRecordId = signedRecord.id;
+    }
+
+    // Administrative transitions (or post-signed-transaction follow-up
+    // fields like actualImplementationDate) come through here. For signed
+    // transitions, the status was already flipped inside the transaction
+    // above — the second update just re-applies the same data idempotently
+    // and lets us return the latest row.
     const updated = await prisma.changeControl.update({
       where: { id },
       data: {
@@ -612,9 +733,9 @@ export async function transitionChangeControlStatus(
               actualImplementationDate: new Date(parsed.data.actualImplementationDate),
             }
           : {}),
-        ...(toStatus === "Closed"
+        ...(toStatus === "Closed" && !isSignedTransition
           ? {
-              closedAt: new Date(),
+              closedAt: transitionedAt,
               closedById: session.user.id,
               closedByName: session.user.name,
             }
@@ -637,9 +758,32 @@ export async function transitionChangeControlStatus(
           comment: parsed.data.comment ?? null,
           actualImplementationDate:
             parsed.data.actualImplementationDate ?? null,
+          ...(signedRecordId ? { signatureId: signedRecordId } : {}),
         }),
       },
     });
+    if (isSignedTransition && signedRecordId) {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: existing.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: SIGNING_AUDIT_MODULE,
+          action: "CHANGE_CONTROL_TRANSITION_SIGNED",
+          recordId: signedRecordId,
+          recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
+          newValue: JSON.stringify({
+            signerId: session.user.id,
+            contentHashPrefix: contentHash!.slice(0, 16),
+            signatureMeaning: toStatus,
+            ccId: existing.id,
+            fromStatus,
+            toStatus,
+          }),
+        },
+      });
+    }
     revalidatePath("/change-control");
     return { success: true, data: updated };
   } catch (err) {

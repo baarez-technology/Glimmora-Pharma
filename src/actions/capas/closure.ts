@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { lockCAPAArtifacts } from "@/lib/evidence-lock";
@@ -13,7 +14,25 @@ import {
   ccDepsSnapshot,
   evaluateCCDependencies,
 } from "@/lib/cc-dependencies";
-import type { ActionResult } from "./_types";
+import {
+  canonicalizeCAPAClosureContent,
+  computeContentHash,
+  verifyPasswordForSigning,
+} from "@/lib/signing";
+import { SIGNING_AUDIT_MODULE, type ActionResult } from "./_types";
+import { readSigningProvenance } from "./_shared";
+
+const SignCloseCAPASchema = z.object({
+  // Re-authentication password (Part 11 §11.200(a)(1)(ii)).
+  password: z.string().min(1, "Password is required to sign"),
+  // Free-form selection from the SignClose modal — e.g. "approve",
+  // "verify", "confirm". Embedded in the canonical content so the
+  // signed record carries the operator's stated meaning.
+  signatureMeaning: z.string().min(1, "Signature meaning is required"),
+  ccBlockOverride: z
+    .object({ reason: z.string().min(20) })
+    .optional(),
+});
 
 /* ── CAPA closure path + CC dependency loader ──
  *
@@ -29,9 +48,18 @@ import type { ActionResult } from "./_types";
 
 export async function signAndCloseCAPA(
   id: string,
-  ccBlockOverride?: { reason: string },
+  input: z.input<typeof SignCloseCAPASchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const parsed = SignCloseCAPASchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+  const ccBlockOverride = parsed.data.ccBlockOverride;
 
   if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
     return { success: false, error: "Only QA Head can sign and close CAPAs" };
@@ -48,7 +76,12 @@ export async function signAndCloseCAPA(
   // concern, or an unfulfilled CC dependency.
   const existing = await prisma.cAPA.findFirst({
     where: { id, tenantId: session.user.tenantId },
-    select: { id: true, risk: true },
+    select: {
+      id: true,
+      risk: true,
+      reference: true,
+      description: true,
+    },
   });
   if (!existing) return { success: false, error: "CAPA not found" };
   const [approvals, comments, ccLinks] = await Promise.all([
@@ -137,39 +170,107 @@ export async function signAndCloseCAPA(
   }
   const overrideUsed = gate.allowed && Boolean(ccBlockOverride) && deps.incompleteCount > 0;
 
+  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing. Mirrors
+  // the approveCAPA pattern: verify before any state change so a wrong
+  // password causes zero side effects beyond the failed-attempt audit row.
+  const passwordOk = await verifyPasswordForSigning(
+    session.user.id,
+    parsed.data.password,
+  );
+  if (!passwordOk) {
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: SIGNING_AUDIT_MODULE,
+        action: "SIGNING_PASSWORD_FAILED",
+        recordId: id,
+        recordTitle: existing.description.slice(0, 80),
+        newValue: JSON.stringify({
+          recordType: "CAPA_CLOSURE",
+          attempt_at: new Date().toISOString(),
+        }),
+      },
+    });
+    return {
+      success: false,
+      error: "Password verification failed. Please try again.",
+    };
+  }
+
   try {
     const now = new Date();
     const effectivenessDue = new Date(now);
     effectivenessDue.setDate(effectivenessDue.getDate() + 90);
 
     // Defensive lock — usually already locked from submitForReview but
-    // re-locking is a no-op for already-locked items.
+    // re-locking is a no-op for already-locked items. Outside the tx
+    // because lockCAPAArtifacts is idempotent and uses its own queries.
     await lockCAPAArtifacts(id, session.user.tenantId, {
       name: session.user.name,
       role: session.user.role,
     });
 
-    const capa = await prisma.cAPA.update({
-      where: { id, tenantId: session.user.tenantId },
-      data: {
-        status: "closed",
-        closedBy: session.user.name,
-        closedAt: now,
-        effectivenessCheck: true,
-        effectivenessDate: effectivenessDue,
-        // Persist override metadata only when actually used. The fields
-        // stay null on the normal flow (no incomplete CCs) so an
-        // inspector reviewing the row can immediately tell whether an
-        // override was applied.
-        ...(overrideUsed
-          ? {
-              ccBlockOverrideReason: ccBlockOverride!.reason.trim(),
-              ccBlockOverrideById: session.user.id,
-              ccBlockOverrideByName: session.user.name,
-              ccBlockOverrideAt: now,
-            }
-          : {}),
-      },
+    // Build the canonical content + hash before the transaction so any
+    // serialisation issue surfaces as a clean failure (no half-written rows).
+    const passwordVerifiedAt = now;
+    const closingComment = overrideUsed
+      ? `[CC override] ${ccBlockOverride!.reason.trim()}`
+      : null;
+    const canonicalContent = canonicalizeCAPAClosureContent({
+      capaId: existing.id,
+      capaReference: existing.reference,
+      capaDescription: existing.description,
+      riskLevel: existing.risk,
+      closedAt: now,
+      closingComment,
+    });
+    const contentHash = computeContentHash(canonicalContent);
+    const contentSummary = `${existing.reference ?? existing.id} closed by ${session.user.name} (${session.user.role}) — risk: ${existing.risk}`;
+    const provenance = await readSigningProvenance();
+
+    // Atomic: mint the SignedRecord, flip CAPA.status, link
+    // CAPA.closureSignatureId. Either all three commit or none.
+    const { capa, signedRecord } = await prisma.$transaction(async (tx) => {
+      const sig = await tx.signedRecord.create({
+        data: {
+          tenantId: session.user.tenantId,
+          recordType: "CAPA_CLOSURE",
+          recordId: existing.id,
+          signerId: session.user.id,
+          signerName: session.user.name,
+          signerRole: session.user.role,
+          signerEmail: session.user.email,
+          signatureMeaning: parsed.data.signatureMeaning,
+          contentHash,
+          contentSummary,
+          passwordVerifiedAt,
+          ipAddress: provenance.ipAddress,
+          userAgent: provenance.userAgent,
+        },
+      });
+      const updated = await tx.cAPA.update({
+        where: { id, tenantId: session.user.tenantId },
+        data: {
+          status: "closed",
+          closedBy: session.user.name,
+          closedAt: now,
+          effectivenessCheck: true,
+          effectivenessDate: effectivenessDue,
+          closureSignatureId: sig.id,
+          ...(overrideUsed
+            ? {
+                ccBlockOverrideReason: ccBlockOverride!.reason.trim(),
+                ccBlockOverrideById: session.user.id,
+                ccBlockOverrideByName: session.user.name,
+                ccBlockOverrideAt: now,
+              }
+            : {}),
+        },
+      });
+      return { capa: updated, signedRecord: sig };
     });
 
     if (capa.findingId) {
@@ -191,6 +292,26 @@ export async function signAndCloseCAPA(
         action: "CAPA_CLOSED",
         recordId: id,
         recordTitle: capa.description.slice(0, 80),
+      },
+    });
+    // Paired CAPA_CLOSURE_SIGNED row — points at the SignedRecord id so the
+    // audit trail and the SignedRecord ledger cross-reference cleanly.
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: SIGNING_AUDIT_MODULE,
+        action: "CAPA_CLOSURE_SIGNED",
+        recordId: signedRecord.id,
+        recordTitle: capa.description.slice(0, 80),
+        newValue: JSON.stringify({
+          signerId: session.user.id,
+          contentHashPrefix: contentHash.slice(0, 16),
+          signatureMeaning: parsed.data.signatureMeaning,
+          capaId: capa.id,
+        }),
       },
     });
     // Substage 6.4 — paired CAPA_MARKED_IMPLEMENTED row carrying the

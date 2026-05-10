@@ -4,10 +4,22 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import {
+  canonicalizeDeviationClosureContent,
+  computeContentHash,
+  verifyPasswordForSigning,
+} from "@/lib/signing";
+import { readSigningProvenance } from "@/actions/capas/_shared";
+import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
+
+const CloseDeviationSchema = z.object({
+  password: z.string().min(1, "Password is required to sign"),
+  notes: z.string().max(2000).optional(),
+});
 
 const CreateDeviationSchema = z.object({
   title: z.string().min(5),
@@ -126,21 +138,109 @@ export async function updateDeviation(
   }
 }
 
-export async function closeDeviation(id: string, notes?: string): Promise<ActionResult> {
+export async function closeDeviation(
+  id: string,
+  input: z.input<typeof CloseDeviationSchema>,
+): Promise<ActionResult> {
   const session = await requireAuth();
+  const parsed = CloseDeviationSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
   if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
     return { success: false, error: "Only QA Head can close deviations" };
   }
-  try {
-    const deviation = await prisma.deviation.update({
-      where: { id, tenantId: session.user.tenantId },
+
+  const existing = await prisma.deviation.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: {
+      id: true,
+      title: true,
+      severity: true,
+      rootCause: true,
+    },
+  });
+  if (!existing) return { success: false, error: "Deviation not found" };
+
+  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing.
+  const passwordOk = await verifyPasswordForSigning(
+    session.user.id,
+    parsed.data.password,
+  );
+  if (!passwordOk) {
+    await prisma.auditLog.create({
       data: {
-        status: "closed",
-        closedBy: session.user.name,
-        closedDate: new Date(),
-        closureNotes: notes ?? null,
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: SIGNING_AUDIT_MODULE,
+        action: "SIGNING_PASSWORD_FAILED",
+        recordId: id,
+        recordTitle: existing.title.slice(0, 80),
+        newValue: JSON.stringify({
+          recordType: "DEVIATION_CLOSURE",
+          attempt_at: new Date().toISOString(),
+        }),
       },
     });
+    return {
+      success: false,
+      error: "Password verification failed. Please try again.",
+    };
+  }
+
+  try {
+    const closedAt = new Date();
+    const canonicalContent = canonicalizeDeviationClosureContent({
+      deviationId: existing.id,
+      title: existing.title,
+      severity: existing.severity,
+      rootCause: existing.rootCause,
+      closingComment: parsed.data.notes ?? null,
+      closedAt,
+    });
+    const contentHash = computeContentHash(canonicalContent);
+    const contentSummary = `Deviation ${existing.id.slice(0, 8)} (${existing.severity}) closed by ${session.user.name} (${session.user.role})`;
+    const provenance = await readSigningProvenance();
+
+    const { deviation, signedRecord } = await prisma.$transaction(
+      async (tx) => {
+        const sig = await tx.signedRecord.create({
+          data: {
+            tenantId: session.user.tenantId,
+            recordType: "DEVIATION_CLOSURE",
+            recordId: existing.id,
+            signerId: session.user.id,
+            signerName: session.user.name,
+            signerRole: session.user.role,
+            signerEmail: session.user.email,
+            signatureMeaning: "Closed",
+            contentHash,
+            contentSummary,
+            passwordVerifiedAt: closedAt,
+            ipAddress: provenance.ipAddress,
+            userAgent: provenance.userAgent,
+          },
+        });
+        const updated = await tx.deviation.update({
+          where: { id, tenantId: session.user.tenantId },
+          data: {
+            status: "closed",
+            closedBy: session.user.name,
+            closedDate: closedAt,
+            closureNotes: parsed.data.notes ?? null,
+            closureSignatureId: sig.id,
+          },
+        });
+        return { deviation: updated, signedRecord: sig };
+      },
+    );
+
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -149,6 +249,24 @@ export async function closeDeviation(id: string, notes?: string): Promise<Action
         module: "Deviation Management",
         action: "DEVIATION_CLOSED",
         recordId: id,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: SIGNING_AUDIT_MODULE,
+        action: "DEVIATION_CLOSED_AND_SIGNED",
+        recordId: signedRecord.id,
+        recordTitle: existing.title.slice(0, 80),
+        newValue: JSON.stringify({
+          signerId: session.user.id,
+          contentHashPrefix: contentHash.slice(0, 16),
+          signatureMeaning: "Closed",
+          deviationId: existing.id,
+        }),
       },
     });
     revalidatePath("/deviation");
