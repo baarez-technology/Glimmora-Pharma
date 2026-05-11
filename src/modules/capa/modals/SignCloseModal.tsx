@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 // CHANGE CONTROL HIDDEN — ShieldAlert dropped because its only consumer
 // (the override-notice block below) is commented out. To re-enable:
@@ -24,23 +24,43 @@ interface SignCloseModalProps {
    *  surfaces it to the signer so they can see what they are signing off
    *  on. */
   ccBlockOverride?: { reason: string } | null;
+  /** Set by the parent when signAndCloseCAPAServer rejects (wrong
+   *  password, missing approvals, CC dep gate, etc.). The modal stays
+   *  open and renders this message inline so the user can correct and
+   *  retry without losing the password they typed. Cleared by the parent
+   *  on retry or on modal close. */
+  error?: string | null;
+  /** True while the server signing call is in flight. Disables the Sign
+   *  button and prevents double-submit; the Button's `loading` prop
+   *  swaps the icon for a spinner. */
+  busy?: boolean;
 }
 
 // CHANGE CONTROL HIDDEN — `ccBlockOverride` is still in the props type so
 // callers (CAPAPage) don't need to change, but it's intentionally not
 // destructured because the override-notice block is commented out below.
-export function SignCloseModal({ isOpen, onClose, onSign, capa }: SignCloseModalProps) {
+export function SignCloseModal({ isOpen, onClose, onSign, capa, error, busy }: SignCloseModalProps) {
   const [signMeaning, setSignMeaning] = useState("");
   const [signPassword, setSignPassword] = useState("");
   const [effectivenessConfirmed, setEffectivenessConfirmed] = useState(false);
+
+  // Clear inputs when the modal closes (success or cancel). Keeping them
+  // populated across submit attempts means a wrong-password retry doesn't
+  // force the user to retype both fields — they edit the password and
+  // re-click. Password leaving the modal state on close is the security
+  // win that matters.
+  useEffect(() => {
+    if (!isOpen) {
+      setSignMeaning("");
+      setSignPassword("");
+      setEffectivenessConfirmed(false);
+    }
+  }, [isOpen]);
 
   if (!capa) return null;
 
   function handleSign() {
     onSign({ meaning: signMeaning, password: signPassword });
-    setSignMeaning("");
-    setSignPassword("");
-    setEffectivenessConfirmed(false);
   }
 
   return (
@@ -94,9 +114,30 @@ export function SignCloseModal({ isOpen, onClose, onSign, capa }: SignCloseModal
               <Toggle id="eff-confirm" checked={effectivenessConfirmed} onChange={setEffectivenessConfirmed} label="Effectiveness check confirmed" description="90-day monitoring will be scheduled" />
             </div>
           )}
+          {error && (
+            <p
+              role="alert"
+              className="text-[11px] rounded-md p-2"
+              style={{
+                background: "var(--danger-bg)",
+                color: "var(--danger)",
+                border: "1px solid var(--danger)",
+              }}
+            >
+              {error}
+            </p>
+          )}
           <div className="flex justify-end gap-3 pt-2">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" icon={ShieldCheck} disabled={!signMeaning || !signPassword || (capa.effectivenessCheck && !effectivenessConfirmed)} onClick={handleSign}>Sign &amp; Close CAPA</Button>
+            <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button
+              variant="primary"
+              icon={ShieldCheck}
+              disabled={busy || !signMeaning || !signPassword || (capa.effectivenessCheck && !effectivenessConfirmed)}
+              loading={busy}
+              onClick={handleSign}
+            >
+              Sign &amp; Close CAPA
+            </Button>
           </div>
         </div>
       </div>

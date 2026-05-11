@@ -95,6 +95,13 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   const [rejectReason, setRejectReason] = useState("");
   const [successPopup, setSuccessPopup] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
+  // Failure surface — paired with successPopup above. Server actions
+  // that reject (FORBIDDEN, validation, role gates) route through this so
+  // users see the real reason rather than a silent console.error.
+  // handleClose has its own inline closeError state (rendered inside the
+  // close modal); this popup covers everything else.
+  const [errorPopup, setErrorPopup] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sevFilter, setSevFilter] = useState("");
@@ -138,7 +145,8 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
       batchesAffected: data.batchesAffected || undefined,
     });
     if (!result.success) {
-      console.error("[deviation] createDeviation failed:", result.error);
+      setErrorMsg(result.error || "Failed to report deviation. Please try again.");
+      setErrorPopup(true);
       return;
     }
     const created = result.data as PrismaDeviation;
@@ -175,7 +183,8 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
       linkedDeviationId: selected.id,
     });
     if (!result.success) {
-      console.error("[deviation] createCAPA failed:", result.error);
+      setErrorMsg(result.error || "Failed to raise CAPA. Please try again.");
+      setErrorPopup(true);
       return;
     }
     const capaData = result.data as { id: string };
@@ -212,7 +221,8 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
     if (!selected || !user || !rejectReason.trim()) return;
     const result = await rejectDeviationAction(selected.id, { reason: rejectReason });
     if (!result.success) {
-      console.error("[deviation] rejectDeviation failed:", result.error);
+      setErrorMsg(result.error || "Failed to reject deviation. Please try again.");
+      setErrorPopup(true);
       return;
     }
     setRejectModal(false);
@@ -227,7 +237,8 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
     if (!selected) return;
     const result = await updateDeviationAction(selected.id, { status: "pending_qa_review" });
     if (!result.success) {
-      console.error("[deviation] submitForReview failed:", result.error);
+      setErrorMsg(result.error || "Failed to submit for review. Please try again.");
+      setErrorPopup(true);
       return;
     }
     router.refresh();
@@ -237,7 +248,8 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
     if (!selected) return;
     const result = await updateDeviationAction(selected.id, { status: "under_investigation" });
     if (!result.success) {
-      console.error("[deviation] startInvestigation failed:", result.error);
+      setErrorMsg(result.error || "Failed to start investigation. Please try again.");
+      setErrorPopup(true);
       return;
     }
     router.refresh();
@@ -588,6 +600,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
       </Modal>
 
       <Popup isOpen={successPopup} variant="success" title="Success" description={successMsg} onDismiss={() => setSuccessPopup(false)} />
+      <Popup isOpen={errorPopup} variant="error" title="Action failed" description={errorMsg} onDismiss={() => setErrorPopup(false)} />
     </main>
   );
 }

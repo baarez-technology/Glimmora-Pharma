@@ -213,6 +213,20 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
   const [signMeaning, setSignMeaning] = useState("");
   const [signPassword, setSignPassword] = useState("");
   const [signedPopup, setSignedPopup] = useState(false);
+  // Failure surface — mirrors the CAPAPage / DeviationPage pattern. Every
+  // server action in this page is already server-first, but on reject the
+  // page was only console.error'ing — user clicked "Save" / "Submit" /
+  // "Raise CAPA" and saw nothing happen. Now routes through the error
+  // popup with the server's own message.
+  const [errorMsg, setErrorMsg] = useState("");
+  const [errorPopup, setErrorPopup] = useState(false);
+  // Inline state for the Sign & Submit flow — SignSubmitModal stays open
+  // on a server reject (wrong password, missing approvals, etc.) and
+  // renders signError next to the Sign button. Critical for Part 11:
+  // previously a wrong-password attempt left the modal sitting there
+  // with no signal, looking identical to the "still loading" state.
+  const [signError, setSignError] = useState<string | null>(null);
+  const [signBusy, setSignBusy] = useState(false);
   const [responseSavedPopup, setResponseSavedPopup] = useState(false);
   const [rcaSavedPopup, setRcaSavedPopup] = useState(false);
   const [capaRaisedPopup, setCapaRaisedPopup] = useState(false);
@@ -309,7 +323,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
         : "",
     });
     if (!result.success) {
-      console.error("[fda-483] createFDA483Event failed:", result.error);
+      setErrorMsg(result.error || "Failed to log event. Please try again.");
+      setErrorPopup(true);
       return;
     }
     setAddEventOpen(false);
@@ -335,7 +350,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
           severity: data.severity,
         });
     if (!result.success) {
-      console.error("[fda-483] save observation failed:", result.error);
+      setErrorMsg(result.error || "Failed to save observation. Please try again.");
+      setErrorPopup(true);
       return;
     }
     setAddObsOpen(false);
@@ -353,7 +369,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
       owner: data.owner,
     });
     if (!result.success) {
-      console.error("[fda-483] addCommitment failed:", result.error);
+      setErrorMsg(result.error || "Failed to add commitment. Please try again.");
+      setErrorPopup(true);
       return;
     }
     router.refresh();
@@ -548,7 +565,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
                         if (!selectedObs) return;
                         const result = await updateObservationServer(selectedObs.id, { rcaMethod: method });
                         if (!result.success) {
-                          console.error("[fda-483] selectRCAMethod failed:", result.error);
+                          setErrorMsg(result.error || "Failed to set RCA method. Please try again.");
+                          setErrorPopup(true);
                           return;
                         }
                         router.refresh();
@@ -563,7 +581,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
                           status: "Response Drafted",
                         });
                         if (!result.success) {
-                          console.error("[fda-483] save5Why failed:", result.error);
+                          setErrorMsg(result.error || "Failed to save 5-Why RCA. Please try again.");
+                          setErrorPopup(true);
                           return;
                         }
                         setRcaSavedPopup(true);
@@ -579,7 +598,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
                           status: "Response Drafted",
                         });
                         if (!result.success) {
-                          console.error("[fda-483] saveFishbone failed:", result.error);
+                          setErrorMsg(result.error || "Failed to save Fishbone RCA. Please try again.");
+                          setErrorPopup(true);
                           return;
                         }
                         setRcaSavedPopup(true);
@@ -593,7 +613,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
                           status: "Response Drafted",
                         });
                         if (!result.success) {
-                          console.error("[fda-483] saveFreeform failed:", result.error);
+                          setErrorMsg(result.error || "Failed to save RCA. Please try again.");
+                          setErrorPopup(true);
                           return;
                         }
                         setRcaSavedPopup(true);
@@ -615,7 +636,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
                           rcaMethod: selectedObs.rcaMethod,
                         });
                         if (!result.success) {
-                          console.error("[fda-483] raiseCAPA failed:", result.error);
+                          setErrorMsg(result.error || "Failed to raise CAPA from this observation. Please try again.");
+                          setErrorPopup(true);
                           return;
                         }
                         setCapaRaisedPopup(true);
@@ -651,7 +673,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
             if (!liveEvent) return;
             const result = await saveResponseDraftServer(liveEvent.id, responseText.trim());
             if (!result.success) {
-              console.error("[fda-483] saveResponseDraft failed:", result.error);
+              setErrorMsg(result.error || "Failed to save response draft. Please try again.");
+              setErrorPopup(true);
               return;
             }
             setEditingResponse(false);
@@ -662,7 +685,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
             if (!liveEvent) return;
             const result = await saveResponseDraftServer(liveEvent.id, liveEvent.agiDraft);
             if (!result.success) {
-              console.error("[fda-483] saveResponseDraft (from AGI) failed:", result.error);
+              setErrorMsg(result.error || "Failed to use AGI draft. Please try again.");
+              setErrorPopup(true);
               return;
             }
             setResponseText(liveEvent.agiDraft);
@@ -686,7 +710,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
             const drafted = `REGULATORY RESPONSE \u2014 ${liveEvent.referenceNumber}\n\nDear ${liveEvent.agency},\n\nWe have received and reviewed the ${liveEvent.type} dated ${dayjs.utc(liveEvent.inspectionDate).format(dateFormat)}. We take these observations seriously and have initiated corrective actions as described below.\n\nOBSERVATIONS AND CORRECTIVE ACTIONS:\n\n${obsText}\n\nLINKED CAPAs:\n\n${capaText || "CAPAs being raised."}\n\nRespectfully submitted,\n[QA Head]\n[Company Name]`;
             const result = await saveAGIDraftServer(liveEvent.id, drafted);
             if (!result.success) {
-              console.error("[fda-483] saveAGIDraft failed:", result.error);
+              setErrorMsg(result.error || "Failed to generate AGI draft. Please try again.");
+              setErrorPopup(true);
               return;
             }
             router.refresh();
@@ -725,15 +750,31 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
       />
       <SignSubmitModal
         open={signOpen}
-        liveEvent={liveEvent} signMeaning={signMeaning}
+        liveEvent={liveEvent}
+        signMeaning={signMeaning}
         signPassword={signPassword}
-        onClose={() => setSignOpen(false)}
+        error={signError}
+        busy={signBusy}
+        onClose={() => {
+          // Always wipe credential state on close (Cancel, success, or
+          // backdrop) so reopening the modal never inherits a stale
+          // password. Mirror of the SignCloseModal cleanup.
+          setSignOpen(false);
+          setSignMeaning("");
+          setSignPassword("");
+          setSignError(null);
+          setSignBusy(false);
+        }}
         onSignMeaningChange={setSignMeaning}
         onSignPasswordChange={setSignPassword}
         onSubmit={async () => {
           if (!liveEvent) return;
-          // Server action sets status, draft, submittedAt, submittedBy
-          // (from session), signatureMeaning, and writes the audit log.
+          setSignBusy(true);
+          setSignError(null);
+          // §11 — server-first. Modal stays open until the server confirms
+          // the signature. On reject (wrong password, role gate, etc.) the
+          // signError prop renders inline; user corrects without losing
+          // the meaning dropdown selection.
           const result = await signSubmitFDA483Response(
             liveEvent.id,
             liveEvent.responseDraft ?? "",
@@ -742,20 +783,31 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
               signatureMeaning: signMeaning,
             },
           );
+          setSignBusy(false);
           if (!result.success) {
-            console.error("[fda-483] signSubmit failed:", result.error);
-            return;
+            setSignError(result.error || "Submission failed. Please verify your password and try again.");
+            return; // modal stays open
           }
+          // Server confirmed the Part 11 signature. Wipe credentials and
+          // surface the success popup.
           setSignOpen(false);
           setSignedPopup(true);
           setSignMeaning("");
           setSignPassword("");
+          setSignError(null);
           router.refresh();
           // Stay on the current event so the user sees the submitted success view
         }}
       />
 
       {/* ── Popups ── */}
+      <Popup
+        isOpen={errorPopup}
+        variant="error"
+        title="Action failed"
+        description={errorMsg}
+        onDismiss={() => setErrorPopup(false)}
+      />
       <Popup
         isOpen={eventAddedPopup}
         variant="success"

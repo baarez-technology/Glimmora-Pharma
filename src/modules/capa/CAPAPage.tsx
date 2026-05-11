@@ -17,7 +17,7 @@ import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   setCAPAs,
-  addCAPA, updateCAPA as updateCAPAAction, closeCAPA,
+  updateCAPA as updateCAPAAction, closeCAPA,
   type CAPA, type RCAMethod,
 } from "@/store/capa.slice";
 import { isOverdue } from "@/types/capa";
@@ -83,7 +83,9 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   const { isViewOnly } = useRole();
   const { isCustomerAdmin, canCreateCAPAs } = usePermissions();
 
-  const { capas, fda483Events, tenantId } = useTenantData();
+  // tenantId previously fed the optimistic addCAPA dispatch — now dropped
+  // because we wait for the server's real record (router.refresh re-hydrates).
+  const { capas, fda483Events } = useTenantData();
   const { org, users, allSites } = useTenantConfig();
   const complianceUsers = useComplianceUsers();
   const timezone = org.timezone;
@@ -112,6 +114,18 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   const [submittedPopup, setSubmittedPopup] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editSavedPopup, setEditSavedPopup] = useState(false);
+  // Failure surface — paired with the success popups above. Server actions
+  // that reject (FORBIDDEN, validation, Part 11 password mismatch, etc.)
+  // route through this so users see the real reason rather than a silent
+  // console.error masked by a green success popup.
+  const [errorMsg, setErrorMsg] = useState("");
+  const [errorPopup, setErrorPopup] = useState(false);
+  // Inline state for the Sign & Close flow — the SignCloseModal stays
+  // open on a server reject and renders signError next to the Sign button,
+  // so a wrong-password attempt doesn't close the modal (which would have
+  // left Redux mid-update and the user staring at a "Closed" pill).
+  const [signError, setSignError] = useState<string | null>(null);
+  const [signBusy, setSignBusy] = useState(false);
 
   /* ── Open from route ── */
   useEffect(() => {
@@ -187,13 +201,18 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     { step: 7, label: "Effectiveness", Icon: TrendingUp, color: "#6366f1", desc: "90-day recurrence check", targetState: "Effectiveness check at 30, 60, 90 days. Recurrence monitoring active.", currentGap: "No formal effectiveness scoring \u2014 AGI monitoring planned for future phase." },
   ];
 
-  /* ── Handlers ── */
+  /* ── Handlers ──
+   *
+   * Server-first throughout. We previously dispatched optimistic Redux
+   * updates and showed green popups BEFORE awaiting the server, which
+   * meant a server reject (FORBIDDEN, validation, Part 11 password fail)
+   * left the UI claiming success against state the DB never accepted —
+   * regulatory exposure on a compliance product. Every handler below now
+   * awaits the server first; only on success do we mutate Redux / surface
+   * a success popup. Failures route through errorPopup with the server's
+   * own error message.
+   */
   function handleAddCAPA(data: CAPAForm) {
-    const newId = `CAPA-${String(Date.now()).slice(-4)}`;
-    // Optimistic Redux update so UI feels instant.
-    dispatch(addCAPA({ ...data, id: newId, tenantId: tenantId ?? "", status: "open", createdAt: dayjs().toISOString(), rcaMethod: data.rcaMethod as RCAMethod | undefined, rca: undefined, correctiveActions: undefined, findingId: data.findingId || undefined }));
-    setAddOpen(false);
-    setAddedPopup(true);
     startTransition(async () => {
       const res = await createCAPAServer({
         description: data.description,
@@ -205,7 +224,13 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         linkedFindingId: data.findingId || undefined,
         diGateRequired: data.diGate,
       });
-      if (!res.success) console.error("[CAPA] create failed:", res.error);
+      if (!res.success) {
+        setErrorMsg(res.error || "Failed to create CAPA. Please try again.");
+        setErrorPopup(true);
+        return;
+      }
+      setAddOpen(false);
+      setAddedPopup(true);
       router.refresh();
     });
   }
@@ -213,23 +238,6 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   function handleEditSave(data: EditForm) {
     if (!selectedCAPA) return;
     const autoAdvance = selectedCAPA.status === "open" && data.rca?.trim();
-    dispatch(updateCAPAAction({
-      id: selectedCAPA.id,
-      patch: {
-        description: data.description, owner: data.owner,
-        dueDate: dayjs(data.dueDate).utc().toISOString(),
-        risk: data.risk, rcaMethod: (data.rcaMethod as RCAMethod) || undefined,
-        rca: data.rca ?? "", correctiveActions: data.correctiveActions ?? "",
-        effectivenessCheck: data.effectivenessCheck, diGate: data.diGate,
-        diGateStatus: data.diGateStatus ?? "open",
-        diGateNotes: data.diGateNotes ?? "",
-        diGateReviewedBy: data.diGateReviewedBy ?? "",
-        diGateReviewDate: data.diGateReviewDate ?? "",
-        ...(autoAdvance ? { status: "in_progress" as const } : {}),
-      },
-    }));
-    setEditModalOpen(false);
-    setEditSavedPopup(true);
     const capaId = selectedCAPA.id;
     startTransition(async () => {
       const res = await updateCAPAServer(capaId, {
@@ -242,18 +250,44 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         correctiveActions: data.correctiveActions ?? "",
         status: autoAdvance ? "in_progress" : undefined,
       });
-      if (!res.success) console.error("[CAPA] update failed:", res.error);
+      if (!res.success) {
+        setErrorMsg(res.error || "Failed to save changes. Please try again.");
+        setErrorPopup(true);
+        return;
+      }
+      // Server accepted — now safe to mirror into Redux + close the modal.
+      dispatch(updateCAPAAction({
+        id: capaId,
+        patch: {
+          description: data.description, owner: data.owner,
+          dueDate: dayjs(data.dueDate).utc().toISOString(),
+          risk: data.risk, rcaMethod: (data.rcaMethod as RCAMethod) || undefined,
+          rca: data.rca ?? "", correctiveActions: data.correctiveActions ?? "",
+          effectivenessCheck: data.effectivenessCheck, diGate: data.diGate,
+          diGateStatus: data.diGateStatus ?? "open",
+          diGateNotes: data.diGateNotes ?? "",
+          diGateReviewedBy: data.diGateReviewedBy ?? "",
+          diGateReviewDate: data.diGateReviewDate ?? "",
+          ...(autoAdvance ? { status: "in_progress" as const } : {}),
+        },
+      }));
+      setEditModalOpen(false);
+      setEditSavedPopup(true);
       router.refresh();
     });
   }
 
   function handleSubmitForReview(id: string) {
-    dispatch(updateCAPAAction({ id, patch: { status: "pending_qa_review" } }));
-    setSubmittedPopup(true);
-    setSelectedCAPA(null);
     startTransition(async () => {
       const res = await submitForReviewServer(id);
-      if (!res.success) console.error("[CAPA] submit for review failed:", res.error);
+      if (!res.success) {
+        setErrorMsg(res.error || "Failed to submit for review. Please try again.");
+        setErrorPopup(true);
+        return;
+      }
+      dispatch(updateCAPAAction({ id, patch: { status: "pending_qa_review" } }));
+      setSubmittedPopup(true);
+      setSelectedCAPA(null);
       router.refresh();
     });
   }
@@ -267,19 +301,40 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
       setDiGateBlockPopup(true);
       return;
     }
+    setSignBusy(true);
+    setSignError(null);
     const capaId = selectedCAPA.id;
     const findingId = selectedCAPA.findingId;
     const source = selectedCAPA.source;
+    const ccOverride = pendingCCOverride;
+    // §11 — server-first. Modal stays open until the server confirms the
+    // signature; on reject (wrong password, missing approvals, CC dep
+    // gate, etc.) the signError prop renders inline and Redux is
+    // untouched. The cross-module observation update only fires AFTER
+    // the close commits — previously it ran first, leaving the DB in
+    // mixed state on signing failure.
+    const res = await signAndCloseCAPAServer(capaId, {
+      password: data.password,
+      signatureMeaning: data.meaning,
+      ccBlockOverride: ccOverride ?? undefined,
+    });
+    setSignBusy(false);
+    if (!res.success) {
+      setSignError(res.error || "Sign & close failed. Please verify your password and try again.");
+      return; // modal stays open
+    }
+    // Server confirmed. Now safe to apply local Redux + cross-module side
+    // effects.
     const now = dayjs().toISOString();
     dispatch(closeCAPA({ id: capaId, closedBy: user?.id ?? "", closedAt: now }));
-    if (findingId) { dispatch(closeFinding(findingId)); }
+    if (findingId) dispatch(closeFinding(findingId));
     if (source === "483") {
       for (const ev of fda483Events) {
         const matchingObs = ev.observations.find((o) => o.capaId === capaId);
         if (matchingObs) {
           // Cross-module: when a CAPA from a 483 source closes, mark the
-          // linked observation Closed too. Server action; refresh handled by
-          // revalidatePath inside the action.
+          // linked observation Closed too. Only safe to run after the
+          // signature has committed.
           await updateObservation(matchingObs.id, { status: "Closed" });
           break;
         }
@@ -289,17 +344,8 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     setSignOpen(false);
     setSignedPopup(true);
     setSelectedCAPA(null);
-    const ccOverride = pendingCCOverride;
     setPendingCCOverride(null);
-    startTransition(async () => {
-      const res = await signAndCloseCAPAServer(capaId, {
-        password: data.password,
-        signatureMeaning: data.meaning,
-        ccBlockOverride: ccOverride ?? undefined,
-      });
-      if (!res.success) console.error("[CAPA] sign & close failed:", res.error);
-      router.refresh();
-    });
+    router.refresh();
   }
 
   /* ══════════════════════════════════════ */
@@ -365,13 +411,14 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
       {/* Modals */}
       <AddCAPAModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddCAPA} users={complianceUsers} sites={allSites} lockedSiteId={selectedSiteId} />
       <EditCAPAModal isOpen={editModalOpen} onClose={() => setEditModalOpen(false)} onSave={handleEditSave} capa={selectedCAPA} users={complianceUsers} />
-      <SignCloseModal isOpen={signOpen} onClose={() => { setSignOpen(false); setPendingCCOverride(null); }} onSign={handleSignClose} capa={selectedCAPA} ccBlockOverride={pendingCCOverride} />
+      <SignCloseModal isOpen={signOpen} onClose={() => { setSignOpen(false); setPendingCCOverride(null); setSignError(null); }} onSign={handleSignClose} capa={selectedCAPA} ccBlockOverride={pendingCCOverride} error={signError} busy={signBusy} />
 
       {/* Popups */}
       <Popup isOpen={editSavedPopup} variant="success" title="CAPA updated" description="Changes saved. Submit for QA review when RCA and corrective actions are complete." onDismiss={() => setEditSavedPopup(false)} />
       <Popup isOpen={addedPopup} variant="success" title="CAPA created" description="Added to the tracker. Document RCA and corrective actions next." onDismiss={() => setAddedPopup(false)} />
       <Popup isOpen={submittedPopup} variant="success" title="Submitted for QA review" description="QA Head will review and sign to close." onDismiss={() => setSubmittedPopup(false)} />
       <Popup isOpen={signedPopup} variant="success" title="CAPA closed" description="Signed and closed. Audit trail entry recorded." onDismiss={() => setSignedPopup(false)} />
+      <Popup isOpen={errorPopup} variant="error" title="Action failed" description={errorMsg} onDismiss={() => setErrorPopup(false)} />
       <Popup isOpen={diGateBlockPopup} variant="confirmation" title="DI gate must be cleared" description="Data integrity review has not been completed. Open Edit mode and clear the DI gate before closing this CAPA." onDismiss={() => setDiGateBlockPopup(false)} actions={[{ label: "OK", style: "primary", onClick: () => setDiGateBlockPopup(false) }]} />
     </main>
   );
