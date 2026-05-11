@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { assertTenantOwnsParent } from "@/lib/tenantScope";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -196,17 +197,26 @@ export async function createTrainingRecord(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  // IDOR guard — verify the caller's tenant owns the parent inspection.
+  // TrainingRecord HAS its own tenantId column, so we must set it from
+  // parent.tenantId (NOT session.user.tenantId) to keep child/parent
+  // tenant consistent even under super_admin cross-tenant writes.
+  const parent = await assertTenantOwnsParent<{
+    id: string;
+    tenantId: string;
+  }>(session, "inspection", parsed.data.inspectionId);
+  if (!parent) return { success: false, error: "FORBIDDEN" };
   try {
     const record = await prisma.trainingRecord.create({
       data: {
         ...parsed.data,
-        tenantId: session.user.tenantId,
+        tenantId: parent.tenantId,
         status: "pending",
       },
     });
     await prisma.auditLog.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId: parent.tenantId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "Inspection Readiness",
@@ -290,6 +300,13 @@ export async function createSimulation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  // IDOR guard — verify the caller's tenant owns the parent inspection.
+  // Simulation has no tenantId column (scopes via inspection.tenantId).
+  const parent = await assertTenantOwnsParent<{
+    id: string;
+    tenantId: string;
+  }>(session, "inspection", parsed.data.inspectionId);
+  if (!parent) return { success: false, error: "FORBIDDEN" };
   try {
     const sim = await prisma.simulation.create({
       data: {
@@ -305,7 +322,7 @@ export async function createSimulation(
     });
     await prisma.auditLog.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId: parent.tenantId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "Inspection Readiness",

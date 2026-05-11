@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { assertTenantOwnsParent } from "@/lib/tenantScope";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -38,6 +39,15 @@ export async function createRTMEntry(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  // IDOR guard — verify the caller's tenant owns the parent system.
+  // RTMEntry has no tenantId column (scopes via system.tenantId), so the
+  // child row inherits its tenant from the verified parent at FK level.
+  const parent = await assertTenantOwnsParent<{
+    id: string;
+    tenantId: string;
+    name: string;
+  }>(session, "gxpSystem", parsed.data.systemId, { name: true });
+  if (!parent) return { success: false, error: "FORBIDDEN" };
   try {
     const entry = await prisma.rTMEntry.create({
       data: {
@@ -50,13 +60,13 @@ export async function createRTMEntry(
     });
     await prisma.auditLog.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId: parent.tenantId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "CSV/CSA",
         action: "RTM_ENTRY_CREATED",
         recordId: entry.id,
-        recordTitle: parsed.data.ursId,
+        recordTitle: `${parent.name} — ${parsed.data.ursId}`,
       },
     });
     revalidatePath("/csv-csa");

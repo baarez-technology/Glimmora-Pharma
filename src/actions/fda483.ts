@@ -11,6 +11,7 @@ import {
 } from "@/lib/signing";
 import { readSigningProvenance } from "@/actions/capas/_shared";
 import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
+import { assertTenantOwnsParent } from "@/lib/tenantScope";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -187,18 +188,28 @@ export async function addObservation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  // IDOR guard — verify the caller's tenant owns the parent event before
+  // inserting the child observation. Derives the audit-row tenantId from
+  // the verified parent (correct for super_admin cross-tenant writes too).
+  const parent = await assertTenantOwnsParent<{
+    id: string;
+    tenantId: string;
+    referenceNumber: string;
+  }>(session, "fda483Event", parsed.data.eventId, { referenceNumber: true });
+  if (!parent) return { success: false, error: "FORBIDDEN" };
   try {
     const obs = await prisma.fDA483Observation.create({
       data: { ...parsed.data, status: "Open" },
     });
     await prisma.auditLog.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId: parent.tenantId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "FDA 483",
         action: "OBSERVATION_ADDED",
         recordId: parsed.data.eventId,
+        recordTitle: parent.referenceNumber,
         newValue: `Observation #${parsed.data.number}`,
       },
     });
@@ -218,6 +229,13 @@ export async function addCommitment(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  // IDOR guard — verify the caller's tenant owns the parent event.
+  const parent = await assertTenantOwnsParent<{
+    id: string;
+    tenantId: string;
+    referenceNumber: string;
+  }>(session, "fda483Event", parsed.data.eventId, { referenceNumber: true });
+  if (!parent) return { success: false, error: "FORBIDDEN" };
   try {
     const commitment = await prisma.fDA483Commitment.create({
       data: {
@@ -230,12 +248,13 @@ export async function addCommitment(
     });
     await prisma.auditLog.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId: parent.tenantId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "FDA 483",
         action: "COMMITMENT_ADDED",
         recordId: parsed.data.eventId,
+        recordTitle: parent.referenceNumber,
       },
     });
     revalidatePath("/fda-483");

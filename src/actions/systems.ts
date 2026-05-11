@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
+import { assertTenantOwnsParent } from "@/lib/tenantScope";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -396,6 +397,14 @@ export async function addRoadmapActivity(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  // IDOR guard — verify the caller's tenant owns the parent system.
+  // RoadmapActivity has no tenantId column (scopes via system.tenantId).
+  const parent = await assertTenantOwnsParent<{
+    id: string;
+    tenantId: string;
+    name: string;
+  }>(session, "gxpSystem", parsed.data.systemId, { name: true });
+  if (!parent) return { success: false, error: "FORBIDDEN" };
   try {
     const activity = await prisma.roadmapActivity.create({
       data: {
@@ -411,13 +420,13 @@ export async function addRoadmapActivity(
     });
     await prisma.auditLog.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId: parent.tenantId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "CSV/CSA",
         action: "ROADMAP_ACTIVITY_ADDED",
         recordId: parsed.data.systemId,
-        recordTitle: parsed.data.title,
+        recordTitle: `${parent.name} — ${parsed.data.title}`,
       },
     });
     revalidatePath("/csv-csa");
