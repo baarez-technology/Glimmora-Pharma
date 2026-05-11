@@ -28,6 +28,7 @@ import {
   loadCommentsForCAPA,
 } from "@/actions/capa-comments";
 import type { CAPA } from "@/store/capa.slice";
+import { STATUS_LABEL } from "@/types/capa";
 import {
   buildCommentTree,
   initialsFor,
@@ -731,7 +732,7 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
             borderTop: "1px solid var(--bg-border)",
           }}
         >
-          Discussion frozen — CAPA is {capa.status}.
+          Discussion frozen — CAPA is {STATUS_LABEL[capa.status]}.
         </p>
       )}
 

@@ -69,7 +69,15 @@ export function CAPATrackerTab({
     if (statusFilter && c.status !== statusFilter) return false;
     if (riskFilter && c.risk !== riskFilter) return false;
     if (sourceFilter && c.source !== sourceFilter) return false;
-    if (search && !c.id.toLowerCase().includes(search.toLowerCase()) && !c.description.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      // Match against the human-readable reference first (what users see),
+      // the raw cuid (for copy-paste from logs), and the description.
+      const referenceMatch = c.reference?.toLowerCase().includes(q) ?? false;
+      const idMatch = c.id.toLowerCase().includes(q);
+      const descriptionMatch = c.description.toLowerCase().includes(q);
+      if (!referenceMatch && !idMatch && !descriptionMatch) return false;
+    }
     return true;
   });
 
@@ -114,18 +122,30 @@ export function CAPATrackerTab({
           <table className="data-table" aria-label="CAPA register">
             <caption className="sr-only">Corrective and preventive actions with RCA, status and closure tracking</caption>
             <thead><tr>
-              <th scope="col">CAPA ID</th>
+              <th scope="col">Reference</th>
               {showSiteColumn && <th scope="col">Site</th>}
               <th scope="col">Source</th><th scope="col">Description</th>
               <th scope="col">Risk</th><th scope="col">Status</th><th scope="col">Owner</th>
               <th scope="col">Due date</th><th scope="col" title="90-day effectiveness check status">Effectiveness</th><th scope="col"><span className="sr-only">Open</span></th>
             </tr></thead>
             <tbody>
-              {displayed.map((c) => (
+              {displayed.map((c) => {
+                // Mirrors CAPADetailModal: prefer the per-tenant reference;
+                // fall back to a stable legacy label rather than exposing the
+                // raw cuid, which carries no domain meaning. The cuid stays
+                // available on hover (title) for support / log lookups.
+                const referenceDisplay = c.reference ?? `CAPA-LEGACY-${c.id.slice(0, 8)}`;
+                return (
                 <tr key={c.id} onClick={() => onSelectCAPA(c)} className="cursor-pointer" aria-selected={selectedCAPA?.id === c.id}
                   style={selectedCAPA?.id === c.id ? { background: isDark ? "#0c2f5a" : "#eff6ff" } : {}}>
                   <th scope="row">
-                    <div className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{c.id}</div>
+                    <div
+                      className="font-mono text-[11px] font-semibold"
+                      style={{ color: "var(--text-primary)" }}
+                      title={c.id}
+                    >
+                      {referenceDisplay}
+                    </div>
                     {c.findingId && <div className="flex items-center gap-1 mt-0.5"><Link2 className="w-3 h-3 text-[#0ea5e9]" aria-hidden="true" /><span className="text-[10px] text-[#0ea5e9]">{c.findingId}</span></div>}
                   </th>
                   {showSiteColumn && <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{siteName(c.siteId)}</td>}
@@ -139,9 +159,10 @@ export function CAPATrackerTab({
                     {isOverdue(c) && <div className="text-[10px] text-[#ef4444] font-medium">Overdue</div>}
                   </td>
                   <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4 text-[#10b981]" aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
-                  <td><Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${c.id} detail`} /></td>
+                  <td><Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${referenceDisplay} detail`} /></td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

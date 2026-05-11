@@ -351,6 +351,7 @@ export function LoginPage() {
               <input
                 id="password"
                 type="password"
+                suppressHydrationWarning
                 autoComplete="current-password"
                 placeholder="Enter your passcode"
                 required
@@ -484,6 +485,7 @@ export function LoginPage() {
                 id="otp-input"
                 ref={otpInputRef}
                 type="text"
+                suppressHydrationWarning
                 inputMode="numeric"
                 pattern="[0-9]*"
                 maxLength={6}

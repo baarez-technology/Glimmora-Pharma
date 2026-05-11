@@ -289,7 +289,7 @@ export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePa
        (`<CAPA reference> · <category>`) differs from pushUploaded's. */
     capaEvidenceFiles.forEach((ef) => {
       const capa = ef.evidenceItem.capa;
-      const capaRef = capa.reference ?? capa.id;
+      const capaRef = capa.reference ?? `CAPA-LEGACY-${capa.id.slice(0, 8)}`;
       const humanCategory = ef.evidenceItem.category
         .toLowerCase()
         .split("_")

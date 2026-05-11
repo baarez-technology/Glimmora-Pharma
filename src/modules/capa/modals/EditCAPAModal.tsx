@@ -63,7 +63,7 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
   if (!capa) return null;
 
   return (
-    <Modal open={isOpen} onClose={onClose} title={`Edit ${capa.id}`} className="max-w-2xl">
+    <Modal open={isOpen} onClose={onClose} title={`Edit ${capa.reference ?? "CAPA"}`} className="max-w-2xl">
       <form onSubmit={form.handleSubmit(onSave)} aria-label="Edit CAPA" noValidate className="space-y-4">
         <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Basic information</p>
         <div className="grid grid-cols-2 gap-4">

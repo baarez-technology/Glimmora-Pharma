@@ -98,8 +98,8 @@ export function SignApprovalModal({
           </p>
           <p className="mt-1">
             CAPA:{" "}
-            <strong style={{ color: "var(--text-primary)" }}>
-              {capa.reference ?? capa.id}
+            <strong style={{ color: "var(--text-primary)" }} title={capa.id}>
+              {capa.reference ?? `CAPA-LEGACY-${capa.id.slice(0, 8)}`}
             </strong>
             {" — risk: "}
             <strong style={{ color: "var(--text-primary)" }}>{capa.risk}</strong>
