@@ -314,7 +314,7 @@ export function LoginPage() {
     // render the raw JSON in the browser.
     try {
       if (typeof window !== "undefined" && window.location.search) {
-        window.history.replaceState({}, "", window.pathname);
+        window.history.replaceState({}, "", window.location.pathname);
       }
     } catch { /* ignore */ }
 

@@ -97,7 +97,7 @@ interface SubPlan {
   status: "Active" | "Inactive";
 }
 
-function SubscriptionPlansModal({
+export function SubscriptionPlansModal({
   open,
   onClose,
   plans,
@@ -551,6 +551,7 @@ function AccountDrawer({
 
 interface CustomerAccountsPageProps {
   initialTenants?: Tenant[];
+  isSuperAdmin?: boolean;
 }
 
 export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPageProps = {}) {
@@ -958,7 +959,7 @@ export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPagePro
                 const effective = isTenantEffectivelyActive(tenant);
                 const reason = getInactiveReason(tenant);
                 const activeSub = (tenant.subscriptionPlans ?? []).find((p) => (p.status ?? "").toLowerCase() === "active");
-                const expiry = activeSub ? ((activeSub as Record<string, unknown>).expiryDate ?? activeSub.endDate) as string | undefined : undefined;
+                const expiry = activeSub ? ((activeSub as unknown as Record<string, unknown>).expiryDate ?? activeSub.endDate) as string | undefined : undefined;
                 const initial = tenant.name.charAt(0).toUpperCase();
                 return (
                   <tr key={tenant.id}>

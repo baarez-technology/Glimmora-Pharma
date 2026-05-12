@@ -1,34 +1,69 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
-import {
-  FileText, Download, Filter, X, RefreshCw,
-} from "lucide-react";
+"use client";
+
+import { useMemo, useState } from "react";
+import { FileText, Download, Filter, Search, X } from "lucide-react";
+import type { AuditLog } from "@prisma/client";
 import dayjs from "@/lib/dayjs";
-import { useAppSelector } from "@/hooks/useAppSelector";
-import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
-import { setAuditFilter, clearAuditFilters } from "@/store/auditTrail.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/shared";
-import { auditAll, AiBackendError, selectAiToken } from "@/lib/aiBackend";
 
-interface AiAuditEntry {
-  audit_id: string;
-  action_type: string;
-  feature_id: string;
-  record_id: string;
-  username: string;
-  status: string;
-  timestamp: string;
-}
+const MODULES = [
+  "all",
+  "Gap Assessment",
+  "CAPA",
+  "Deviation Management",
+  "FDA 483",
+  "CSV/CSA",
+  "Evidence & Documents",
+  "Governance",
+  "Inspection Readiness",
+  "Settings",
+  "Admin",
+  "AGI Console",
+];
 
-const MODULES = ["all", "Gap Assessment", "CAPA Tracker", "FDA 483", "CSV/CSA", "Evidence & Documents", "Governance", "Inspection Readiness", "Settings", "Auth"];
-const ACTION_GROUPS = ["all", "Created", "Updated", "Status Changed", "Signed", "Submitted", "Deleted"];
+const ACTION_GROUPS = [
+  "all",
+  "Created",
+  "Updated",
+  "Status Changed",
+  "Signed",
+  "Submitted",
+  "Deleted",
+];
 
-const CRITICAL_ACTIONS = new Set(["CAPA_SIGNED_AND_CLOSED", "RESPONSE_SUBMITTED", "RESPONSE_SIGNED", "USER_DELETED"]);
-const STATUS_ACTIONS = new Set(["CAPA_STATUS_CHANGED", "FINDING_STATUS_CHANGED", "VALIDATION_STAGE_UPDATED", "DI_STATUS_UPDATED", "DI_GATE_CLEARED"]);
-const CREATE_ACTIONS = new Set(["FINDING_CREATED", "CAPA_CREATED", "EVENT_CREATED", "SYSTEM_ADDED", "DOCUMENT_ADDED", "RAID_ITEM_ADDED", "USER_CREATED", "SITE_ADDED", "OBSERVATION_ADDED", "SIMULATION_SCHEDULED"]);
+const CRITICAL_ACTIONS = new Set([
+  "CAPA_CLOSED",
+  "FDA483_RESPONSE_SUBMITTED",
+  "DEVIATION_CLOSED",
+  "USER_DELETED",
+  "TENANT_DELETED",
+]);
+const STATUS_ACTIONS = new Set([
+  "FDA483_STATUS_CHANGED",
+  "STAGE_APPROVED",
+  "STAGE_REJECTED",
+  "CAPA_DI_GATE_CLEARED",
+  "CAPA_SUBMITTED_FOR_REVIEW",
+]);
+const CREATE_ACTIONS = new Set([
+  "FINDING_CREATED",
+  "CAPA_CREATED",
+  "DEVIATION_CREATED",
+  "FDA483_EVENT_CREATED",
+  "SYSTEM_CREATED",
+  "DOCUMENT_UPLOADED",
+  "RAID_ITEM_CREATED",
+  "INSPECTION_CREATED",
+  "USER_CREATED",
+  "SITE_CREATED",
+  "OBSERVATION_ADDED",
+  "TENANT_CREATED",
+  "RTM_ENTRY_CREATED",
+]);
 
 function actionColor(action: string): string {
   if (CRITICAL_ACTIONS.has(action)) return "#ef4444";
@@ -40,103 +75,131 @@ function actionColor(action: string): string {
 function actionGroupMatch(action: string, group: string): boolean {
   if (group === "all") return true;
   const a = action.toLowerCase();
-  if (group === "Created") return a.includes("created") || a.includes("added") || a.includes("scheduled");
-  if (group === "Updated") return a.includes("updated") || a.includes("enabled") || a.includes("disabled") || a.includes("changed") || a.includes("cleared");
-  if (group === "Status Changed") return a.includes("status") || a.includes("gate");
-  if (group === "Signed") return a.includes("signed") || a.includes("closed");
-  if (group === "Submitted") return a.includes("submitted") || a.includes("drafted");
-  if (group === "Deleted") return a.includes("deleted") || a.includes("removed") || a.includes("reopened");
+  if (group === "Created") return a.includes("created") || a.includes("uploaded") || a.includes("added");
+  if (group === "Updated") return a.includes("updated") || a.includes("toggled") || a.includes("cleared") || a.includes("approved");
+  if (group === "Status Changed") return a.includes("status") || a.includes("gate") || a.includes("rejected");
+  if (group === "Signed") return a.includes("closed") || a.includes("signed");
+  if (group === "Submitted") return a.includes("submitted");
+  if (group === "Deleted") return a.includes("deleted") || a.includes("reopened");
   return true;
 }
 
 function formatAction(action: string): string {
   return action
     .replace(/_/g, " ")
+    .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .replace("Capa", "CAPA")
     .replace("Di ", "DI ")
     .replace("Fda", "FDA")
     .replace("Rca", "RCA")
     .replace("Agi", "AGI")
-    .replace("Raid", "RAID");
+    .replace("Raid", "RAID")
+    .replace("Rtm", "RTM")
+    .replace("Csv", "CSV");
 }
 
-export function AuditTrailPage() {
-  const dispatch = useAppDispatch();
-  const entries = useAppSelector((s) => s.auditTrail.entries);
-  const filters = useAppSelector((s) => s.auditTrail.filters);
+interface AuditTrailPageProps {
+  logs: AuditLog[];
+  /** Total audit-log rows in the tenant — may exceed `logs.length` when
+   *  the loaded slice is capped. Used for the truncation notice and the
+   *  summary row so the user always sees the true population size. */
+  totalCount: number;
+  /** True when totalCount > limit and the visible slice is the most-recent
+   *  `limit` rows. Drives the standalone notice rendered above the
+   *  filters. Filters and CSV export still operate on the loaded slice
+   *  only — server-side date-range filtering is a separate change. */
+  truncated: boolean;
+  /** The cap applied by `getAuditLogs`. Surfaced for the notice so the
+   *  message stays correct if the cap is ever changed in one place. */
+  limit: number;
+}
+
+interface LocalFilters {
+  module: string;
+  action: string;
+  userId: string;
+  search: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
+const EMPTY_FILTERS: LocalFilters = {
+  module: "all",
+  action: "all",
+  userId: "all",
+  search: "",
+  dateFrom: "",
+  dateTo: "",
+};
+
+export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrailPageProps) {
   const { users, org } = useTenantConfig();
   const timezone = org.timezone;
+  const [filters, setFilters] = useState<LocalFilters>(EMPTY_FILTERS);
 
-  // Source toggle — local Redux audit log vs AI backend's /api/v1/audit/all.
-  const [source, setSource] = useState<"local" | "ai">("local");
-  const aiToken = useAppSelector(selectAiToken);
-  const [aiEntries, setAiEntries] = useState<AiAuditEntry[]>([]);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
+  const setFilter = (key: keyof LocalFilters, value: string) =>
+    setFilters((prev) => ({ ...prev, [key]: value }));
 
-  const loadAi = useCallback(async () => {
-    if (!aiToken) {
-      setAiError("AI session is missing. Sign out and sign in again.");
-      return;
-    }
-    setAiLoading(true);
-    setAiError(null);
-    try {
-      const res = await auditAll(aiToken);
-      const list = (res && typeof res === "object" && "audit_logs" in res && Array.isArray((res as { audit_logs?: unknown }).audit_logs))
-        ? ((res as { audit_logs: AiAuditEntry[] }).audit_logs)
-        : [];
-      setAiEntries(list);
-    } catch (e) {
-      setAiError(e instanceof AiBackendError ? e.message : e instanceof Error ? e.message : "Audit fetch failed");
-    } finally {
-      setAiLoading(false);
-    }
-  }, [aiToken]);
-
-  useEffect(() => { if (source === "ai") void loadAi(); }, [source, loadAi]);
-
-  const anyFilter = filters.module !== "all" || filters.action !== "all" || filters.userId !== "all" || filters.dateFrom !== "" || filters.dateTo !== "";
+  const anyFilter =
+    filters.module !== "all" ||
+    filters.action !== "all" ||
+    filters.userId !== "all" ||
+    filters.search.trim() !== "" ||
+    filters.dateFrom !== "" ||
+    filters.dateTo !== "";
 
   const filtered = useMemo(() => {
-    let result = entries;
+    let result = logs;
     if (filters.module !== "all") result = result.filter((e) => e.module === filters.module);
     if (filters.action !== "all") result = result.filter((e) => actionGroupMatch(e.action, filters.action));
     if (filters.userId !== "all") result = result.filter((e) => e.userId === filters.userId);
+    if (filters.search.trim()) {
+      const q = filters.search.toLowerCase();
+      result = result.filter(
+        (e) =>
+          e.userName.toLowerCase().includes(q) ||
+          e.action.toLowerCase().includes(q) ||
+          e.module.toLowerCase().includes(q) ||
+          (e.recordTitle ?? "").toLowerCase().includes(q) ||
+          (e.recordId ?? "").toLowerCase().includes(q),
+      );
+    }
     if (filters.dateFrom) {
       const from = dayjs(filters.dateFrom).startOf("day");
-      result = result.filter((e) => dayjs(e.timestamp).isAfter(from) || dayjs(e.timestamp).isSame(from));
+      result = result.filter((e) => dayjs(e.createdAt).isAfter(from) || dayjs(e.createdAt).isSame(from));
     }
     if (filters.dateTo) {
       const to = dayjs(filters.dateTo).endOf("day");
-      result = result.filter((e) => dayjs(e.timestamp).isBefore(to) || dayjs(e.timestamp).isSame(to));
+      result = result.filter((e) => dayjs(e.createdAt).isBefore(to) || dayjs(e.createdAt).isSame(to));
     }
     return result;
-  }, [entries, filters]);
+  }, [logs, filters]);
 
   function exportCSV() {
     const header = "Timestamp,User,Role,Module,Action,Record ID,Record Title,Old Value,New Value";
     const rows = filtered.map((e) =>
       [
-        dayjs.utc(e.timestamp).tz(timezone).format("DD/MM/YYYY HH:mm"),
-        `"${e.userName}"`,
-        `"${e.userRole}"`,
-        `"${e.module}"`,
+        dayjs(e.createdAt).tz(timezone).format("DD/MM/YYYY HH:mm"),
+        `"${e.userName.replace(/"/g, '""')}"`,
+        `"${(e.userRole ?? "").replace(/"/g, '""')}"`,
+        `"${e.module.replace(/"/g, '""')}"`,
         formatAction(e.action),
-        e.recordId,
-        `"${e.recordTitle}"`,
-        `"${e.oldValue ?? ""}"`,
-        `"${e.newValue ?? ""}"`,
-      ].join(",")
+        e.recordId ?? "",
+        `"${(e.recordTitle ?? "").replace(/"/g, '""')}"`,
+        `"${(e.oldValue ?? "").replace(/"/g, '""')}"`,
+        `"${(e.newValue ?? "").replace(/"/g, '""')}"`,
+      ].join(","),
     );
     const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `audit-trail-${dayjs().format("YYYY-MM-DD")}.csv`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
@@ -145,98 +208,57 @@ export function AuditTrailPage() {
       <PageHeader
         title="Audit Trail"
         subtitle={
-          source === "local"
-            ? `Complete compliance log \u2014 ${entries.length} entries recorded`
-            : `AI backend audit log \u2014 ${aiEntries.length} entries`
+          filtered.length === logs.length
+            ? truncated
+              ? `${totalCount} entries in audit log`
+              : `${totalCount} entries · Complete compliance log`
+            : `${filtered.length} entries (filtered from ${logs.length} loaded)`
         }
         actions={
-          source === "local"
-            ? <Button variant="secondary" size="sm" icon={Download} onClick={exportCSV}>Export CSV</Button>
-            : <Button variant="secondary" size="sm" icon={RefreshCw} loading={aiLoading} onClick={loadAi}>Refresh</Button>
+          <Button variant="secondary" size="sm" icon={Download} onClick={exportCSV} disabled={filtered.length === 0}>
+            Export CSV
+          </Button>
         }
       />
 
-      {/* Source toggle */}
-      <div role="tablist" aria-label="Audit source" className="flex gap-1 border-b border-(--bg-border)">
-        <button
-          type="button" role="tab" aria-selected={source === "local"}
-          onClick={() => setSource("local")}
-          className="inline-flex items-center gap-2 px-4 py-2.5 text-[12px] font-semibold border-b-2 -mb-px bg-transparent border-x-0 border-t-0 cursor-pointer outline-none"
-          style={{
-            borderBottomColor: source === "local" ? "var(--brand)" : "transparent",
-            color: source === "local" ? "var(--brand)" : "var(--text-muted)",
-          }}
-        >Local</button>
-        <button
-          type="button" role="tab" aria-selected={source === "ai"}
-          onClick={() => setSource("ai")}
-          className="inline-flex items-center gap-2 px-4 py-2.5 text-[12px] font-semibold border-b-2 -mb-px bg-transparent border-x-0 border-t-0 cursor-pointer outline-none"
-          style={{
-            borderBottomColor: source === "ai" ? "var(--brand)" : "transparent",
-            color: source === "ai" ? "var(--brand)" : "var(--text-muted)",
-          }}
-        >AI Backend</button>
-      </div>
-
-      {/* AI backend view \u2014 separate table, simpler shape from /api/v1/audit/all */}
-      {source === "ai" && (
-        <>
-          {aiError && (
-            <div role="alert" className="rounded-lg px-3 py-2 text-[12px]" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger)" }}>
-              {aiError}
-            </div>
-          )}
-          <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="data-table" style={{ minWidth: 800 }} aria-label="AI backend audit entries">
-                <thead>
-                  <tr>
-                    <th scope="col">Timestamp</th>
-                    <th scope="col">User</th>
-                    <th scope="col">Action</th>
-                    <th scope="col">Feature</th>
-                    <th scope="col">Record</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Audit ID</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {aiLoading && aiEntries.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-6 text-[12px]" style={{ color: "var(--text-muted)" }}>Loading\u2026</td></tr>
-                  ) : aiEntries.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-8">
-                      <FileText className="w-8 h-8 mx-auto mb-2" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-                      <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No AI backend audit entries yet</p>
-                    </td></tr>
-                  ) : aiEntries.map((e) => (
-                    <tr key={e.audit_id}>
-                      <td className="text-[11px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{dayjs.utc(e.timestamp).tz(timezone).format("DD/MM/YYYY HH:mm")}</td>
-                      <td className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{e.username}</td>
-                      <td className="text-[11px] font-mono" style={{ color: "var(--brand)" }}>{e.action_type}</td>
-                      <td><Badge variant="gray">{e.feature_id}</Badge></td>
-                      <td className="text-[11px] font-mono" style={{ color: "var(--text-secondary)" }}>{e.record_id}</td>
-                      <td>
-                        <Badge variant={e.status === "success" ? "green" : "red"}>{e.status}</Badge>
-                      </td>
-                      <td className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>{e.audit_id}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
+      {/* Truncation notice — only rendered when the total population in the
+       *  DB exceeds the display limit. Wording is the literal product spec;
+       *  `limit` and the older-entry count interpolate so the math stays
+       *  correct if AUDIT_LOG_DISPLAY_LIMIT in src/lib/queries/governance.ts
+       *  changes in one place. */}
+      {truncated && (
+        <div role="status" className="alert alert-warning text-[12px]">
+          Showing the {limit} most recent entries. {totalCount - limit} older entries are not displayed.
+        </div>
       )}
-
-      {source === "local" && <>
 
       {/* Filters */}
       <div className="flex items-end gap-3 flex-wrap">
+        <div className="relative">
+          <p className="text-[10px] font-medium mb-1" style={{ color: "var(--text-muted)" }}>
+            Search
+          </p>
+          <div className="relative">
+            <Search
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+              style={{ color: "var(--text-muted)" }}
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              className="input text-[12px] pl-8"
+              placeholder="User, action, module..."
+              value={filters.search}
+              onChange={(e) => setFilter("search", e.target.value)}
+              style={{ width: 220 }}
+            />
+          </div>
+        </div>
         <div>
           <p className="text-[10px] font-medium mb-1" style={{ color: "var(--text-muted)" }}>Module</p>
           <Dropdown
             value={filters.module}
-            onChange={(v) => dispatch(setAuditFilter({ module: v }))}
+            onChange={(v) => setFilter("module", v)}
             options={MODULES.map((m) => ({ value: m, label: m === "all" ? "All modules" : m }))}
             width="w-44"
           />
@@ -245,7 +267,7 @@ export function AuditTrailPage() {
           <p className="text-[10px] font-medium mb-1" style={{ color: "var(--text-muted)" }}>Action</p>
           <Dropdown
             value={filters.action}
-            onChange={(v) => dispatch(setAuditFilter({ action: v }))}
+            onChange={(v) => setFilter("action", v)}
             options={ACTION_GROUPS.map((a) => ({ value: a, label: a === "all" ? "All actions" : a }))}
             width="w-40"
           />
@@ -254,7 +276,7 @@ export function AuditTrailPage() {
           <p className="text-[10px] font-medium mb-1" style={{ color: "var(--text-muted)" }}>User</p>
           <Dropdown
             value={filters.userId}
-            onChange={(v) => dispatch(setAuditFilter({ userId: v }))}
+            onChange={(v) => setFilter("userId", v)}
             options={[{ value: "all", label: "All users" }, ...users.map((u) => ({ value: u.id, label: u.name }))]}
             width="w-44"
           />
@@ -265,7 +287,7 @@ export function AuditTrailPage() {
             type="date"
             className="input text-[12px]"
             value={filters.dateFrom}
-            onChange={(e) => dispatch(setAuditFilter({ dateFrom: e.target.value }))}
+            onChange={(e) => setFilter("dateFrom", e.target.value)}
             style={{ width: 140 }}
           />
         </div>
@@ -275,18 +297,25 @@ export function AuditTrailPage() {
             type="date"
             className="input text-[12px]"
             value={filters.dateTo}
-            onChange={(e) => dispatch(setAuditFilter({ dateTo: e.target.value }))}
+            onChange={(e) => setFilter("dateTo", e.target.value)}
             style={{ width: 140 }}
           />
         </div>
-        {anyFilter && <Button variant="ghost" size="sm" icon={X} onClick={() => dispatch(clearAuditFilters())}>Clear</Button>}
+        {anyFilter && (
+          <Button variant="ghost" size="sm" icon={X} onClick={() => setFilters(EMPTY_FILTERS)}>
+            Clear
+          </Button>
+        )}
       </div>
 
       {/* Summary row */}
       <div className="flex items-center gap-3 text-[12px]" style={{ color: "var(--text-secondary)" }}>
         <Filter className="w-3.5 h-3.5" aria-hidden="true" />
-        <span>{filtered.length} of {entries.length} entries</span>
-        <span className="mx-1">&middot;</span>
+        <span>
+          {filtered.length} of {logs.length}
+          {truncated && ` loaded · ${totalCount} total`} entries
+        </span>
+        <span className="mx-1">·</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#ef4444]" /> Critical</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#f59e0b]" /> Status changes</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10b981]" /> Creates</span>
@@ -300,7 +329,9 @@ export function AuditTrailPage() {
             <caption className="sr-only">Complete audit trail log sorted by newest first</caption>
             <thead>
               <tr>
-                <th scope="col" style={{ width: 20 }}><span className="sr-only">Severity</span></th>
+                <th scope="col" style={{ width: 20 }}>
+                  <span className="sr-only">Severity</span>
+                </th>
                 <th scope="col">Timestamp</th>
                 <th scope="col">User</th>
                 <th scope="col">Role</th>
@@ -316,33 +347,61 @@ export function AuditTrailPage() {
                 <tr>
                   <td colSpan={9} className="text-center py-8">
                     <FileText className="w-8 h-8 mx-auto mb-2" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-                    <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No entries match your filters</p>
+                    <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                      {logs.length === 0 ? "No audit entries yet — perform an action to populate the log" : "No entries match your filters"}
+                    </p>
                   </td>
                 </tr>
-              ) : filtered.map((e) => {
-                const col = actionColor(e.action);
-                return (
-                  <tr key={e.id}>
-                    <td><div className="w-2.5 h-2.5 rounded-full mx-auto" style={{ background: col }} title={CRITICAL_ACTIONS.has(e.action) ? "Critical" : STATUS_ACTIONS.has(e.action) ? "Status change" : CREATE_ACTIONS.has(e.action) ? "Create" : "Other"} /></td>
-                    <td className="text-[11px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{dayjs.utc(e.timestamp).tz(timezone).format("DD/MM/YYYY HH:mm")}</td>
-                    <td className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{e.userName}</td>
-                    <td><Badge variant="gray">{e.userRole}</Badge></td>
-                    <td className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{e.module}</td>
-                    <td className="text-[11px] font-mono" style={{ color: col }}>{formatAction(e.action)}</td>
-                    <td>
-                      <p className="text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{e.recordId}</p>
-                      <p className="text-[11px] line-clamp-1" style={{ color: "var(--text-secondary)", maxWidth: 200 }}>{e.recordTitle}</p>
-                    </td>
-                    <td className="text-[11px]" style={{ color: "var(--text-muted)" }}>{e.oldValue ?? "\u2014"}</td>
-                    <td className="text-[11px] font-medium" style={{ color: e.newValue ? "var(--text-primary)" : "var(--text-muted)" }}>{e.newValue ?? "\u2014"}</td>
-                  </tr>
-                );
-              })}
+              ) : (
+                filtered.map((e) => {
+                  const col = actionColor(e.action);
+                  return (
+                    <tr key={e.id}>
+                      <td>
+                        <div
+                          className="w-2.5 h-2.5 rounded-full mx-auto"
+                          style={{ background: col }}
+                          title={
+                            CRITICAL_ACTIONS.has(e.action)
+                              ? "Critical"
+                              : STATUS_ACTIONS.has(e.action)
+                                ? "Status change"
+                                : CREATE_ACTIONS.has(e.action)
+                                  ? "Create"
+                                  : "Other"
+                          }
+                        />
+                      </td>
+                      <td className="text-[11px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                        {dayjs(e.createdAt).tz(timezone).format("DD/MM/YYYY HH:mm")}
+                      </td>
+                      <td className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>
+                        {e.userName}
+                      </td>
+                      <td><Badge variant="gray">{e.userRole ?? "—"}</Badge></td>
+                      <td className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{e.module}</td>
+                      <td className="text-[11px] font-mono" style={{ color: col }}>{formatAction(e.action)}</td>
+                      <td>
+                        <p className="text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{e.recordId ?? "—"}</p>
+                        <p className="text-[11px] line-clamp-1" style={{ color: "var(--text-secondary)", maxWidth: 200 }}>
+                          {e.recordTitle ?? ""}
+                        </p>
+                      </td>
+                      <td className="text-[11px]" style={{ color: "var(--text-muted)" }}>{e.oldValue ?? "—"}</td>
+                      <td
+                        className="text-[11px] font-medium"
+                        style={{ color: e.newValue ? "var(--text-primary)" : "var(--text-muted)" }}
+                      >
+                        {e.newValue ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
-      </>}
     </main>
   );
 }

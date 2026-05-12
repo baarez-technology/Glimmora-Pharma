@@ -1,13 +1,15 @@
-import { useState, useMemo } from "react";
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import clsx from "clsx";
 import {
   AlertTriangle, Plus, Search, ChevronRight, Clock, CheckCircle2,
   ClipboardList, ShieldCheck, X, Info,
 } from "lucide-react";
+import type { Deviation as PrismaDeviation } from "@prisma/client";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -16,12 +18,16 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
-  addDeviation, updateDeviation, closeDeviation, rejectDeviation,
-  linkCAPAToDeviation, addDeviationDocument, removeDeviationDocument,
-  type Deviation, type DeviationStatus, type DeviationSeverity,
+  setDeviations, addDeviationDocument, removeDeviationDocument,
+  type DeviationSeverity,
 } from "@/store/deviation.slice";
-import { addCAPA, type CAPARisk } from "@/store/capa.slice";
-import { auditLog } from "@/lib/audit";
+import {
+  createDeviation as createDeviationAction,
+  updateDeviation as updateDeviationAction,
+  closeDeviation as closeDeviationAction,
+  rejectDeviation as rejectDeviationAction,
+} from "@/actions/deviations";
+import { createCAPA as createCAPAAction } from "@/actions/capas";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
@@ -29,42 +35,30 @@ import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
 import { PageHeader, StatCard, DocumentUpload, StatusGuide } from "@/components/shared";
 import { DEVIATION_STATUSES } from "@/constants/statusTaxonomy";
-
-/* ── Constants ── */
-const STATUS_VARIANT: Record<DeviationStatus, "gray" | "blue" | "amber" | "purple" | "green" | "red"> = {
-  draft: "gray", open: "blue", under_investigation: "amber", pending_qa_review: "purple", closed: "green", rejected: "red",
-};
-const STATUS_LABEL: Record<DeviationStatus, string> = {
-  draft: "Draft", open: "Open", under_investigation: "Under Investigation", pending_qa_review: "Pending QA Review", closed: "Closed", rejected: "Rejected",
-};
-const SEV_VARIANT: Record<DeviationSeverity, "red" | "amber" | "green"> = { critical: "red", major: "amber", minor: "green" };
-const IMPACT_COLOR: Record<string, string> = { high: "#ef4444", medium: "#f59e0b", low: "#10b981", none: "#64748b" };
-const CATEGORIES = ["process", "equipment", "material", "environmental", "personnel", "documentation", "system", "other"];
-const AREAS = ["QC Lab", "Manufacturing", "Warehouse", "Utilities", "QMS", "R&D", "Packaging"];
-
-const addSchema = z.object({
-  title: z.string().min(5, "Title required (min 5 chars)"),
-  description: z.string().min(10, "Description required"),
-  type: z.enum(["planned", "unplanned"]),
-  category: z.enum(["process", "equipment", "material", "environmental", "personnel", "documentation", "system", "other"]),
-  severity: z.enum(["critical", "major", "minor"]),
-  area: z.string().min(1, "Area required"),
-  immediateAction: z.string().min(5, "Immediate action required"),
-  patientSafetyImpact: z.enum(["high", "medium", "low", "none"]),
-  productQualityImpact: z.enum(["high", "medium", "low", "none"]),
-  regulatoryImpact: z.enum(["high", "medium", "low", "none"]),
-  owner: z.string().min(1, "Owner required"),
-  dueDate: z.string().min(1, "Due date required"),
-  batchesAffected: z.string().optional(),
-  raiseCAPA: z.boolean().optional(),
-});
-type AddForm = z.infer<typeof addSchema>;
+import {
+  STATUS_VARIANT, STATUS_LABEL, SEV_VARIANT, IMPACT_COLOR, CATEGORIES, AREAS,
+} from "./DeviationPage.constants";
+import { addSchema, type AddForm } from "./DeviationPage.schemas";
+import { adaptDeviation } from "./DeviationPage.adapter";
 
 /* ══════════════════════════════════════ */
 
-export function DeviationPage() {
+export interface DeviationPageProps {
+  /** Server-fetched deviations (Prisma rows) — seeded into Redux on mount. */
+  deviations?: PrismaDeviation[];
+}
+
+export function DeviationPage({ deviations: serverDeviations }: DeviationPageProps = {}) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+
+  // Seed Redux from server-fetched deviations on mount / when props change.
+  useEffect(() => {
+    if (serverDeviations) {
+      dispatch(setDeviations(serverDeviations.map(adaptDeviation)));
+    }
+  }, [serverDeviations, dispatch]);
+
   const deviations = useAppSelector((s) => s.deviation.items);
   const user = useAppSelector((s) => s.auth.user);
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
@@ -95,9 +89,19 @@ export function DeviationPage() {
   const [closeModal, setCloseModal] = useState(false);
   const [rejectModal, setRejectModal] = useState(false);
   const [closeNotes, setCloseNotes] = useState("");
+  const [closePassword, setClosePassword] = useState("");
+  const [closeError, setCloseError] = useState<string | null>(null);
+  const [closeBusy, setCloseBusy] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [successPopup, setSuccessPopup] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
+  // Failure surface — paired with successPopup above. Server actions
+  // that reject (FORBIDDEN, validation, role gates) route through this so
+  // users see the real reason rather than a silent console.error.
+  // handleClose has its own inline closeError state (rendered inside the
+  // close modal); this popup covers everything else.
+  const [errorPopup, setErrorPopup] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sevFilter, setSevFilter] = useState("");
@@ -117,93 +121,138 @@ export function DeviationPage() {
     defaultValues: { type: "unplanned", severity: "major", patientSafetyImpact: "medium", productQualityImpact: "medium", regulatoryImpact: "medium", raiseCAPA: false },
   });
 
-  function onReport(data: AddForm) {
-    const id = `DEV-${String(tenantDevs.length + 1).padStart(3, "0")}`;
-    const now = new Date().toISOString();
-    const dev: Deviation = {
-      ...data,
-      id, tenantId: tenantId ?? "", siteId: allSites[0]?.id ?? "",
-      detectedBy: user?.id ?? "", detectedDate: now,
-      reportedBy: user?.id ?? "", reportedDate: now,
-      status: "open", documents: [],
-      batchesAffected: data.batchesAffected ? data.batchesAffected.split(",").map((b) => b.trim()).filter(Boolean) : undefined,
+  function severityToRisk(s: DeviationSeverity): "Critical" | "High" | "Medium" | "Low" {
+    if (s === "critical") return "Critical";
+    if (s === "major") return "High";
+    return "Low";
+  }
+
+  async function onReport(data: AddForm) {
+    const result = await createDeviationAction({
+      title: data.title,
+      description: data.description,
+      type: data.type,
+      category: data.category,
+      severity: data.severity,
+      area: data.area,
+      immediateAction: data.immediateAction,
+      patientSafetyImpact: data.patientSafetyImpact,
+      productQualityImpact: data.productQualityImpact,
+      regulatoryImpact: data.regulatoryImpact,
+      owner: data.owner,
       dueDate: dayjs(data.dueDate).utc().toISOString(),
-      createdAt: now, updatedAt: now,
-    };
-    dispatch(addDeviation(dev));
-    auditLog({ action: "DEVIATION_CREATED", module: "Deviation Management", recordId: id, recordTitle: data.title, newValue: data.severity });
-
-    if (data.raiseCAPA) {
-      const capaId = `CAPA-${Date.now().toString().slice(-4)}`;
-      const risk: CAPARisk = data.severity === "critical" ? "Critical" : data.severity === "major" ? "High" : "Low";
-      dispatch(addCAPA({
-        id: capaId, tenantId: tenantId ?? "", siteId: dev.siteId,
-        source: "Deviation", risk, owner: data.owner,
-        dueDate: dev.dueDate, status: "Open",
-        description: `${data.title} (from ${id})`,
-        effectivenessCheck: false, evidenceLinks: [], diGate: false,
-        createdAt: now,
-      }));
-      dispatch(linkCAPAToDeviation({ deviationId: id, capaId }));
-      auditLog({ action: "CAPA_RAISED_FROM_DEVIATION", module: "Deviation Management", recordId: id, recordTitle: `${id} \u2192 ${capaId}`, newValue: capaId });
+      siteId: allSites[0]?.id || undefined,
+      batchesAffected: data.batchesAffected || undefined,
+    });
+    if (!result.success) {
+      setErrorMsg(result.error || "Failed to report deviation. Please try again.");
+      setErrorPopup(true);
+      return;
     }
-
+    const created = result.data as PrismaDeviation;
+    let capaMsg = "";
+    if (data.raiseCAPA) {
+      const capaResult = await createCAPAAction({
+        description: `${data.title} (from ${created.id})`,
+        source: "Deviation",
+        risk: severityToRisk(data.severity),
+        owner: data.owner,
+        dueDate: dayjs(data.dueDate).utc().toISOString(),
+        siteId: created.siteId ?? undefined,
+        linkedDeviationId: created.id,
+      });
+      if (capaResult.success) capaMsg = " + CAPA raised";
+    }
     setAddOpen(false);
     reset();
-    setSuccessMsg(data.raiseCAPA ? `${id} reported + CAPA raised` : `${id} reported`);
+    setSuccessMsg(`${created.id} reported${capaMsg}`);
     setSuccessPopup(true);
+    router.refresh();
   }
 
-  function handleRaiseCAPAFromDetail() {
+
+  async function handleRaiseCAPAFromDetail() {
     if (!selected || !user) return;
-    const capaId = `CAPA-${Date.now().toString().slice(-4)}`;
-    const risk: CAPARisk = selected.severity === "critical" ? "Critical" : selected.severity === "major" ? "High" : "Low";
-    dispatch(addCAPA({
-      id: capaId, tenantId: tenantId ?? "", siteId: selected.siteId,
-      source: "Deviation", risk, owner: selected.owner,
-      dueDate: selected.dueDate, status: "Open",
+    const result = await createCAPAAction({
       description: `${selected.title} (from ${selected.id})`,
-      effectivenessCheck: false, evidenceLinks: [], diGate: false,
-      createdAt: new Date().toISOString(),
-    }));
-    dispatch(linkCAPAToDeviation({ deviationId: selected.id, capaId }));
-    auditLog({ action: "CAPA_RAISED_FROM_DEVIATION", module: "Deviation Management", recordId: selected.id, recordTitle: `${selected.id} \u2192 ${capaId}`, newValue: capaId });
-    setSuccessMsg(`CAPA ${capaId} raised from ${selected.id}`);
+      source: "Deviation",
+      risk: severityToRisk(selected.severity),
+      owner: selected.owner,
+      dueDate: selected.dueDate,
+      siteId: selected.siteId || undefined,
+      linkedDeviationId: selected.id,
+    });
+    if (!result.success) {
+      setErrorMsg(result.error || "Failed to raise CAPA. Please try again.");
+      setErrorPopup(true);
+      return;
+    }
+    const capaData = result.data as { id: string };
+    setSuccessMsg(`CAPA ${capaData.id} raised from ${selected.id}`);
     setSuccessPopup(true);
+    router.refresh();
   }
 
-  function handleClose() {
+  async function handleClose() {
     if (!selected || !user) return;
-    dispatch(closeDeviation({ id: selected.id, closedBy: user.name, notes: closeNotes }));
-    auditLog({ action: "DEVIATION_CLOSED", module: "Deviation Management", recordId: selected.id, recordTitle: selected.title, newValue: "Closed" });
+    setCloseBusy(true);
+    setCloseError(null);
+    const result = await closeDeviationAction(selected.id, {
+      password: closePassword,
+      notes: closeNotes || undefined,
+    });
+    setCloseBusy(false);
+    if (!result.success) {
+      console.error("[deviation] closeDeviation failed:", result.error);
+      setCloseError(result.error);
+      return;
+    }
     setCloseModal(false);
     setCloseNotes("");
+    setClosePassword("");
+    setCloseError(null);
     setSelectedId(null);
     setSuccessMsg(`${selected.id} closed`);
     setSuccessPopup(true);
+    router.refresh();
   }
 
-  function handleReject() {
+  async function handleReject() {
     if (!selected || !user || !rejectReason.trim()) return;
-    dispatch(rejectDeviation({ id: selected.id, rejectedBy: user.name, reason: rejectReason }));
-    auditLog({ action: "DEVIATION_REJECTED", module: "Deviation Management", recordId: selected.id, recordTitle: selected.title, newValue: "Rejected" });
+    const result = await rejectDeviationAction(selected.id, { reason: rejectReason });
+    if (!result.success) {
+      setErrorMsg(result.error || "Failed to reject deviation. Please try again.");
+      setErrorPopup(true);
+      return;
+    }
     setRejectModal(false);
     setRejectReason("");
     setSelectedId(null);
     setSuccessMsg(`${selected.id} rejected — returned to investigation`);
     setSuccessPopup(true);
+    router.refresh();
   }
 
-  function handleSubmitForReview() {
+  async function handleSubmitForReview() {
     if (!selected) return;
-    dispatch(updateDeviation({ id: selected.id, patch: { status: "pending_qa_review" } }));
-    auditLog({ action: "DEVIATION_SUBMITTED_FOR_REVIEW", module: "Deviation Management", recordId: selected.id, recordTitle: selected.title, newValue: "Pending QA Review" });
+    const result = await updateDeviationAction(selected.id, { status: "pending_qa_review" });
+    if (!result.success) {
+      setErrorMsg(result.error || "Failed to submit for review. Please try again.");
+      setErrorPopup(true);
+      return;
+    }
+    router.refresh();
   }
 
-  function handleStartInvestigation() {
+  async function handleStartInvestigation() {
     if (!selected) return;
-    dispatch(updateDeviation({ id: selected.id, patch: { status: "under_investigation" } }));
-    auditLog({ action: "DEVIATION_INVESTIGATION_STARTED", module: "Deviation Management", recordId: selected.id, recordTitle: selected.title, newValue: "Under Investigation" });
+    const result = await updateDeviationAction(selected.id, { status: "under_investigation" });
+    if (!result.success) {
+      setErrorMsg(result.error || "Failed to start investigation. Please try again.");
+      setErrorPopup(true);
+      return;
+    }
+    router.refresh();
   }
 
   return (
@@ -358,7 +407,7 @@ export function DeviationPage() {
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Linked CAPA</p>
               {selected.linkedCAPAId ? (
-                <button type="button" onClick={() => router.push("/capa", { state: { openCapaId: selected.linkedCAPAId } })} className="text-[12px] font-mono text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer p-0">{selected.linkedCAPAId}</button>
+                <button type="button" onClick={() => router.push("/capa")} className="text-[12px] font-mono text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer p-0">{selected.linkedCAPAId}</button>
               ) : selected.status !== "closed" && selected.status !== "rejected" && canReport ? (
                 <Button variant="secondary" size="sm" icon={Plus} onClick={handleRaiseCAPAFromDetail}>Raise CAPA</Button>
               ) : (
@@ -459,13 +508,81 @@ export function DeviationPage() {
       </Modal>
 
       {/* ═══ CLOSE MODAL ═══ */}
-      <Modal open={closeModal} onClose={() => setCloseModal(false)} title="Close Deviation">
+      <Modal
+        open={closeModal}
+        onClose={closeBusy ? () => undefined : () => { setCloseModal(false); setCloseError(null); }}
+        title="Sign &amp; Close Deviation"
+      >
         <div className="space-y-4">
-          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>Deviation <strong>{selected?.id}</strong> will be marked Closed. This action is recorded in the audit trail.</p>
-          <div><p className="text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Closure notes</p><textarea rows={3} className="input w-full resize-none" value={closeNotes} onChange={(e) => setCloseNotes(e.target.value)} placeholder="Summary of investigation outcome..." /></div>
+          <p id="sign-deviation-notice" className="alert alert-info text-[12px]">
+            This is a GxP electronic signature under 21 CFR Part 11. Your
+            identity, the meaning of this signature (Closed), and a content
+            hash will be recorded and cannot be altered.
+          </p>
+          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+            Deviation <strong>{selected?.id}</strong> will be marked Closed.
+          </p>
+          <div>
+            <p className="text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+              Closure notes
+            </p>
+            <textarea
+              rows={3}
+              className="input w-full resize-none"
+              value={closeNotes}
+              onChange={(e) => setCloseNotes(e.target.value)}
+              placeholder="Summary of investigation outcome..."
+              disabled={closeBusy}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="sign-deviation-pw"
+              className="text-[11px] font-medium mb-1 block"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Confirm your password <span style={{ color: "var(--danger)" }}>*</span>
+            </label>
+            <input
+              id="sign-deviation-pw"
+              type="password"
+              className="input text-[12px] w-full"
+              value={closePassword}
+              onChange={(e) => setClosePassword(e.target.value)}
+              placeholder="Re-enter your password"
+              disabled={closeBusy}
+              autoComplete="current-password"
+            />
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+              Required for identity verification under 21 CFR Part 11
+            </p>
+          </div>
+          {closeError && (
+            <p
+              role="alert"
+              className="text-[11px]"
+              style={{ color: "var(--danger)" }}
+            >
+              {closeError}
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
-            <Button variant="secondary" onClick={() => setCloseModal(false)}>Cancel</Button>
-            <Button variant="primary" icon={CheckCircle2} onClick={handleClose}>Sign & Close</Button>
+            <Button
+              variant="secondary"
+              onClick={() => { setCloseModal(false); setCloseError(null); }}
+              disabled={closeBusy}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              icon={CheckCircle2}
+              onClick={handleClose}
+              disabled={closeBusy || !closePassword}
+              loading={closeBusy}
+            >
+              Sign &amp; Close
+            </Button>
           </div>
         </div>
       </Modal>
@@ -483,6 +600,7 @@ export function DeviationPage() {
       </Modal>
 
       <Popup isOpen={successPopup} variant="success" title="Success" description={successMsg} onDismiss={() => setSuccessPopup(false)} />
+      <Popup isOpen={errorPopup} variant="error" title="Action failed" description={errorMsg} onDismiss={() => setErrorPopup(false)} />
     </main>
   );
 }

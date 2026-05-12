@@ -20,6 +20,7 @@ dist-ssr
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -31,6 +32,22 @@ dist-ssr
 # Next.js
 .next/
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# tsc scratch output
+tsc-errors.txt
+
+# Local SQLite database
+prisma/dev.db
+prisma/dev.db-journal
+prisma/dev.db.backup-*
+*.db
+*.db-journal
+
+# User-uploaded evidence files (local fileStorage backend)
+uploads/
+
 # Playwright
 test-results/
 playwright-report/
@@ -40,3 +57,9 @@ playwright-run-*.log
 .claude
 
 /generated/prisma
+
+# Local-only exploratory docs (never committed)
+CLAUDE.draft.md
+CLAUDE.legacy.md
+PROJECT_BRIEF.md
+docs/CODE_HEALTH_SCAN.md

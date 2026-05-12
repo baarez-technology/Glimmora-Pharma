@@ -1,10 +1,14 @@
+// Stage document uploads — full feature. Mirrors substage 3.2's EvidenceFile
+// pattern: server action accepts FormData, persists via fileStorage with a
+// SHA-256 hash-prefixed key, returns mapped ActionResult. Part 11 immutability
+// via soft-delete only. Stage status === "approved" locks both upload and
+// delete server-side; the UI mirrors that lock with a chip + hidden buttons.
 import { useState, useRef } from "react";
 import clsx from "clsx";
-import { ClipboardList, Pencil, X, Save, FileText, Upload, CheckCircle2, AlertCircle, SkipForward, Info, ShieldCheck } from "lucide-react";
+import { ClipboardList, Download, Lock, Pencil, X, Save, FileText, Trash2, Upload, CheckCircle2, AlertCircle, SkipForward, Info, ShieldCheck } from "lucide-react";
 import dayjs from "@/lib/dayjs";
-import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { usePermissions } from "@/hooks/usePermissions";
-import { auditLog } from "@/lib/audit";
+import { useAppSelector } from "@/hooks/useAppSelector";
 import type {
   GxPSystem,
   ValidationStatus,
@@ -12,11 +16,18 @@ import type {
   ValidationStage,
   ValidationStageKey,
   StageDocument,
-} from "@/store/systems.slice";
+} from "@/types/csv-csa";
+import { VALIDATION_STAGE_KEYS, VALIDATION_STAGE_LABELS, getStageId } from "@/types/csv-csa";
+import { useRouter } from "next/navigation";
 import {
-  VALIDATION_STAGE_KEYS, VALIDATION_STAGE_LABELS,
-  submitStageForReview, approveStage, rejectStage, skipStage, addStageDocument, updateStageNotes,
-} from "@/store/systems.slice";
+  submitStageForReview as submitStageForReviewServer,
+  approveStage as approveStageServer,
+  rejectStage as rejectStageServer,
+  skipStage as skipStageServer,
+  updateStageNotes as updateStageNotesServer,
+  addStageDocument as addStageDocumentServer,
+  removeStageDocument as removeStageDocumentServer,
+} from "@/actions/systems";
 import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -72,6 +83,12 @@ function stageBorderColor(status: ValidationStage["status"]): string {
   return "var(--bg-border)";
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 /* ── Props ── */
 
 export interface ValidationPanelProps {
@@ -91,9 +108,12 @@ export function ValidationPanel({
   onSavePlannedActions, onSaveStage: _onSaveStage, onSaveNextReview,
 }: ValidationPanelProps) {
   void _onSaveStage; // kept for interface compat; stage saves now use dispatch directly
-  const dispatch = useAppDispatch();
+  const router = useRouter();
   const { isQAHead } = usePermissions();
-  const user = { name: users.find((u) => u.role === role)?.name ?? "User" };
+  // session user id used to gate per-document delete buttons — uploaders
+  // can always delete their own files even if they don't carry the broader
+  // canSubmitStages permission set. The server enforces the same rule.
+  const sessionUserId = useAppSelector((s) => s.auth.user?.id ?? null);
   const canSubmitStages = role === "csv_val_lead" || role === "it_cdo" || isQAHead;
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
 
@@ -110,8 +130,24 @@ export function ValidationPanel({
   const [skipReason, setSkipReason] = useState("");
   const [successPopup, setSuccessPopup] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
+
+  // Stage document upload state. uploadStageKey identifies which stage's
+  // upload button triggered the picker so the change handler knows where
+  // to attach the file. uploadingStage and uploadErrors are keyed by stage
+  // so a slow upload on URS doesn't blank out a parallel error on IQ.
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadStageKey, setUploadStageKey] = useState<ValidationStageKey | null>(null);
+  const [uploadingStage, setUploadingStage] = useState<ValidationStageKey | null>(null);
+  const [uploadErrors, setUploadErrors] = useState<Partial<Record<ValidationStageKey, string>>>({});
+
+  // Delete-document confirmation state. Soft-delete only; reason ≥ 10 chars
+  // enforced on server. The modal collects the reason; server returns the
+  // server-side error text on validation failure (kept inline next to the
+  // textarea rather than as a popup).
+  const [deletingDoc, setDeletingDoc] = useState<{ id: string; fileName: string } | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [prevId, setPrevId] = useState(system.id);
   if (system.id !== prevId) { setPrevId(system.id); setActionsText(system.plannedActions ?? ""); setEditingActions(false); setEditingNextReview(false); setEditingNotes(null); }
@@ -134,62 +170,142 @@ export function ValidationPanel({
     try { return localStorage.getItem("glimmora-csv-completion-banner-dismissed") !== "1"; } catch { return true; }
   });
 
-  function handleSubmitForReview(key: ValidationStageKey) {
-    dispatch(submitStageForReview({ systemId: system.id, stageKey: key, submittedBy: user.name }));
-    auditLog({ action: "STAGE_SUBMITTED_FOR_REVIEW", module: "CSV/CSA", recordId: system.id, recordTitle: `${system.name} \u2014 ${key}`, newValue: "In Review" });
+  // Each handler maps the legacy stage `key` ("URS"/"IQ"/etc.) to the
+  // Prisma row id via `getStageId()`, then dispatches the server action.
+  // Audit logging happens inside the server action \u2014 no client `auditLog`
+  // call needed. `router.refresh()` re-fetches the page Server Component
+  // so the updated stage state arrives via props.
+  async function handleSubmitForReview(key: ValidationStageKey) {
+    const stageId = getStageId(system, key);
+    if (!stageId) { setSuccessMsg(`Stage ${key} not found`); setSuccessPopup(true); return; }
+    const result = await submitStageForReviewServer(stageId);
+    if (!result.success) {
+      console.error("[csv-csa] submitStageForReview failed:", result.error);
+      return;
+    }
     setSuccessMsg(`${key} submitted for QA review`);
     setSuccessPopup(true);
+    router.refresh();
   }
 
-  function handleApprove() {
+  async function handleApprove() {
     if (!approveModal) return;
-    dispatch(approveStage({ systemId: system.id, stageKey: approveModal, approvedBy: user.name }));
-    auditLog({ action: "STAGE_APPROVED", module: "CSV/CSA", recordId: system.id, recordTitle: `${system.name} \u2014 ${approveModal}`, newValue: "Approved" });
+    const stageId = getStageId(system, approveModal);
+    if (!stageId) return;
+    const result = await approveStageServer(stageId);
+    if (!result.success) {
+      console.error("[csv-csa] approveStage failed:", result.error);
+      return;
+    }
     setSuccessMsg(`${approveModal} stage approved \u2014 ${system.name}`);
     setApproveModal(null);
     setSuccessPopup(true);
+    router.refresh();
   }
 
-  function handleReject() {
+  async function handleReject() {
     if (!rejectModal || !rejectReason.trim()) return;
-    dispatch(rejectStage({ systemId: system.id, stageKey: rejectModal, rejectedBy: user.name, reason: rejectReason }));
-    auditLog({ action: "STAGE_REJECTED", module: "CSV/CSA", recordId: system.id, recordTitle: `${system.name} \u2014 ${rejectModal}`, newValue: rejectReason });
+    const stageId = getStageId(system, rejectModal);
+    if (!stageId) return;
+    const result = await rejectStageServer(stageId, rejectReason);
+    if (!result.success) {
+      console.error("[csv-csa] rejectStage failed:", result.error);
+      return;
+    }
     setRejectModal(null);
     setRejectReason("");
+    router.refresh();
   }
 
-  function handleSkip() {
+  async function handleSkip() {
     if (!skipModal || !skipReason.trim()) return;
-    dispatch(skipStage({ systemId: system.id, stageKey: skipModal, approvedBy: user.name, reason: skipReason }));
-    auditLog({ action: "STAGE_SKIPPED", module: "CSV/CSA", recordId: system.id, recordTitle: `${system.name} \u2014 ${skipModal}`, newValue: skipReason });
+    const stageId = getStageId(system, skipModal);
+    if (!stageId) return;
+    const result = await skipStageServer(stageId, skipReason);
+    if (!result.success) {
+      console.error("[csv-csa] skipStage failed:", result.error);
+      return;
+    }
     setSkipModal(null);
     setSkipReason("");
     setSuccessMsg(`${skipModal} marked as skipped`);
     setSuccessPopup(true);
+    router.refresh();
   }
 
-  function handleUploadFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleUploadFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !uploadStageKey) return;
-    const doc: StageDocument = {
-      id: `sdoc-${Date.now()}`,
-      fileName: file.name,
-      fileType: file.name.split(".").pop()?.toUpperCase() ?? "FILE",
-      fileSize: file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-      version: "v1.0",
-      status: "draft",
-      uploadedBy: user.name,
-      uploadedAt: new Date().toISOString(),
-    };
-    dispatch(addStageDocument({ systemId: system.id, stageKey: uploadStageKey, doc }));
-    auditLog({ action: "STAGE_DOCUMENT_UPLOADED", module: "CSV/CSA", recordId: system.id, recordTitle: `${system.name} \u2014 ${uploadStageKey} \u2014 ${file.name}` });
-    setUploadStageKey(null);
+    // Reset input value immediately so re-selecting the same file fires
+    // onChange again (browsers silently no-op duplicate selections otherwise).
     if (fileRef.current) fileRef.current.value = "";
+    if (!file || !uploadStageKey) return;
+    const stageKey = uploadStageKey;
+    const stageId = getStageId(system, stageKey);
+    if (!stageId) {
+      setUploadErrors((prev) => ({ ...prev, [stageKey]: `Stage ${stageKey} not found` }));
+      setUploadStageKey(null);
+      return;
+    }
+
+    setUploadingStage(stageKey);
+    setUploadErrors((prev) => {
+      const next = { ...prev };
+      delete next[stageKey];
+      return next;
+    });
+
+    const formData = new FormData();
+    formData.append("stageId", stageId);
+    formData.append("file", file);
+
+    const result = await addStageDocumentServer(formData);
+    setUploadingStage(null);
+    setUploadStageKey(null);
+
+    if (!result.success) {
+      setUploadErrors((prev) => ({ ...prev, [stageKey]: result.error }));
+      return;
+    }
+    setSuccessMsg(`Document uploaded to ${stageKey}`);
+    setSuccessPopup(true);
+    router.refresh();
   }
 
-  function handleSaveNotes(key: ValidationStageKey) {
-    dispatch(updateStageNotes({ systemId: system.id, stageKey: key, notes: notesText }));
+  async function handleDeleteDoc() {
+    if (!deletingDoc || deleteReason.trim().length < 10) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    const result = await removeStageDocumentServer(deletingDoc.id, {
+      reason: deleteReason.trim(),
+    });
+    setDeleteBusy(false);
+    if (!result.success) {
+      setDeleteError(result.error);
+      return;
+    }
+    setDeletingDoc(null);
+    setDeleteReason("");
+    setSuccessMsg("Document removed");
+    setSuccessPopup(true);
+    router.refresh();
+  }
+
+  function canDeleteDoc(doc: StageDocument): boolean {
+    if (doc.isLocked) return false;
+    if (canSubmitStages) return true;
+    return sessionUserId !== null && doc.uploadedById === sessionUserId;
+  }
+
+  async function handleSaveNotes(key: ValidationStageKey) {
+    const stageId = getStageId(system, key);
+    if (!stageId) return;
+    const result = await updateStageNotesServer(stageId, notesText);
+    if (!result.success) {
+      console.error("[csv-csa] updateStageNotes failed:", result.error);
+      return;
+    }
     setEditingNotes(null);
+    router.refresh();
   }
 
   return (
@@ -246,7 +362,7 @@ export function ValidationPanel({
             <p className="mt-1"><strong>Approval complete</strong> (QA Head): All stages reviewed, documents verified, QA Head formally approved.</p>
             <p className="mt-1 font-semibold" style={{ color: "var(--brand)" }}>System validated = Both complete \u2713</p>
           </div>
-          <button type="button" onClick={() => { setShowBanner(false); try { localStorage.setItem("glimmora-csv-completion-banner-dismissed", "1"); } catch {} }} className="p-1 rounded cursor-pointer border-none bg-transparent" style={{ color: "var(--brand)" }} aria-label="Dismiss">
+          <button type="button" onClick={() => { setShowBanner(false); try { localStorage.setItem("glimmora-csv-completion-banner-dismissed", "1"); } catch { /* ignore */ } }} className="p-1 rounded cursor-pointer border-none bg-transparent" style={{ color: "var(--brand)" }} aria-label="Dismiss">
             <X className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         </div>
@@ -281,32 +397,130 @@ export function ValidationPanel({
             <div className="card-header">
               <div className="flex items-center gap-2">
                 <span className="card-title">{s.key} — {VALIDATION_STAGE_LABELS[s.key]}</span>
+                {/* Lock chip mirrors the server-side lock — once a stage
+                    is approved, no further uploads or deletes are allowed.
+                    Documents themselves remain visible + downloadable. */}
+                {s.status === "approved" && (
+                  <Badge variant="gray">
+                    <Lock className="w-3 h-3 inline mr-0.5" aria-hidden="true" />
+                    Locked
+                  </Badge>
+                )}
               </div>
               <Badge variant={stageVariant(s.status)}>{stageLabel(s.status)}</Badge>
             </div>
             <div className="card-body space-y-3">
               {/* Documents */}
-              {docs.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--text-muted)" }}>Documents</p>
-                  <div className="space-y-1.5">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--text-muted)" }}>
+                  Documents
+                  {docs.length > 0 && (
+                    <span className="font-normal normal-case tracking-normal ml-1" style={{ color: "var(--text-muted)" }}>· {docs.length}</span>
+                  )}
+                </p>
+                {docs.length === 0 ? (
+                  <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>
+                    No documents uploaded yet.
+                  </p>
+                ) : (
+                  <ul role="list" className="space-y-1.5 list-none p-0 m-0">
                     {docs.map((d) => (
-                      <div key={d.id} className="flex items-center gap-2 text-[11px]">
+                      <li key={d.id} className="flex items-center gap-2 text-[11px] flex-wrap">
                         <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--brand)" }} aria-hidden="true" />
-                        <span className="truncate" style={{ color: "var(--text-primary)" }}>{d.fileName}</span>
-                        <Badge variant={d.status === "approved" ? "green" : d.status === "in_review" ? "blue" : "amber"}>{d.status === "approved" ? "Approved" : d.status === "in_review" ? "In Review" : "Draft"}</Badge>
-                        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>{d.version} · {d.fileSize}</span>
-                      </div>
+                        <a
+                          href={`/api/stage-documents/${d.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="truncate hover:underline"
+                          style={{ color: "var(--text-primary)" }}
+                          title={d.originalFileName}
+                        >
+                          {d.originalFileName}
+                        </a>
+                        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          {formatFileSize(d.fileSize)}
+                        </span>
+                        <span
+                          className="font-mono text-[10px]"
+                          style={{ color: "var(--text-muted)" }}
+                          title={`SHA-256: ${d.contentHashSha256}`}
+                        >
+                          {d.contentHashSha256.slice(0, 8)}
+                        </span>
+                        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          {d.uploadedByName} · {dayjs.utc(d.uploadedAt).fromNow()}
+                        </span>
+                        <a
+                          href={`/api/stage-documents/${d.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Download ${d.originalFileName}`}
+                          className="p-1 rounded hover:bg-(--bg-hover)"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          <Download className="w-3 h-3" aria-hidden="true" />
+                        </a>
+                        {canDeleteDoc(d) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeletingDoc({ id: d.id, fileName: d.originalFileName });
+                              setDeleteReason("");
+                              setDeleteError(null);
+                            }}
+                            aria-label={`Remove ${d.originalFileName}`}
+                            className="p-1 rounded border-none bg-transparent cursor-pointer hover:bg-(--bg-hover)"
+                            style={{ color: "var(--danger)" }}
+                          >
+                            <Trash2 className="w-3 h-3" aria-hidden="true" />
+                          </button>
+                        )}
+                      </li>
                     ))}
-                  </div>
-                </div>
-              )}
+                  </ul>
+                )}
+              </div>
 
-              {/* Upload button */}
+              {/* Upload button — hidden when stage is approved/complete/skipped
+                  (locked or out-of-flow). The hidden <input type="file"> at
+                  the bottom of the panel is shared across all stages; the
+                  button records uploadStageKey before clicking it so the
+                  onChange handler knows which stage to attach to. */}
               {canSubmitStages && s.status !== "approved" && s.status !== "complete" && s.status !== "skipped" && (
-                <button type="button" onClick={() => { setUploadStageKey(s.key); fileRef.current?.click(); }} className="flex items-center gap-1.5 text-[11px] font-medium cursor-pointer border-none bg-transparent" style={{ color: "var(--brand)" }}>
-                  <Upload className="w-3.5 h-3.5" aria-hidden="true" /> Upload document
-                </button>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadStageKey(s.key);
+                      setUploadErrors((prev) => {
+                        const next = { ...prev };
+                        delete next[s.key];
+                        return next;
+                      });
+                      fileRef.current?.click();
+                    }}
+                    disabled={uploadingStage !== null}
+                    aria-label={`Upload document to ${s.key} stage`}
+                    className="flex items-center gap-1.5 text-[11px] font-medium cursor-pointer border-none bg-transparent disabled:cursor-wait disabled:opacity-60"
+                    style={{ color: "var(--brand)" }}
+                  >
+                    <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                    {uploadingStage === s.key ? "Uploading…" : "Upload document"}
+                  </button>
+                  {uploadErrors[s.key] && (
+                    <p
+                      role="alert"
+                      className="text-[11px] mt-1 rounded-md p-1.5"
+                      style={{
+                        background: "var(--danger-bg)",
+                        color: "var(--danger)",
+                        border: "1px solid var(--danger)",
+                      }}
+                    >
+                      {uploadErrors[s.key]}
+                    </p>
+                  )}
+                </div>
               )}
 
               {/* Notes */}
@@ -419,8 +633,20 @@ export function ValidationPanel({
         )}
       </div></div>
 
-      {/* Hidden file input */}
-      <input ref={fileRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.png,.txt" onChange={handleUploadFile} aria-label="Upload stage document" />
+      {/* Hidden file input — single shared instance across all stages.
+          The clicked stage's button writes uploadStageKey before invoking
+          fileRef.current?.click(); the change handler reads that key to
+          attach the file to the right stage. accept= mirrors the server
+          MIME whitelist in src/actions/systems.ts (10 MB cap also enforced
+          server-side). */}
+      <input
+        ref={fileRef}
+        type="file"
+        className="hidden"
+        accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx,.csv,.txt,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain"
+        onChange={handleUploadFile}
+        aria-label="Upload stage document"
+      />
 
       {/* Approve modal */}
       <Modal open={!!approveModal} onClose={() => setApproveModal(null)} title={`Approve ${approveModal} Stage`}>
@@ -465,6 +691,70 @@ export function ValidationPanel({
             <Button variant="primary" disabled={!skipReason.trim()} icon={SkipForward} onClick={handleSkip}>Confirm Skip</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Delete-document confirmation. Reason ≥ 10 chars per Part 11
+          requirement that every soft-delete carry a recorded rationale.
+          Server returns server-side error text on validation failure
+          (e.g. stage flipped to approved between page load and click). */}
+      <Modal
+        open={!!deletingDoc}
+        onClose={deleteBusy ? () => undefined : () => setDeletingDoc(null)}
+        title="Remove stage document"
+      >
+        {deletingDoc && (
+          <div className="space-y-3">
+            <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+              Soft-delete only — the document row stays for audit, but it no
+              longer appears in the stage. Reason of at least 10 characters is
+              required.
+            </p>
+            <p className="text-[12px]" style={{ color: "var(--text-primary)" }}>
+              <strong>File:</strong> {deletingDoc.fileName}
+            </p>
+            <textarea
+              className="input text-[12px] min-h-[80px]"
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Why is this document being removed?"
+              maxLength={2000}
+              disabled={deleteBusy}
+              aria-label="Deletion reason"
+            />
+            {deleteError && (
+              <p
+                role="alert"
+                className="text-[11px]"
+                style={{ color: "var(--danger)" }}
+              >
+                {deleteError}
+              </p>
+            )}
+            <div
+              className="flex justify-end gap-2 pt-2"
+              style={{ borderTop: "1px solid var(--bg-border)" }}
+            >
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={deleteBusy}
+                onClick={() => setDeletingDoc(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={Trash2}
+                disabled={deleteBusy || deleteReason.trim().length < 10}
+                loading={deleteBusy}
+                onClick={() => void handleDeleteDoc()}
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Popup isOpen={successPopup} variant="success" title="Stage updated" description={successMsg} onDismiss={() => setSuccessPopup(false)} />

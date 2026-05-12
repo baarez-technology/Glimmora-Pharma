@@ -1,20 +1,21 @@
+"use client";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import clsx from "clsx";
+import type { AuditLog } from "@prisma/client";
 import {
   Bot, BookOpen, Shield, Activity, Settings, AlertTriangle,
   ClipboardCheck, Search, Database, FileWarning, FolderOpen, TrendingUp,
 } from "lucide-react";
-import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useRole } from "@/hooks/useRole";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
-import { addAlert, resolveAlert, type DriftAlert, type DriftSeverity, type DriftType } from "@/store/agiDrift.slice";
+import type { DriftAlert, DriftSeverity, DriftType } from "@/types/agi";
 import { auditLog } from "@/lib/audit";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -50,13 +51,20 @@ const alertSchema = z.object({
 });
 type AlertForm = z.infer<typeof alertSchema>;
 
+export interface AGIPageProps {
+  /** Server-fetched AGI activity entries from the AuditLog table. */
+  activityLogs?: AuditLog[];
+}
+
 /* ══════════════════════════════════════ */
 
-export function AGIPage() {
+export function AGIPage({ activityLogs: _activityLogs = [] }: AGIPageProps = {}) {
+  // Server-fetched activity log accepted; the existing UI still derives
+  // its activity feed from useTenantData() (now empty Redux). Wiring the
+  // prop into the existing AGI Activity tab is the next focused step.
   const router = useRouter();
-  const dispatch = useAppDispatch();
   const agiSettings = useAppSelector((s) => s.settings.agi);
-  const { driftAlerts, driftMetrics, capas, findings, systems, fda483Events, tenantId } = useTenantData();
+  const { driftAlerts, driftMetrics, capas, findings, systems, fda483Events } = useTenantData();
   const { org, users } = useTenantConfig();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;  const { role } = useRole();
@@ -69,10 +77,10 @@ export function AGIPage() {
   const openAlerts = driftAlerts.filter((a) => a.status !== "Resolved");
   const insightsGenerated = findings.length + capas.length + fda483Events.length;
   const actionsTriggered = isAutoMode ? capas.filter((c) => c.source === "Gap Assessment").length : 0;
-  const hitlApprovals = capas.filter((c) => c.status === "Pending QA Review" || c.status === "Closed").length;
+  const hitlApprovals = capas.filter((c) => c.status === "pending_qa_review" || c.status === "closed").length;
 
   const capabilities = [
-    { key: "monitoring", title: "Compliance Monitoring", icon: Activity, color: "#0ea5e9", agent: "capa" as const, desc: "CAPA aging, overdue actions, training delinquency, audit commitments, DI exception patterns.", live: capas.filter((c) => c.status !== "Closed").length, liveLabel: "open CAPAs monitored" },
+    { key: "monitoring", title: "Compliance Monitoring", icon: Activity, color: "#0ea5e9", agent: "capa" as const, desc: "CAPA aging, overdue actions, training delinquency, audit commitments, DI exception patterns.", live: capas.filter((c) => c.status !== "closed").length, liveLabel: "open CAPAs monitored" },
     { key: "riskPriority", title: "Risk Prioritization", icon: TrendingUp, color: "#6366f1", agent: "riskScore" as const, desc: "ICH Q9-aligned scoring. Patient safety, product quality, DI impact, inspection proximity.", live: findings.filter((f) => f.severity === "Critical" && f.status !== "Closed").length, liveLabel: "critical findings in queue" },
     { key: "readiness", title: "Readiness Orchestration", icon: Activity, color: "#10b981", agent: "evidence" as const, desc: "Evidence kit completeness checks, DIL drill simulation, SME readiness mapping.", live: systems.filter((s) => s.validationStatus === "Overdue").length, liveLabel: "overdue validations flagged" },
     { key: "drift", title: "Drift Detection", icon: Activity, color: "#ef4444", agent: "driftDetect" as const, desc: "Configuration changes, access creep, audit trail anomalies, validation drift signals.", live: openAlerts.length, liveLabel: "drift signals detected" },
@@ -90,15 +98,17 @@ export function AGIPage() {
   const alertForm = useForm<AlertForm>({ resolver: zodResolver(alertSchema), defaultValues: { severity: "Major", type: "Configuration Change" } });
 
   function onAlertSave(data: AlertForm) {
+    // Drift alert persistence removed — no Prisma `DriftAlert` model.
+    // The audit log captures the event so it remains in the trail.
     const id = crypto.randomUUID();
-    dispatch(addAlert({ ...data, id, tenantId: tenantId ?? "", detectedAt: dayjs().toISOString(), status: "Open" }));
     auditLog({ action: "AGI_DRIFT_ALERT_ADDED", module: "agi-console", recordId: id, newValue: data });
     setAddAlertOpen(false); setAlertAddedPopup(true); alertForm.reset();
   }
 
   function handleResolve() {
     if (!selectedAlert || !resolveAction.trim()) return;
-    dispatch(resolveAlert({ id: selectedAlert.id, action: resolveAction.trim(), resolvedAt: dayjs().toISOString() }));
+    // Resolution persistence removed — no Prisma `DriftAlert` model.
+    // The audit log preserves the resolution event for the trail.
     auditLog({ action: "AGI_DRIFT_ALERT_RESOLVED", module: "agi-console", recordId: selectedAlert.id, newValue: { action: resolveAction } });
     setResolveOpen(false); setSelectedAlert(null); setResolveAction(""); setResolvedPopup(true);
   }
@@ -150,7 +160,7 @@ export function AGIPage() {
       </div>
 
       <div role="tabpanel" id="panel-oversight" aria-labelledby="tab-oversight" tabIndex={0} hidden={activeTab !== "oversight"}>
-        <OversightTab pendingReviewCount={capas.filter((c) => c.status === "Pending QA Review").length} approvedCount={capas.filter((c) => c.status === "Closed").length} agiAssistedCount={capas.filter((c) => c.source === "Gap Assessment").length} closedCAPAs={capas.filter((c) => c.status === "Closed")} ownerName={ownerName} />
+        <OversightTab pendingReviewCount={capas.filter((c) => c.status === "pending_qa_review").length} approvedCount={capas.filter((c) => c.status === "closed").length} agiAssistedCount={capas.filter((c) => c.source === "Gap Assessment").length} closedCAPAs={capas.filter((c) => c.status === "closed")} ownerName={ownerName} />
       </div>
 
       <div role="tabpanel" id="panel-drift" aria-labelledby="tab-drift" tabIndex={0} hidden={activeTab !== "drift"}>

@@ -16,7 +16,7 @@ const editSchema = z.object({
   description: z.string().min(5, "Description required"),
   owner: z.string().min(1, "Owner required"),
   dueDate: z.string().min(1, "Due date required"),
-  risk: z.enum(["Critical", "High", "Low"]),
+  risk: z.enum(["Critical", "High", "Medium", "Low"]),
   rcaMethod: z.enum(["5 Why", "Fishbone", "Fault Tree", "Other"]).optional(),
   rca: z.string().optional(),
   correctiveActions: z.string().optional(),
@@ -63,7 +63,7 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
   if (!capa) return null;
 
   return (
-    <Modal open={isOpen} onClose={onClose} title={`Edit ${capa.id}`} className="max-w-2xl">
+    <Modal open={isOpen} onClose={onClose} title={`Edit ${capa.reference ?? "CAPA"}`} className="max-w-2xl">
       <form onSubmit={form.handleSubmit(onSave)} aria-label="Edit CAPA" noValidate className="space-y-4">
         <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Basic information</p>
         <div className="grid grid-cols-2 gap-4">
@@ -74,7 +74,7 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
           </div>
           <div>
             <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Risk <span className="text-(--danger)">*</span></p>
-            <Controller name="risk" control={form.control} render={({ field }) => <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[{ value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Low", label: "Low" }]} />} />
+            <Controller name="risk" control={form.control} render={({ field }) => <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[{ value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Medium", label: "Medium" }, { value: "Low", label: "Low" }]} />} />
           </div>
           <div>
             <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Owner <span className="text-(--danger)">*</span></p>

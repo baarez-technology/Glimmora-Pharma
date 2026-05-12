@@ -34,7 +34,7 @@ export async function login(
   try {
     result = await signIn("credentials", {
       redirect: false,
-      username: username.trim(),
+      email: username.trim(),
       password,
     });
   } catch (err) {

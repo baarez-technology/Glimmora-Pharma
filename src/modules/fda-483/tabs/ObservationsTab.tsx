@@ -13,8 +13,9 @@ import type {
   EventStatus,
   Observation,
   ObservationSeverity,
-} from "@/store/fda483.slice";
+} from "@/types/fda483";
 import type { CAPA } from "@/store/capa.slice";
+import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 
@@ -348,14 +349,12 @@ export function ObservationsTab({
                       {obs.capaId ? (() => {
                         // Live lookup from the capa.items Redux slice (via capas prop)
                         const linkedCapa = capas.find((c) => c.id === obs.capaId);
-                        const isClosed = linkedCapa?.status === "Closed";
+                        const isClosed = linkedCapa?.status === "closed";
                         return (
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() =>
-                                router.push("/capa", {
-                                  state: { openCapaId: obs.capaId },
-                                })
+                                router.push("/capa")
                               }
                               className="font-mono text-[11px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer shrink-0"
                               aria-label={`Open ${obs.capaId}`}
@@ -363,8 +362,8 @@ export function ObservationsTab({
                               {obs.capaId}
                             </button>
                             {linkedCapa && (
-                              <Badge variant={isClosed ? "green" : linkedCapa.status === "Pending QA Review" ? "purple" : linkedCapa.status === "In Progress" ? "amber" : "blue"}>
-                                {isClosed ? "Closed \u2713" : linkedCapa.status}
+                              <Badge variant={isClosed ? "green" : linkedCapa.status === "pending_qa_review" ? "purple" : linkedCapa.status === "in_progress" ? "amber" : "blue"}>
+                                {isClosed ? "Closed \u2713" : CAPA_STATUS_LABEL[linkedCapa.status]}
                               </Badge>
                             )}
                           </div>
@@ -512,7 +511,7 @@ export function ObservationsTab({
             style={{ color: "var(--text-muted)" }}
           >
             {eventCAPAs.length} CAPA{eventCAPAs.length !== 1 ? "s" : ""}
-            {eventCAPAs.length > 0 && ` \u00b7 ${eventCAPAs.filter((c) => c.status === "Closed").length} closed`}
+            {eventCAPAs.length > 0 && ` \u00b7 ${eventCAPAs.filter((c) => c.status === "closed").length} closed`}
           </span>
         </div>
         <div className="card-body">
@@ -533,7 +532,7 @@ export function ObservationsTab({
                   borderColor: isDark ? "#0f2039" : "#f1f5f9",
                 }}
                 onClick={() =>
-                  router.push("/capa", { state: { openCapaId: c.id } })
+                  router.push("/capa")
                 }
                 role="button"
                 aria-label={`Open ${c.id}`}
@@ -563,16 +562,16 @@ export function ObservationsTab({
                   </Badge>
                   <Badge
                     variant={
-                      c.status === "Closed"
+                      c.status === "closed"
                         ? "green"
-                        : c.status === "Pending QA Review"
+                        : c.status === "pending_qa_review"
                           ? "purple"
-                          : c.status === "In Progress"
+                          : c.status === "in_progress"
                             ? "amber"
                             : "blue"
                     }
                   >
-                    {c.status}
+                    {CAPA_STATUS_LABEL[c.status]}
                   </Badge>
                 </div>
               </div>

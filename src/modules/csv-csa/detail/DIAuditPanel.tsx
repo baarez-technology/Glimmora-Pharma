@@ -2,9 +2,10 @@ import { useState } from "react";
 import clsx from "clsx";
 import { ShieldAlert, AlertCircle, CheckCircle2, Search, ClipboardCheck, Wrench, Pencil, X, Save } from "lucide-react";
 import dayjs from "@/lib/dayjs";
-import type { GxPSystem } from "@/store/systems.slice";
+import type { GxPSystem } from "@/types/csv-csa";
 import type { Finding } from "@/store/findings.slice";
 import type { CAPA } from "@/store/capa.slice";
+import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 
@@ -72,7 +73,7 @@ export function DIAuditPanel({ system, findings, capas, role, onNavigateGap, onN
       c.linkedSystemId === system.id ||
       (!!c.linkedSystemName && c.linkedSystemName === system.name),
   );
-  const openDIGateCAPAs = linkedCAPAs.filter((c) => c.diGate && c.status !== "Closed");
+  const openDIGateCAPAs = linkedCAPAs.filter((c) => c.diGate && c.status !== "closed");
 
   function statusPanel(isBadS: boolean, isAmberS: boolean, icon: React.ReactNode, label: string, desc: string) {
     const bg = isBadS ? "var(--danger-bg)" : isAmberS ? "var(--warning-bg)" : "var(--success-bg)";
@@ -185,7 +186,7 @@ export function DIAuditPanel({ system, findings, capas, role, onNavigateGap, onN
         )}
       </div></div>
 
-      <div className="card"><div className="card-header"><div className="flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-[#0ea5e9]" aria-hidden="true" /><span className="card-title">Linked CAPAs</span>{linkedCAPAs.length > 0 && <Badge variant={linkedCAPAs.some((c) => c.status !== "Closed" && c.diGate) ? "red" : "blue"}>{linkedCAPAs.length}</Badge>}</div></div><div className="card-body">
+      <div className="card"><div className="card-header"><div className="flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-[#0ea5e9]" aria-hidden="true" /><span className="card-title">Linked CAPAs</span>{linkedCAPAs.length > 0 && <Badge variant={linkedCAPAs.some((c) => c.status !== "closed" && c.diGate) ? "red" : "blue"}>{linkedCAPAs.length}</Badge>}</div></div><div className="card-body">
         {linkedCAPAs.length === 0 ? (
           <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No CAPAs linked yet. Go to Gap Assessment &rarr; finding &rarr; Raise CAPA to create one. It will appear here automatically.</p>
         ) : (
@@ -197,8 +198,8 @@ export function DIAuditPanel({ system, findings, capas, role, onNavigateGap, onN
                 <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>{c.description}</span>
               </div>
               <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-                {c.diGate && c.status !== "Closed" && <Badge variant="red">DI gate</Badge>}
-                <Badge variant={c.status === "Closed" ? "green" : c.status === "Pending QA Review" ? "purple" : c.status === "In Progress" ? "amber" : "blue"}>{c.status}</Badge>
+                {c.diGate && c.status !== "closed" && <Badge variant="red">DI gate</Badge>}
+                <Badge variant={c.status === "closed" ? "green" : c.status === "pending_qa_review" ? "purple" : c.status === "in_progress" ? "amber" : "blue"}>{CAPA_STATUS_LABEL[c.status]}</Badge>
               </div>
             </div>
           ))}</div>

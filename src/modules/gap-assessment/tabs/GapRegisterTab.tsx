@@ -1,19 +1,19 @@
 import { useState, useEffect, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import {
   ClipboardList, Plus, Search, ChevronRight, Link2, Bot, Pencil, Save, History,
 } from "lucide-react";
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
-import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import type { Finding, FindingSeverity, FindingStatus } from "@/store/findings.slice";
-import { editFinding } from "@/store/findings.slice";
+import { updateFinding as updateFindingAction } from "@/actions/findings";
 import type { CAPA } from "@/store/capa.slice";
+import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import type { UserConfig } from "@/store/settings.slice";
-import { auditLog } from "@/lib/audit";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
@@ -36,8 +36,9 @@ function statusBadge(s: FindingStatus) {
   return <span className={m[s]}>{s}</span>;
 }
 function capaStatusBadge(s: string) {
-  const m: Record<string, string> = { Open: "badge badge-blue", "In Progress": "badge badge-amber", "Pending QA Review": "badge badge-purple", Closed: "badge badge-green" };
-  return <span className={m[s] ?? "badge badge-gray"}>{s}</span>;
+  const m: Record<string, string> = { open: "badge badge-blue", in_progress: "badge badge-amber", pending_qa_review: "badge badge-purple", closed: "badge badge-green", rejected: "badge badge-red" };
+  const label = CAPA_STATUS_LABEL[s as keyof typeof CAPA_STATUS_LABEL] ?? s;
+  return <span className={m[s] ?? "badge badge-gray"}>{label}</span>;
 }
 
 const LABEL = "text-[11px] font-semibold uppercase tracking-wider text-(--text-muted) mb-1 block";
@@ -78,7 +79,7 @@ export function GapRegisterTab({
   onAddOpen, onRaiseCapa, onNavigateCapa,
 }: GapRegisterTabProps) {
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-  const dispatch = useAppDispatch();
+  const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
   const { role } = useRole();
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
@@ -116,8 +117,11 @@ export function GapRegisterTab({
         evidenceLink: selectedFinding.evidenceLink ?? "",
       });
     }
+    // Reset edit form when the selected finding changes.
+     
     setIsEditing(false);
     setEditReason("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFinding?.id]);
 
   function ownerName(uid: string) { return users.find((u) => u.id === uid)?.name ?? uid; }
@@ -129,45 +133,38 @@ export function GapRegisterTab({
       })
     : filteredFindings;
 
-  function onSave(data: EditForm) {
+  async function onSave(data: EditForm) {
     if (!selectedFinding || !user) return;
 
-    const changes: { field: string; oldValue: unknown; newValue: unknown }[] = [];
     const targetDateISO = dayjs(data.targetDate).utc().toISOString();
 
-    if (data.requirement !== selectedFinding.requirement) changes.push({ field: "requirement", oldValue: selectedFinding.requirement, newValue: data.requirement });
-    if (data.owner !== selectedFinding.owner) changes.push({ field: "owner", oldValue: ownerName(selectedFinding.owner), newValue: ownerName(data.owner) });
-    if (targetDateISO !== selectedFinding.targetDate) changes.push({ field: "targetDate", oldValue: selectedFinding.targetDate, newValue: targetDateISO });
-    if (data.evidenceLink !== (selectedFinding.evidenceLink ?? "")) changes.push({ field: "evidenceLink", oldValue: selectedFinding.evidenceLink ?? "", newValue: data.evidenceLink });
+    const noChange =
+      data.requirement === selectedFinding.requirement &&
+      data.owner === selectedFinding.owner &&
+      targetDateISO === selectedFinding.targetDate &&
+      data.evidenceLink === (selectedFinding.evidenceLink ?? "");
 
-    if (changes.length === 0) {
+    if (noChange) {
       setIsEditing(false);
       return;
     }
 
-    dispatch(editFinding({
-      id: selectedFinding.id,
-      patch: {
-        requirement: data.requirement,
-        owner: data.owner,
-        targetDate: targetDateISO,
-        evidenceLink: data.evidenceLink,
-      },
-      editedBy: user.id,
-      editedAt: dayjs().toISOString(),
-      editReason: editReason || undefined,
-    }));
-
-    auditLog({
-      action: "FINDING_EDITED",
-      module: "findings",
-      recordId: selectedFinding.id,
-      newValue: { changes, editedBy: user.id, reason: editReason },
+    const result = await updateFindingAction(selectedFinding.id, {
+      requirement: data.requirement,
+      owner: data.owner,
+      targetDate: targetDateISO,
+      evidenceLink: data.evidenceLink,
     });
+
+    if (!result.success) {
+      console.error("[gap] updateFinding failed:", result.error);
+      return;
+    }
 
     setIsEditing(false);
     setEditReason("");
     setSavedPopup(true);
+    router.refresh();
   }
 
   const isOverdue = selectedFinding ? selectedFinding.status !== "Closed" && dayjs.utc(selectedFinding.targetDate).isBefore(dayjs()) : false;
@@ -449,8 +446,8 @@ export function GapRegisterTab({
                     </button>
                     {linkedCapa && capaStatusBadge(linkedCapa.status)}
                   </div>
-                  {linkedCapa?.status === "Pending QA Review" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--info-bg)", color: "var(--info)" }}>CAPA pending QA review. Once closed, this finding will be automatically closed.</p>}
-                  {linkedCapa?.status === "Closed" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--success-bg)", color: "var(--success)" }}>CAPA closed. This finding has been automatically closed.</p>}
+                  {linkedCapa?.status === "pending_qa_review" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--info-bg)", color: "var(--info)" }}>CAPA pending QA review. Once closed, this finding will be automatically closed.</p>}
+                  {linkedCapa?.status === "closed" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--success-bg)", color: "var(--success)" }}>CAPA closed. This finding has been automatically closed.</p>}
                 </div>
               ) : (
                 !isViewOnly && selectedFinding.status !== "Closed" && (
@@ -524,7 +521,7 @@ export function GapRegisterTab({
                 </div>
                 {selectedFinding.editHistory.slice().reverse().map((edit, i) => (
                   <div
-                    key={i}
+                    key={edit.editedAt}
                     className={clsx("text-[11px] mb-2 pb-2", i < selectedFinding.editHistory!.length - 1 && "border-b border-(--bg-border)")}
                   >
                     <div className="flex items-center justify-between mb-1">

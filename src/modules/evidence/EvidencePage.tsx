@@ -1,9 +1,15 @@
+"use client";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Package, Plus, Download } from "lucide-react";
+import type { Document as PrismaDocument } from "@prisma/client";
+// Type-only import — band-aid for the global view to surface CAPA Evidence
+// files. Phase 4 of the document-store unification removes this.
+import type { getCAPAEvidenceFiles } from "@/lib/queries/governance";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -11,7 +17,6 @@ import { useRole } from "@/hooks/useRole";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import {
-  addDocument,
   addPack,
   updatePack,
   type EvidenceDocument,
@@ -20,6 +25,7 @@ import {
   type DocArea,
   type DocStatus,
 } from "@/store/evidence.slice";
+import { createDocument } from "@/actions/documents";
 import { auditLog } from "@/lib/audit";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -27,6 +33,66 @@ import { Popup } from "@/components/ui/Popup";
 import { Modal } from "@/components/ui/Modal";
 
 import { DocumentLibraryTab } from "./tabs/DocumentLibraryTab";
+
+/* ── Props (Server Component data) ── */
+
+export interface EvidencePageStats {
+  total: number;
+  approved: number;
+  underReview: number;
+  draft: number;
+  rejected: number;
+}
+
+// Derived directly from getCAPAEvidenceFiles' include shape — keeps this
+// type in sync with the query without duplicating the include literal.
+type CAPAEvidenceFileRow = Awaited<ReturnType<typeof getCAPAEvidenceFiles>>[number];
+
+export interface EvidencePageProps {
+  docs: PrismaDocument[];
+  stats: EvidencePageStats;
+  capaEvidenceFiles: CAPAEvidenceFileRow[];
+}
+
+/**
+ * Adapt a Prisma `Document` row into the richer `EvidenceDocument` shape
+ * the existing UI expects. The Prisma schema is intentionally minimal —
+ * the rich metadata (title, type, area, tags, dates) lives in
+ * `description` as JSON when written by this page's form. We try to
+ * recover it; otherwise fall back to safe defaults derived from filename.
+ */
+function adaptPrismaDoc(d: PrismaDocument): EvidenceDocument {
+  let meta: Record<string, unknown> = {};
+  if (d.description) {
+    try { meta = JSON.parse(d.description); } catch { /* plain text description */ }
+  }
+  const status: DocStatus =
+    d.status === "approved" ? "Current"
+    : d.status === "under_review" ? "Under Review"
+    : d.status === "rejected" ? "Superseded"
+    : "Draft";
+
+  return {
+    id: d.id,
+    tenantId: d.tenantId,
+    siteId: "",
+    title: typeof meta.title === "string" ? meta.title : d.fileName,
+    reference: typeof meta.reference === "string" ? meta.reference : (d.linkedRecordId ?? d.fileName),
+    type: (typeof meta.type === "string" ? meta.type : "Other") as DocType,
+    area: (typeof meta.area === "string" ? meta.area : (d.linkedModule ?? "QMS")) as DocArea,
+    version: d.version,
+    status,
+    author: d.uploadedBy,
+    reviewedBy: d.approvedBy ?? undefined,
+    effectiveDate: typeof meta.effectiveDate === "string" ? meta.effectiveDate : d.createdAt.toISOString(),
+    expiryDate: typeof meta.expiryDate === "string" ? meta.expiryDate : undefined,
+    tags: Array.isArray(meta.tags) ? meta.tags as string[] : [],
+    url: typeof meta.url === "string" ? meta.url : undefined,
+    sizeKb: undefined,
+    complianceTags: Array.isArray(meta.complianceTags) ? meta.complianceTags as string[] : [],
+    createdAt: d.createdAt.toISOString(),
+  };
+}
 
 /* ── Constants ── */
 
@@ -102,21 +168,23 @@ type DocForm = z.infer<typeof docSchema>;
 
 /* ══════════════════════════════════════ */
 
-export function EvidencePage() {
+export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePageProps) {
+  // `stats` prop is accepted by EvidencePageProps but not destructured here —
+  // the page derives richer counts (currentCount/missingCount) from the full
+  // cross-module aggregation, so the standalone Prisma stats would be misleading.
   const router = useRouter();
   const dispatch = useAppDispatch();
   const {
     findings,
-    capas,
     systems,
     fda483Events,
     deviations,
-    evidenceDocs,
     evidencePacks,
     tenantId,
   } = useTenantData();
-  const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
-  const evidence = { documents: evidenceDocs, packs: evidencePacks };
+  // Server-fetched Prisma docs are the source of truth for standalone evidence.
+  // Packs still live in Redux (no Prisma model yet — separate migration).
+  const evidence = { documents: prismaDocs.map(adaptPrismaDoc), packs: evidencePacks };
   const { org, users } = useTenantConfig();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
@@ -151,29 +219,12 @@ export function EvidencePage() {
         });
       }
     });
-    capas.forEach((c) => {
-      c.evidenceLinks.forEach((link, i) => {
-        if (!docs.find((d) => d.reference === link)) {
-          docs.push({
-            id: `capa-${c.id}-${i}`,
-            title: `${c.id} \u2014 Evidence ${i + 1}`,
-            reference: link,
-            type: "Record",
-            area: "QMS",
-            capaId: c.id,
-            version: "1.0",
-            status: c.status === "Closed" ? "Current" : "Under Review",
-            author: c.owner,
-            effectiveDate: c.createdAt,
-            tags: ["CAPA", c.source],
-            complianceTags: [c.source],
-            createdAt: c.createdAt,
-            tenantId: c.tenantId ?? "",
-            siteId: "",
-          });
-        }
-      });
-    });
+    // CAPA-side document aggregation moved to the dedicated capaEvidenceFiles
+     // loop below \u2014 substage 3.2 replaced the legacy in-memory `evidenceLinks`
+     // and `documents` arrays on the CAPA Redux row with the EvidenceFile DB
+     // model. The forEach blocks that read `c.evidenceLinks` and
+     // `c.documents` were removed; their iterations were always empty after
+     // 3.2 shipped.
     fda483Events.forEach((e) => {
       if (e.responseDraft?.trim() && !docs.find((d) => d.eventId === e.id)) {
         docs.push({
@@ -231,19 +282,37 @@ export function EvidencePage() {
       });
     };
 
-    capas.forEach((c) => {
-      (c.documents ?? []).forEach((doc) =>
-        pushUploaded(doc, {
-          sourcePrefix: "capa-doc",
-          recordId: c.id,
-          recordTitle: c.description,
-          area: "QMS",
-          complianceTags: ["CAPA", c.source],
-          tenantId: c.tenantId ?? "",
-          siteId: c.siteId ?? "",
-          capaId: c.id,
-        }),
-      );
+    /* ── CAPA Evidence files (server-fetched from EvidenceFile table) ──
+       Band-aid until Phase 4 of the document-store unification — see
+       getCAPAEvidenceFiles in src/lib/queries/governance.ts. Inlined rather
+       than routed through pushUploaded() because the reference label format
+       (`<CAPA reference> · <category>`) differs from pushUploaded's. */
+    capaEvidenceFiles.forEach((ef) => {
+      const capa = ef.evidenceItem.capa;
+      const capaRef = capa.reference ?? `CAPA-LEGACY-${capa.id.slice(0, 8)}`;
+      const humanCategory = ef.evidenceItem.category
+        .toLowerCase()
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      docs.push({
+        id: `evidencefile-${ef.id}`,
+        title: ef.originalFileName,
+        reference: `${capaRef} · ${humanCategory}`,
+        type: "Record",
+        area: "QMS",
+        capaId: capa.id,
+        version: "1.0",
+        status: "Current",
+        author: ef.uploadedBy,
+        effectiveDate: ef.createdAt.toISOString(),
+        tags: [ef.fileType.toUpperCase(), humanCategory],
+        complianceTags: ["CAPA", capa.source],
+        createdAt: ef.createdAt.toISOString(),
+        tenantId: capa.tenantId,
+        siteId: capa.siteId ?? "",
+        sizeKb: Math.round(ef.fileSize / 1024),
+      });
     });
 
     deviations.forEach((d) => {
@@ -424,7 +493,7 @@ export function EvidencePage() {
   function toggleDocSelection(id: string) {
     setSelectedDocs((prev) => {
       const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
+      if (n.has(id)) n.delete(id); else n.add(id);
       return n;
     });
   }
@@ -440,49 +509,53 @@ export function EvidencePage() {
     },
   });
 
-  function onDocSave(data: DocForm) {
-    const id = crypto.randomUUID();
+  async function onDocSave(data: DocForm) {
     const complianceTags: string[] = [];
-    if (data.area === "CSV/IT") {
-      complianceTags.push("Part 11", "Annex 11");
-    }
+    if (data.area === "CSV/IT") complianceTags.push("Part 11", "Annex 11");
     if (data.type === "Audit Trail") complianceTags.push("ALCOA+");
     if (data.type === "Validation") complianceTags.push("GAMP 5");
     const tagsList = data.tags
-      ? data.tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean)
+      ? data.tags.split(",").map((t) => t.trim()).filter(Boolean)
       : [];
-    dispatch(
-      addDocument({
-        ...data,
-        id,
-        tenantId: tenantId ?? "",
-        siteId: selectedSiteId ?? "",
-        complianceTags,
-        tags: tagsList,
-        effectiveDate: dayjs(data.effectiveDate).utc().toISOString(),
-        expiryDate: data.expiryDate
-          ? dayjs(data.expiryDate).utc().toISOString()
-          : undefined,
-        systemId: data.systemId || undefined,
-        findingId: data.findingId || undefined,
-        capaId: data.capaId || undefined,
-        url: data.url || undefined,
-        version: data.version || "v1.0",
-        createdAt: new Date().toISOString(),
-      }),
-    );
-    auditLog({
-      action: "EVIDENCE_DOCUMENT_ADDED",
-      module: "evidence",
-      recordId: id,
-      newValue: data,
+
+    // Prisma `Document` is intentionally narrow. The page collects the rich
+    // metadata the existing UI displays (title/type/area/version/tags/dates)
+    // and stuffs it into `description` as JSON so adaptPrismaDoc() can rehydrate
+    // it on the next render. Schema can be extended later to give these their
+    // own columns.
+    const meta = {
+      title: data.title,
+      reference: data.reference,
+      type: data.type,
+      area: data.area,
+      version: data.version,
+      author: data.author,
+      effectiveDate: dayjs(data.effectiveDate).utc().toISOString(),
+      expiryDate: data.expiryDate ? dayjs(data.expiryDate).utc().toISOString() : undefined,
+      tags: tagsList,
+      complianceTags,
+      url: data.url || undefined,
+      systemId: data.systemId || undefined,
+      findingId: data.findingId || undefined,
+      capaId: data.capaId || undefined,
+    };
+
+    const result = await createDocument({
+      fileName: data.title,
+      description: JSON.stringify(meta),
+      linkedModule: data.area,
+      linkedRecordId: data.reference,
     });
+
+    if (!result.success) {
+      console.error("[evidence] createDocument failed:", result.error);
+      return;
+    }
+
     setAddDocOpen(false);
     setAddedPopup(true);
     docForm.reset();
+    router.refresh(); // Re-runs the Server Component → fresh `docs` prop arrives.
   }
 
   const lbl = "text-[11px] font-semibold uppercase tracking-wider block mb-1";

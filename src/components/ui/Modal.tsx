@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import clsx from "clsx";
@@ -5,13 +7,24 @@ import clsx from "clsx";
 export interface ModalProps {
   open: boolean;
   onClose: () => void;
+  /** Plain-text title used by the default header (an `<h2>` + close button).
+   *  Still required for backwards compatibility with every existing caller
+   *  AND for screen readers when `header` is provided — it backs the
+   *  visually-hidden `<h2 id="modal-title">` that aria-labelledby points
+   *  to. Don't omit it. */
   title: string;
+  /** Optional rich header replacement. When provided, the default text-only
+   *  header row is replaced by this node and only an sr-only `<h2>` carrying
+   *  `title` remains for accessibility. Use this for headers that need
+   *  pills, multi-line content, secondary actions, or any non-text layout
+   *  the plain `title` row can't express. */
+  header?: ReactNode;
   children: ReactNode;
   className?: string;
   persistent?: boolean;
 }
 
-export function Modal({ open, onClose, title, children, className, persistent }: ModalProps) {
+export function Modal({ open, onClose, title, header, children, className, persistent }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
@@ -32,6 +45,8 @@ export function Modal({ open, onClose, title, children, className, persistent }:
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape" && !persistent) onClose(); };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
+    // `persistent` is intentionally read inside the handler closure; no need to re-bind on flip.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, onClose]);
 
   if (!open) return null;
@@ -54,17 +69,24 @@ export function Modal({ open, onClose, title, children, className, persistent }:
           className,
         )}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-(--bg-border)">
-          <h2 id="modal-title" className="text-[14px] font-semibold text-(--text-primary)">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="w-7 h-7 rounded-md flex items-center justify-center bg-transparent hover:bg-(--bg-hover) border-none cursor-pointer transition-colors duration-150"
-          >
-            <X className="w-3.5 h-3.5 text-(--text-muted)" aria-hidden="true" />
-          </button>
-        </div>
+        {header ? (
+          <>
+            <h2 id="modal-title" className="sr-only">{title}</h2>
+            {header}
+          </>
+        ) : (
+          <div className="flex items-center justify-between px-5 py-4 border-b border-(--bg-border)">
+            <h2 id="modal-title" className="text-[14px] font-semibold text-(--text-primary)">{title}</h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="w-7 h-7 rounded-md flex items-center justify-center bg-transparent hover:bg-(--bg-hover) border-none cursor-pointer transition-colors duration-150"
+            >
+              <X className="w-3.5 h-3.5 text-(--text-muted)" aria-hidden="true" />
+            </button>
+          </div>
+        )}
         <div className="p-5 max-h-[80vh] overflow-y-auto">{children}</div>
       </div>
     </div>

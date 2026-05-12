@@ -1,7 +1,7 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Search,
@@ -50,6 +50,11 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "gap-assessment", label: "Gap Assessment", icon: Search },
       { path: "deviation", label: "Deviation Management", icon: AlertTriangle },
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
+      // CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
+      // code/schema retained.
+      // To re-enable: uncomment this line and the LinkedChangeControlsSection
+      // import in CAPADetailModal.
+      // { path: "change-control", label: "Change Control", icon: Settings },
       { path: "csv-csa", label: "CSV / CSA Validation", icon: Monitor },
       { path: "fda-483", label: "FDA 483 & Regulatory", icon: Building2 },
       { path: "evidence", label: "Evidence & Documents", icon: FileText },
@@ -90,16 +95,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { setupNeeded, completedCount, totalSteps } = useSetupStatus();
 
   const [openGroups, setOpenGroups] = useState<Set<string>>(
-    () => new Set([getGroupForPath(pathname)]),
+    () => new Set([getGroupForPath(pathname ?? "")]),
   );
 
-  // Auto-expand the group containing the active page on route change
+  // Auto-expand the group containing the active page on route change.
+  // Sync-on-prop-change pattern; the conditional setState is intentional.
   useEffect(() => {
-    const active = getGroupForPath(pathname);
+    const active = getGroupForPath(pathname ?? "");
     setOpenGroups((prev) => {
       if (prev.has(active)) return prev;
       return new Set([...prev, active]);
     });
+     
   }, [pathname]);
 
   const toggleGroup = (id: string) => {
@@ -111,19 +118,25 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     });
   };
 
-  const visibleGroups = NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((item) => {
-      if (item.path === "readiness" || item.path === "deviation") return true;
-      if (item.path === "audit-trail")
-        return (
-          role === "qa_head" ||
-          role === "customer_admin" ||
-          role === "super_admin"
-        );
-      return allowedPaths.includes(item.path);
-    }),
-  })).filter((g) => g.items.length > 0);
+  // Memoised so role-gated filtering doesn't allocate a fresh array of
+  // groups (and inner item arrays) on every Sidebar render. NAV_GROUPS is
+  // module-scoped so it isn't a dep; only `role` and `allowedPaths` from
+  // useRole() can change the result.
+  const visibleGroups = useMemo(() => (
+    NAV_GROUPS.map((g) => ({
+      ...g,
+      items: g.items.filter((item) => {
+        if (item.path === "readiness" || item.path === "deviation") return true;
+        if (item.path === "audit-trail")
+          return (
+            role === "qa_head" ||
+            role === "customer_admin" ||
+            role === "super_admin"
+          );
+        return allowedPaths.includes(item.path);
+      }),
+    })).filter((g) => g.items.length > 0)
+  ), [role, allowedPaths]);
 
   const handleLogout = async () => {
     // AUTH-03: Clear next-auth session cookie first (server-side), then

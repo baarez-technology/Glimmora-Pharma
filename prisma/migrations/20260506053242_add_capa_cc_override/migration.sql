@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "CAPA" ADD COLUMN "ccBlockOverrideAt" DATETIME;
+ALTER TABLE "CAPA" ADD COLUMN "ccBlockOverrideById" TEXT;
+ALTER TABLE "CAPA" ADD COLUMN "ccBlockOverrideByName" TEXT;
+ALTER TABLE "CAPA" ADD COLUMN "ccBlockOverrideReason" TEXT;
