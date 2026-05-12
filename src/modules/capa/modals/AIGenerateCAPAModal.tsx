@@ -8,7 +8,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { updateTenantUser } from "@/store/auth.slice";
-import { AI_API_BASE as API_BASE } from "@/lib/aiAuth";
+import { capaCreate, AiBackendError } from "@/lib/aiBackend";
 
 const aiCapaSchema = z.object({
   customer_id: z.string().min(1, "Customer ID is required"),
@@ -131,22 +131,6 @@ export function AIGenerateCAPAModal({
     }
   }, [isOpen, defaultCustomerId, reset]);
 
-  async function callCreate(data: AICapaForm, token: string) {
-    const fd = new FormData();
-    fd.append("customer_id", data.customer_id);
-    fd.append("problem_statement", data.problem_statement);
-    fd.append("source", data.source);
-    fd.append("area_affected", data.area_affected);
-    fd.append("equipment_product", data.equipment_product);
-    fd.append("initial_severity", data.initial_severity);
-    if (file) fd.append("document", file);
-    return fetch(`${API_BASE}/api/v1/capa/create`, {
-      method: "POST",
-      headers: { auth: token },
-      body: fd,
-    });
-  }
-
   async function onSubmit(data: AICapaForm) {
     setError(null);
     setResult(null);
@@ -161,8 +145,22 @@ export function AIGenerateCAPAModal({
       return;
     }
     try {
-      const res = await callCreate(data, token);
-      if (res.status === 401) {
+      const json = await capaCreate(
+        {
+          customer_id: data.customer_id,
+          problem_statement: data.problem_statement,
+          source: data.source,
+          area_affected: data.area_affected,
+          equipment_product: data.equipment_product,
+          initial_severity: data.initial_severity,
+          document: file,
+        },
+        token,
+      );
+      setResult(json);
+      setLastForm(data);
+    } catch (err) {
+      if (err instanceof AiBackendError && err.status === 401) {
         // Token expired/invalid — clear from both stores and tell the user
         // to re-login (which refreshes via /api/v1/auth/login).
         setStoredToken(null);
@@ -172,32 +170,15 @@ export function AIGenerateCAPAModal({
         setError("AI backend rejected the cached token (401). Please sign out and sign in again to refresh it.");
         return;
       }
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        let parsed: unknown = null;
-        try { parsed = text ? JSON.parse(text) : null; } catch { /* keep raw */ }
-        const d = parsed && typeof parsed === "object" && "detail" in parsed
-          ? (parsed as { detail?: unknown }).detail : null;
-        let msg = "";
-        if (typeof d === "string") msg = d;
-        else if (Array.isArray(d)) msg = d.map((x) => typeof x === "object" && x ? (x as { msg?: string }).msg ?? "" : String(x)).filter(Boolean).join("; ");
-        else if (d && typeof d === "object") {
-          const o = d as { error?: string; message?: string; incomplete_fields?: unknown };
-          const parts: string[] = [];
-          if (o.error) parts.push(o.error);
-          if (o.message && o.message !== o.error) parts.push(o.message);
-          if (Array.isArray(o.incomplete_fields) && o.incomplete_fields.length) {
-            parts.push(o.incomplete_fields.map((s) => String(s)).join("; "));
-          }
-          msg = parts.join(" — ");
-        }
-        throw new Error(msg || `Request failed (${res.status})`);
-      }
-      const json = (await res.json()) as AICapaResponse;
-      setResult(json);
-      setLastForm(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate CAPA");
+      // AiBackendError.message is already the flattened FastAPI detail string;
+      // generic Errors fall back to a friendly default.
+      setError(
+        err instanceof AiBackendError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Failed to generate CAPA",
+      );
     }
   }
 
@@ -618,7 +599,7 @@ function Section({
 
 /* ── Dismiss-alert control ───────────────────────────────────── */
 
-import { capaDismissAlert, AiBackendError, selectAiToken } from "@/lib/aiBackend";
+import { capaDismissAlert, selectAiToken } from "@/lib/aiBackend";
 
 function DismissAlertControl({ capaId, alertType }: { capaId: string; alertType: string }) {
   const token = useAppSelector(selectAiToken);

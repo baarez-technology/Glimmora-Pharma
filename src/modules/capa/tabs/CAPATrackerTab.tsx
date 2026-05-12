@@ -67,6 +67,11 @@ export function CAPATrackerTab({
   const anyFilterActive = !!(search || siteFilter || statusFilter || riskFilter || sourceFilter);
   function clearFilters() { setSearch(""); setSiteFilter(""); setStatusFilter(""); setRiskFilter(""); setSourceFilter(""); }
 
+  // Defense-in-depth: dedupe by id alongside the filter pass. The slice's
+  // addCAPA reducer already upserts on id (see capa.slice.ts), so dupes
+  // shouldn't reach here — but per the AI integration spec a table-level
+  // Set guard is mandated as a belt-and-braces against any future regression.
+  const seenIds = new Set<string>();
   const displayed = filteredCAPAs.filter((c) => {
     if (siteFilter && c.siteId !== siteFilter) return false;
     if (statusFilter && c.status !== statusFilter) return false;
@@ -81,6 +86,8 @@ export function CAPATrackerTab({
       const descriptionMatch = c.description.toLowerCase().includes(q);
       if (!referenceMatch && !idMatch && !descriptionMatch) return false;
     }
+    if (seenIds.has(c.id)) return false;
+    seenIds.add(c.id);
     return true;
   });
 
