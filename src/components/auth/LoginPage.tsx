@@ -45,12 +45,12 @@ const MOCK_ACCOUNTS: Record<string, { password: string; user: AuthUser }> = {
   // Pharma Glimmora International
   "admin@pharmaglimmora.com": { password: "Admin@123", user: { id: "u-001", name: "System Administrator", email: "admin@pharmaglimmora.com", role: "super_admin", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
   "custadmin@pharmaglimmora.com": { password: "CustAdmin@123", user: { id: "u-009", name: "Customer Administrator", email: "custadmin@pharmaglimmora.com", role: "customer_admin", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "qa@pharmaglimmora.com": { password: "QaHead@123", user: { id: "u-002", name: "Dr. Priya Sharma", email: "qa@pharmaglimmora.com", role: "qa_head", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "ra@pharmaglimmora.com": { password: "RegAff@123", user: { id: "u-003", name: "Rahul Mehta", email: "ra@pharmaglimmora.com", role: "regulatory_affairs", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "csv@pharmaglimmora.com": { password: "CsvVal@123", user: { id: "u-004", name: "Anita Patel", email: "csv@pharmaglimmora.com", role: "csv_val_lead", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "qc@pharmaglimmora.com": { password: "QcLab@123", user: { id: "u-005", name: "Dr. Nisha Rao", email: "qc@pharmaglimmora.com", role: "qc_lab_director", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "it@pharmaglimmora.com": { password: "ItCdo@123", user: { id: "u-006", name: "Vikram Singh", email: "it@pharmaglimmora.com", role: "it_cdo", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "ops@pharmaglimmora.com": { password: "OpsHead@123", user: { id: "u-007", name: "Suresh Kumar", email: "ops@pharmaglimmora.com", role: "operations_head", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
+  "qa@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-002", name: "Dr. Priya Sharma", email: "qa@pharmaglimmora.com", role: "qa_head", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
+  "ra@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-003", name: "Rahul Mehta", email: "ra@pharmaglimmora.com", role: "regulatory_affairs", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
+  "csv@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-004", name: "Anita Patel", email: "csv@pharmaglimmora.com", role: "csv_val_lead", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
+  "qc@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-005", name: "Dr. Nisha Rao", email: "qc@pharmaglimmora.com", role: "qc_lab_director", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
+  "it@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-006", name: "Vikram Singh", email: "it@pharmaglimmora.com", role: "it_cdo", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
+  "ops@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-007", name: "Suresh Kumar", email: "ops@pharmaglimmora.com", role: "operations_head", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
   "viewer@pharmaglimmora.com": { password: "Viewer@123", user: { id: "u-008", name: "View Only User", email: "viewer@pharmaglimmora.com", role: "viewer", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
   // ABC Pharma Ltd
   "admin@abcpharma.com": { password: "Admin@123", user: { id: "u-abc-001", name: "ABC Admin", email: "admin@abcpharma.com", role: "super_admin", gxpSignatory: true, orgId: "org-2", tenantId: "tenant-abc" } },
@@ -75,9 +75,9 @@ const CRED_ROWS: { org: string; rows: [string, string, string, string][] }[] = [
     rows: [
       ["Super Admin", "admin@pharmaglimmora.com", "Admin@123", "#ef4444"],
       ["Customer Admin", "custadmin@pharmaglimmora.com", "CustAdmin@123", "#8b6914"],
-      ["QA Head", "qa@pharmaglimmora.com", "QaHead@123", "#a78bfa"],
-      ["CSV/Val Lead", "csv@pharmaglimmora.com", "CsvVal@123", "#38bdf8"],
-      ["QC/Lab Director", "qc@pharmaglimmora.com", "QcLab@123", "#10b981"],
+      ["QA Head", "qa@pharmaglimmora.com", "Demo@123", "#a78bfa"],
+      ["CSV/Val Lead", "csv@pharmaglimmora.com", "Demo@123", "#38bdf8"],
+      ["QC/Lab Director", "qc@pharmaglimmora.com", "Demo@123", "#10b981"],
       ["Viewer", "viewer@pharmaglimmora.com", "Viewer@123", "#94a3b8"],
     ],
   },
@@ -323,7 +323,15 @@ export function LoginPage() {
     if (mockAccount && mockAccount.password === data.password) {
       dispatch(setCredentials({ token: "mock-token-" + Date.now(), user: mockAccount.user }));
       const userTenant = tenants.find((t) => t.id === mockAccount.user.tenantId);
-      await refreshAiToken(mockAccount.user, userTenant, data.email.trim(), data.password);
+      // Fire-and-forget: AI token refresh runs in the background so login
+      // navigation isn't blocked by the AI backend's response time (which on
+      // Render free-tier cold starts can exceed 30s for a 2× aiLogin + 1×
+      // aiSignup chain). When the token lands, it's persisted into Redux and
+      // any subsequent AI-feature use picks it up.
+      void refreshAiToken(mockAccount.user, userTenant, data.email.trim(), data.password)
+        .catch((err) => {
+          console.warn("[login] AI token refresh failed in background:", err);
+        });
 
       if (mockAccount.user.role === "super_admin") {
         setLoadingName("Platform Admin");
@@ -356,7 +364,11 @@ export function LoginPage() {
         // Refresh local tenant cache with the authoritative one from the server
         dispatch(setTenants([apiResult.tenant]));
         dispatch(setCredentials({ token: "api-token-" + Date.now(), user }));
-        await refreshAiToken(user, apiResult.tenant, data.email.trim(), data.password);
+        // Fire-and-forget — see comment at the first call site for rationale.
+        void refreshAiToken(user, apiResult.tenant, data.email.trim(), data.password)
+          .catch((err) => {
+            console.warn("[login] AI token refresh failed in background:", err);
+          });
 
         if (user.role === "super_admin") {
           setLoadingName("Platform Admin");
@@ -413,7 +425,11 @@ export function LoginPage() {
           tenantId: tenant.id,
         };
         dispatch(setCredentials({ token: "mock-token-" + Date.now(), user }));
-        await refreshAiToken(user, tenant, data.email.trim(), data.password);
+        // Fire-and-forget — see comment at the first call site for rationale.
+        void refreshAiToken(user, tenant, data.email.trim(), data.password)
+          .catch((err) => {
+            console.warn("[login] AI token refresh failed in background:", err);
+          });
 
         if (user.role === "super_admin") {
           setLoadingName("Platform Admin");
