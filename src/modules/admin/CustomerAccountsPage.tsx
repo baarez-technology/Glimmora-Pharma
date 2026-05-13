@@ -25,6 +25,7 @@ import {
   type Tenant,
 } from "@/store/auth.slice";
 import { fetchTenants, createTenantApi, updateTenantApi, deleteTenantApi } from "@/lib/tenantApi";
+import { toggleTenantMFA } from "@/actions/tenants";
 import { aiSignup, generateCustomerId, AiAuthError } from "@/lib/aiAuth";
 import { isTenantEffectivelyActive, getInactiveReason } from "@/lib/tenantStatus";
 import { Button } from "@/components/ui/Button";
@@ -554,9 +555,18 @@ interface CustomerAccountsPageProps {
   isSuperAdmin?: boolean;
 }
 
-export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPageProps = {}) {
+export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdminProp }: CustomerAccountsPageProps = {}) {
   const dispatch = useAppDispatch();
   const tenants = useAppSelector((s) => s.auth.tenants);
+  // MFA toggle column is super-admin-only — customer_admin can see /admin
+  // but must NOT control tenant-level MFA on themselves or others.
+  // Server-passed prop is the source of truth for SSR-affected branches;
+  // Redux fallback covers any caller that doesn't supply the prop yet.
+  const reduxRole = useAppSelector((s) => s.auth.user?.role);
+  const isSuperAdmin = isSuperAdminProp ?? reduxRole === "super_admin";
+  const [mfaUpdatingId, setMfaUpdatingId] = useState<string | null>(null);
+  // Confirmation gate for false→true (server invalidates active sessions on enable).
+  const [mfaConfirmTenant, setMfaConfirmTenant] = useState<Tenant | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -797,6 +807,27 @@ export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPagePro
     }
   };
 
+  const handleToggleMFA = async (tenant: Tenant, next: boolean) => {
+    if (!isSuperAdmin) return;
+    setMfaUpdatingId(tenant.id);
+    // Optimistic local flip — server result will revalidate via revalidatePath.
+    dispatch(updateTenant({ id: tenant.id, patch: { mfaEnabled: next } }));
+    try {
+      const result = await toggleTenantMFA(tenant.id, next);
+      if (!result.success) {
+        // Roll back the optimistic update.
+        dispatch(updateTenant({ id: tenant.id, patch: { mfaEnabled: !next } }));
+        setSyncError(result.error ?? "Failed to update MFA setting.");
+      }
+    } catch (err) {
+      console.error("[admin] toggleTenantMFA failed", err);
+      dispatch(updateTenant({ id: tenant.id, patch: { mfaEnabled: !next } }));
+      setSyncError("Failed to update MFA setting.");
+    } finally {
+      setMfaUpdatingId(null);
+    }
+  };
+
   const handleDelete = async () => {
     if (!deletingTenant) return;
     setDeleting(true);
@@ -950,6 +981,7 @@ export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPagePro
                 <th scope="col">Plan</th>
                 <th scope="col">Users / Sites</th>
                 <th scope="col">Status</th>
+                {isSuperAdmin && <th scope="col">MFA</th>}
                 <th scope="col">Created</th>
                 <th scope="col"><span className="sr-only">Actions</span></th>
               </tr>
@@ -1002,6 +1034,44 @@ export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPagePro
                         </span>
                       )}
                     </td>
+                    {/* MFA — super_admin only */}
+                    {isSuperAdmin && (
+                      <td>
+                        {(() => {
+                          const on = !!tenant.mfaEnabled;
+                          const updating = mfaUpdatingId === tenant.id;
+                          return (
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={on}
+                              aria-label={`MFA Required for ${tenant.name}: ${on ? "on" : "off"}`}
+                              disabled={updating}
+                              onClick={() => {
+                                if (on) {
+                                  handleToggleMFA(tenant, false);
+                                } else {
+                                  setMfaConfirmTenant(tenant);
+                                }
+                              }}
+                              className="toggle-track"
+                              style={{
+                                background: on ? "var(--brand)" : "var(--bg-elevated)",
+                                borderColor: on ? "var(--brand)" : "var(--bg-border)",
+                                opacity: updating ? 0.6 : 1,
+                                cursor: updating ? "wait" : "pointer",
+                              }}
+                            >
+                              <span
+                                className="toggle-thumb"
+                                style={{ transform: on ? "translateX(16px)" : "translateX(2px)" }}
+                              />
+                              <span className="sr-only">{on ? "On" : "Off"}</span>
+                            </button>
+                          );
+                        })()}
+                      </td>
+                    )}
                     {/* Created */}
                     <td>
                       <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
@@ -1033,7 +1103,7 @@ export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPagePro
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center py-10">
+                  <td colSpan={isSuperAdmin ? 7 : 6} className="text-center py-10">
                     <Building2 className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
                     <p className="text-[13px] font-medium mb-1" style={{ color: "var(--text-primary)" }}>
                       {searchQuery ? "No organizations match your search" : "No customer accounts yet"}
@@ -1168,6 +1238,30 @@ export function CustomerAccountsPage({ initialTenants }: CustomerAccountsPagePro
               setPostCreateTenantId(null);
               setSavedPopup("Account and subscription created");
             }}>Save Plan</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* MFA enable confirmation — toggleTenantMFA bumps sessionsValidAfter,
+          which signs out every active user in the tenant. */}
+      {mfaConfirmTenant && (
+        <Modal open onClose={() => setMfaConfirmTenant(null)} title="Enable MFA Required?">
+          <p className="text-[13px] mb-4" style={{ color: "var(--text-secondary)" }}>
+            Enabling MFA will sign out all current users in <strong style={{ color: "var(--text-primary)" }}>{mfaConfirmTenant.name}</strong>. They&apos;ll need to sign in again with email OTP. Continue?
+          </p>
+          <div className="flex justify-end gap-2 pt-3" style={{ borderTop: "1px solid var(--bg-border)" }}>
+            <Button variant="secondary" size="sm" onClick={() => setMfaConfirmTenant(null)}>Cancel</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                const t = mfaConfirmTenant;
+                setMfaConfirmTenant(null);
+                handleToggleMFA(t, true);
+              }}
+            >
+              Enable MFA
+            </Button>
           </div>
         </Modal>
       )}
