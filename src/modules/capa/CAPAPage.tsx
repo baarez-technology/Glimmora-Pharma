@@ -431,47 +431,117 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         isOpen={aiOpen}
         onClose={() => setAiOpen(false)}
         defaultCustomerId={aiCustomerId}
-        onAccepted={(res: AICapaResponse, form: AICapaForm) => {
+        onAccepted={async (res: AICapaResponse, form: AICapaForm) => {
           // Map AI form severity → CAPA risk taxonomy ("Medium" → "High" so it
           // still escalates; backend severity is informational anyway).
           const risk: "Critical" | "High" | "Low" =
             form.initial_severity === "Critical" ? "Critical" :
             form.initial_severity === "Low" ? "Low" : "High";
 
-          // Map free-text source → known CAPASource, fall back to Deviation.
-          const knownSources = ["483", "Internal Audit", "Deviation", "Complaint", "OOS", "Change Control", "Gap Assessment"] as const;
-          const source = (knownSources as readonly string[]).includes(form.source)
-            ? form.source as typeof knownSources[number]
+          // Map AI free-text source → the createCAPA Zod enum the server
+          // expects. Unmatched values land in "Other".
+          const SERVER_SOURCE_MAP: Record<string, "Gap Assessment" | "Deviation" | "FDA 483" | "Internal Audit" | "External Audit" | "Customer Complaint" | "Other"> = {
+            "483": "FDA 483",
+            "Internal Audit": "Internal Audit",
+            "Deviation": "Deviation",
+            "Complaint": "Customer Complaint",
+            "OOS": "Other",
+            "Change Control": "Other",
+            "Gap Assessment": "Gap Assessment",
+          };
+          const serverSource = SERVER_SOURCE_MAP[form.source] ?? "Other";
+
+          // Redux's CAPASource type uses the legacy AI-form vocabulary
+          // (different enum from the server's Zod schema). Keep both in sync
+          // for the degraded-mode fallback dispatch.
+          const REDUX_KNOWN_SOURCES = ["483", "Internal Audit", "Deviation", "Complaint", "OOS", "Change Control", "Gap Assessment"] as const;
+          const reduxSource = (REDUX_KNOWN_SOURCES as readonly string[]).includes(form.source)
+            ? (form.source as typeof REDUX_KNOWN_SOURCES[number])
             : "Deviation";
 
           // Default due date: 30 days for Critical, 60 for High, 90 for Low.
           const days = risk === "Critical" ? 30 : risk === "High" ? 60 : 90;
+          const dueDateIso = dayjs(res.created_at).add(days, "day").toISOString();
 
-          dispatch(addCAPA({
-            id: res.capa_id,
-            tenantId: tenantId ?? "",
-            siteId: selectedSiteId ?? allSites[0]?.id ?? "",
-            source,
-            risk,
-            owner: user?.id ?? "",
-            dueDate: dayjs(res.created_at).add(days, "day").toISOString(),
-            status: "open",
-            description: [
-              form.problem_statement,
-              form.area_affected ? `Area: ${form.area_affected}` : "",
-              form.equipment_product ? `Equipment/Product: ${form.equipment_product}` : "",
-              res.ai_recommendation ? `\nAI recommendation: ${res.ai_recommendation}` : "",
-              res.pattern_detected ? `Pattern: ${res.pattern_detected}` : "",
-              res.recurrence_alert ? `Recurrence: ${res.recurrence_alert}` : "",
-            ].filter(Boolean).join("\n"),
-            effectivenessCheck: true,
-            diGate: false,
-            createdAt: res.created_at,
-          }));
-          auditLog({ action: "CAPA_AI_GENERATED", module: "capa", recordId: res.capa_id, newValue: { riskScore: res.risk_score, isRecurring: res.is_recurring } });
-          setAiSavedPopup(`AI CAPA ${res.capa_id} created and added to the tracker.`);
+          const description = [
+            form.problem_statement,
+            form.area_affected ? `Area: ${form.area_affected}` : "",
+            form.equipment_product ? `Equipment/Product: ${form.equipment_product}` : "",
+            res.ai_recommendation ? `\nAI recommendation: ${res.ai_recommendation}` : "",
+            res.pattern_detected ? `Pattern: ${res.pattern_detected}` : "",
+            res.recurrence_alert ? `Recurrence: ${res.recurrence_alert}` : "",
+          ].filter(Boolean).join("\n");
+
+          // Persist locally so the CAPA survives page refresh. Prior to this
+          // the AI CAPA only lived in Redux + the AI backend, so refreshing
+          // /capa wiped it from the tracker (capa.slice doesn't persist).
+          // The AI backend's res.capa_id is kept in the audit log's newValue
+          // so the AI lifecycle viewer at /ai-capa/[capaId] is still findable
+          // post-create; the local Prisma row gets its own cuid + reference.
+          let persistedToDb = false;
+          let serverCapa: PrismaCAPA | null = null;
+          try {
+            const createRes = await createCAPAServer({
+              description,
+              source: serverSource,
+              risk,
+              owner: user?.id || user?.name || "ai-system",
+              dueDate: dueDateIso,
+              siteId: selectedSiteId ?? allSites[0]?.id ?? undefined,
+            });
+            if (createRes.success && createRes.data) {
+              serverCapa = createRes.data as PrismaCAPA;
+              persistedToDb = true;
+            } else if (!createRes.success) {
+              console.warn("[ai-capa] local persist rejected:", createRes.error);
+            }
+          } catch (err) {
+            console.error("[ai-capa] local persist threw:", err);
+          }
+
+          if (persistedToDb && serverCapa) {
+            // Mirror the server's authoritative row into Redux so the tracker
+            // shows the canonical Prisma id + reference, not the AI backend id.
+            dispatch(addCAPA(mapCAPAFromPrisma(serverCapa)));
+          } else {
+            // Degraded mode: persist failed but AI backend has the CAPA.
+            // Keep the user moving — add to Redux so the tracker still shows
+            // something this session. On next page refresh this row will
+            // vanish (capa.slice doesn't persist + Prisma row is missing).
+            dispatch(addCAPA({
+              id: res.capa_id,
+              tenantId: tenantId ?? "",
+              siteId: selectedSiteId ?? allSites[0]?.id ?? "",
+              source: reduxSource,
+              risk,
+              owner: user?.id ?? "",
+              dueDate: dueDateIso,
+              status: "open",
+              description,
+              effectivenessCheck: true,
+              diGate: false,
+              createdAt: res.created_at,
+            }));
+          }
+
+          auditLog({
+            action: "CAPA_AI_GENERATED",
+            module: "capa",
+            recordId: serverCapa?.id ?? res.capa_id,
+            newValue: {
+              riskScore: res.risk_score,
+              isRecurring: res.is_recurring,
+              aiBackendId: res.capa_id,
+              persistedToDb,
+            },
+          });
+          setAiSavedPopup(
+            persistedToDb
+              ? `AI CAPA ${serverCapa?.reference ?? res.capa_id} created and added to the tracker.`
+              : `AI CAPA ${res.capa_id} created (warning: local persist failed; refresh will clear from tracker).`,
+          );
           // Drop the user into the lifecycle dashboard so they can run RCA →
-          // Action plan → Monitoring → Effectiveness → Closure.
+          // Action plan → Monitoring → Effectiveness → Closure (AI backend).
           router.push(`/ai-capa/${encodeURIComponent(res.capa_id)}`);
         }}
       />
