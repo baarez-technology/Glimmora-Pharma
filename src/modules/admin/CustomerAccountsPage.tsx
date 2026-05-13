@@ -332,6 +332,7 @@ interface AccountFormData {
   language: string;
   timezone: string;
   active: boolean;
+  mfaEnabled: boolean;
   newPassword: string;
   confirmPassword: string;
   subscriptionPlans: SubPlan[];
@@ -347,6 +348,7 @@ function makeEmptyForm(): AccountFormData {
     language: "English, United States",
     timezone: "Asia/Kolkata",
     active: true,
+    mfaEnabled: false,
     newPassword: "",
     confirmPassword: "",
     subscriptionPlans: [],
@@ -362,12 +364,17 @@ function AccountDrawer({
   onSave,
   initial,
   mode,
+  isSuperAdmin = false,
 }: {
   open: boolean;
   onClose: () => void;
   onSave: (data: AccountFormData) => void;
   initial: AccountFormData;
   mode: "create" | "edit";
+  /** Tenant-level MFA toggle is super_admin only — customer_admin must not
+   *  control MFA on their own tenant. When false, the toggle JSX + help text
+   *  are hidden and the parent's save handler skips the toggleTenantMFA call. */
+  isSuperAdmin?: boolean;
 }) {
   const [form, setForm] = useState<AccountFormData>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -478,6 +485,14 @@ function AccountDrawer({
               <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Time Zone</label><select value={form.timezone} onChange={(e) => set("timezone", e.target.value)} className="select"><option value="Asia/Kolkata">Asia/Kolkata</option><option value="Asia/Qatar">Asia/Qatar</option><option value="America/New_York">America/New_York</option><option value="Europe/London">Europe/London</option><option value="Asia/Dubai">Asia/Dubai</option></select></div>
             </div>
             <YesNo label="Active" value={form.active} onChange={(v) => set("active", v)} />
+            {isSuperAdmin && (
+              <div className="mt-3">
+                <YesNo label="Require MFA" value={form.mfaEnabled} onChange={(v) => set("mfaEnabled", v)} />
+                <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                  User receives an email verification code on every login. Enabling on an existing tenant signs out all active sessions.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* ── PASSWORD ── */}
@@ -715,6 +730,28 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         console.error("[admin] failed to persist tenant update", err);
         setSyncError("Saved locally but failed to sync to the database.");
       }
+      // MFA changes route through toggleTenantMFA so the audit pair and
+      // sessionsValidAfter bump fire. Don't include mfaEnabled in the
+      // generic patch — that would skip the audit/session-invalidation.
+      // Defensive: only super_admin can change MFA. The modal's MFA toggle is
+      // already gated, so this is a belt-and-braces check against future
+      // callers that might not enforce the UI gate.
+      if (isSuperAdmin && data.mfaEnabled !== !!editingTenant.mfaEnabled) {
+        try {
+          const result = await toggleTenantMFA(editingTenant.id, data.mfaEnabled);
+          if (!result.success) {
+            // Roll back the optimistic local flip done above by re-dispatching.
+            dispatch(updateTenant({ id: editingTenant.id, patch: { mfaEnabled: !!editingTenant.mfaEnabled } }));
+            setSyncError(friendlyError(result.error));
+          } else {
+            dispatch(updateTenant({ id: editingTenant.id, patch: { mfaEnabled: data.mfaEnabled } }));
+          }
+        } catch (err) {
+          console.error("[admin] toggleTenantMFA failed", err);
+          dispatch(updateTenant({ id: editingTenant.id, patch: { mfaEnabled: !!editingTenant.mfaEnabled } }));
+          setSyncError(friendlyError(undefined));
+        }
+      }
     } else {
       const tenantId = `tenant-${Date.now()}`;
       // Customer admin: customer_id is auto-generated AND used as the user_id
@@ -753,6 +790,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         adminEmail: data.email,
         createdAt: new Date().toISOString(),
         active: data.active,
+        mfaEnabled: data.mfaEnabled,
         subscriptionPlans: data.subscriptionPlans.map((sp) => ({
           id: sp.id,
           startDate: sp.startDate,
@@ -807,6 +845,17 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
     }
   };
 
+  // Translate server-action error codes into user-facing sentences. The raw
+  // codes ("FORBIDDEN", "NOT_FOUND", "UNAUTHORIZED") were leaking into the
+  // sync banner verbatim, which is confusing to non-developers and obscures
+  // the actual remediation step. Used at every MFA error surface.
+  const friendlyError = (code: string | undefined): string => {
+    if (code === "FORBIDDEN") return "Only Super Admin can change MFA settings.";
+    if (code === "NOT_FOUND") return "Tenant not found.";
+    if (code === "UNAUTHORIZED") return "Your session has expired. Please log in again.";
+    return code || "Failed to update MFA setting.";
+  };
+
   const handleToggleMFA = async (tenant: Tenant, next: boolean) => {
     if (!isSuperAdmin) return;
     setMfaUpdatingId(tenant.id);
@@ -817,12 +866,12 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       if (!result.success) {
         // Roll back the optimistic update.
         dispatch(updateTenant({ id: tenant.id, patch: { mfaEnabled: !next } }));
-        setSyncError(result.error ?? "Failed to update MFA setting.");
+        setSyncError(friendlyError(result.error));
       }
     } catch (err) {
       console.error("[admin] toggleTenantMFA failed", err);
       dispatch(updateTenant({ id: tenant.id, patch: { mfaEnabled: !next } }));
-      setSyncError("Failed to update MFA setting.");
+      setSyncError(friendlyError(undefined));
     } finally {
       setMfaUpdatingId(null);
     }
@@ -859,6 +908,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       language: "English, United States",
       timezone: editingTenant.config.org.timezone,
       active: editingTenant.active,
+      mfaEnabled: !!editingTenant.mfaEnabled,
       newPassword: "",
       confirmPassword: "",
       subscriptionPlans: (editingTenant.subscriptionPlans ?? []).map((sp) => ({
@@ -1130,6 +1180,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         onSave={handleSave}
         initial={getFormData()}
         mode={editingTenant ? "edit" : "create"}
+        isSuperAdmin={isSuperAdmin}
       />
 
       {/* Delete confirmation modal */}

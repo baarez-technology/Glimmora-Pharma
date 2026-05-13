@@ -64,6 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         username?: string;
         passwordHash?: string;
         active?: boolean;
+        mfaEnabled?: boolean;
         subscriptionPlans?: SubscriptionPlanInput[];
       };
       if (!body?.id || !body?.name || !body?.adminEmail) {
@@ -79,6 +80,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           passwordHash: body.passwordHash ?? "",
           role: "customer_admin",
           isActive: body.active ?? true,
+          mfaEnabled: body.mfaEnabled ?? false,
         },
       });
       const plan = pickActivePlan(body.subscriptionPlans);
