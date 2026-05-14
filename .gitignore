@@ -58,6 +58,15 @@ playwright-run-*.log
 
 /generated/prisma
 
+# Python backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.db
+backend/*.db-journal
+backend/.env
+backend/uploads/
+
 # Local-only exploratory docs (never committed)
 CLAUDE.draft.md
 CLAUDE.legacy.md

@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "concurrently -n web,api -c blue,magenta -k \"next dev --turbopack\" \"node scripts/dev-api.mjs\"",
+    "dev:web": "next dev --turbopack",
+    "dev:api": "node scripts/dev-api.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -53,6 +55,7 @@
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1",
     "dotenv": "^17.4.2",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",

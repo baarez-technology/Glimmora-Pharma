@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 
-const AI_BASE = "https://pharma-glimmora-ai-backend.onrender.com";
+// In production (DO App Platform) this is the internal private URL of the api
+// service — never leaves DO's private network. In dev it falls back to localhost.
+const AI_BASE =
+  process.env.BACKEND_URL ??
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/api$/, "") ??
+  "http://localhost:8000";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
