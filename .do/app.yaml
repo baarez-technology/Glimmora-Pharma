@@ -1,0 +1,86 @@
+name: glimmora-pharma
+region: nyc
+
+# ── Pre-deploy migration job ─────────────────────────────────────────────────
+# Runs `prisma migrate deploy` before the web service starts on every deploy.
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      branch: devAI
+      deploy_on_push: true
+    source_dir: /
+    build_command: npm ci && npx prisma generate
+    run_command: npx prisma migrate deploy
+    instance_size_slug: basic-xxs
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+
+# ── Web service ──────────────────────────────────────────────────────────────
+services:
+  - name: web
+    github:
+      branch: devAI
+      deploy_on_push: true
+    source_dir: /
+    build_command: npm ci && npx prisma generate && npm run build
+    run_command: npm start
+    http_port: 3000
+    instance_size_slug: basic-xs
+    instance_count: 1
+
+    health_check:
+      http_path: /api/auth/session
+      initial_delay_seconds: 10
+      period_seconds: 30
+      timeout_seconds: 5
+      failure_threshold: 3
+
+    envs:
+      # ── Database ────────────────────────────────────────────────────────
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+
+      # ── NextAuth ────────────────────────────────────────────────────────
+      - key: NEXTAUTH_SECRET
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+      - key: NEXTAUTH_URL
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+
+      # ── Email / SMTP ────────────────────────────────────────────────────
+      - key: GMAIL_USER
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+      - key: GMAIL_APP_PASSWORD
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+
+      # ── AI backend (Render) ─────────────────────────────────────────────
+      - key: NEXT_PUBLIC_API_URL
+        scope: RUN_AND_BUILD_TIME
+        value: https://pharma-glimmora-ai-backend.onrender.com/api
+
+      # ── File storage (DO Spaces) ─────────────────────────────────────────
+      - key: FILE_STORAGE_BACKEND
+        scope: RUN_AND_BUILD_TIME
+        value: do-spaces
+      - key: DO_SPACES_ENDPOINT
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+      - key: DO_SPACES_KEY
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+      - key: DO_SPACES_SECRET
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+      - key: DO_SPACES_BUCKET
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+      - key: DO_SPACES_REGION
+        scope: RUN_AND_BUILD_TIME
+        value: nyc3

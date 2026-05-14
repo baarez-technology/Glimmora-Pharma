@@ -10,8 +10,24 @@ jobs:
     name: Lint, typecheck, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: glimmora_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     env:
-      DATABASE_URL: "file:./prisma/dev.db"
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/glimmora_test"
       NEXTAUTH_SECRET: "ci-only-secret-32-bytes-long-aaaaaa"
       NEXTAUTH_URL: "http://localhost:3000"
 
@@ -29,16 +45,13 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Apply migrations to a fresh SQLite DB
+      - name: Apply migrations to a fresh PostgreSQL DB
         run: npx prisma migrate deploy
 
       - name: Lint
         run: npm run lint
 
       - name: TypeScript typecheck
-        # Strict gate. typescript.ignoreBuildErrors was removed in Wave 2
-        # after the 180-error backlog was burned down. CI now fails on any
-        # type regression — that's the contract.
         run: npx tsc --noEmit
 
       - name: Build
@@ -49,8 +62,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: check
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: glimmora_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     env:
-      DATABASE_URL: "file:./prisma/dev.db"
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/glimmora_test"
       NEXTAUTH_SECRET: "ci-only-secret-32-bytes-long-aaaaaa"
       NEXTAUTH_URL: "http://localhost:3000"
       CI: "true"
