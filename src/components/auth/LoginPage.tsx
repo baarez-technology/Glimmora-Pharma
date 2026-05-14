@@ -16,7 +16,7 @@ import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { setCredentials, setAiCredentials, setActiveSite, setSelectedSite, setTenants, updateTenantUser, type AuthUser, type Tenant, type TenantSiteConfig } from "@/store/auth.slice";
 import { loginApi } from "@/lib/tenantApi";
-import { login as nextAuthLogin } from "@/lib/authClient";
+import { login as nextAuthLogin, fetchCurrentUser } from "@/lib/authClient";
 import { aiLogin, aiSignup, AiAuthError } from "@/lib/aiAuth";
 import { flushPersist } from "@/store/persistence";
 import { Button } from "@/components/ui/Button";
@@ -280,9 +280,8 @@ export function LoginPage() {
     const key = data.email.toLowerCase().trim();
 
     // 0. Establish a real next-auth session (real JWT, HttpOnly cookie).
-    //    We do this BEFORE the legacy Redux flow so the session cookie is in
-    //    place by the time API calls go out. If next-auth rejects, fall back
-    //    to the legacy paths so dev/demo flows keep working.
+    //    If next-auth succeeds, fetch the user profile from /api/auth/me and
+    //    redirect immediately — no need to fall through to the legacy paths.
     try {
       const result = await nextAuthLogin(data.email.trim(), data.password, /* silent */ true);
       if (!result.ok) {
@@ -302,21 +301,44 @@ export function LoginPage() {
           return;
         }
         console.warn("[login] next-auth rejected credentials:", result.error);
+      } else {
+        // NextAuth succeeded — fetch the canonical user profile and redirect.
+        const me = await fetchCurrentUser();
+        if (me) {
+          const user: AuthUser = {
+            id: me.id,
+            name: me.name,
+            email: me.email,
+            role: me.role as AuthUser["role"],
+            gxpSignatory: me.gxpSignatory,
+            tenantId: me.tenantId,
+            orgId: me.orgId,
+          };
+          dispatch(setCredentials({ token: "nextauth-token-" + Date.now(), user }));
+          try {
+            if (typeof window !== "undefined" && window.location.search) {
+              window.history.replaceState({}, "", window.location.pathname);
+            }
+          } catch { /* ignore */ }
+          if (user.role === "super_admin") {
+            setLoadingName("Platform Admin");
+            setLoadingTenant(true);
+            flushPersist(); window.location.assign("/admin");
+            return;
+          }
+          if (user.role === "customer_admin") {
+            setLoadingName("workspace");
+            setLoadingTenant(true);
+            flushPersist(); window.location.assign("/");
+            return;
+          }
+          await finishLogin(user, undefined, me.name);
+          return;
+        }
       }
     } catch (err) {
       console.warn("[login] next-auth signIn failed", err);
     }
-
-    // Strip any ?callbackUrl=... query param that next-auth may have placed on
-    // the URL (e.g. when the user hit a protected route before signing in).
-    // We navigate explicitly based on role below, so we never want to honor
-    // a callback URL — especially one pointing at an /api/* route which would
-    // render the raw JSON in the browser.
-    try {
-      if (typeof window !== "undefined" && window.location.search) {
-        window.history.replaceState({}, "", window.location.pathname);
-      }
-    } catch { /* ignore */ }
 
     // 1. Check static mock accounts first
     const mockAccount = MOCK_ACCOUNTS[key];
