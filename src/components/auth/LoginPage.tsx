@@ -619,8 +619,11 @@ export function LoginPage() {
         {/* Dev credentials toggle — gated to non-production builds so production
             users never see seed passwords. NODE_ENV is inlined at build time so
             this entire block (plus CRED_ROWS data downstream) is tree-shaken
-            out of the production bundle. */}
-        {process.env.NODE_ENV !== "production" && (
+            out of the production bundle.
+            TEMPORARY: NEXT_PUBLIC_SHOW_DEV_CREDS=true overrides the gate for
+            demo-day. Remove the env var on DO App Platform after the demo to
+            restore the secure default. */}
+        {(process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_SHOW_DEV_CREDS === "true") && (
         <div className="mt-4" style={{ display: loadingTenant ? "none" : undefined }}>
           <button
             type="button"
