@@ -8,13 +8,13 @@ import { sendOtpEmail } from "@/lib/mailer";
 /**
  * Production guard for NEXTAUTH_SECRET (audit findings 3.6 + 11.3).
  *
- * If anyone deploys with the .env.example placeholder still in place, every
- * JWT in the system is forgeable by anyone who knows that string. Refuse to
- * boot in production unless a real secret is set. Dev is unaffected — local
- * contributors can run with the placeholder or any test value.
+ * Called inside authorize() so it fires at request-time, not at module
+ * evaluation — Next.js build does not have runtime secrets available and
+ * would crash during page-data collection if this ran at the top level.
  */
 const PLACEHOLDER_SECRET = "replace-with-a-32-byte-base64-secret";
-if (process.env.NODE_ENV === "production") {
+function assertProductionSecret(): void {
+  if (process.env.NODE_ENV !== "production") return;
   if (!process.env.NEXTAUTH_SECRET) {
     throw new Error("NEXTAUTH_SECRET must be set in production.");
   }
@@ -80,6 +80,7 @@ export const authOptions: NextAuthOptions = {
         otp: { label: "Verification code", type: "text" },
       },
       async authorize(credentials) {
+        assertProductionSecret();
         if (!credentials?.email || !credentials?.password) return null;
         const email = credentials.email.toLowerCase().trim();
         const password = credentials.password;
