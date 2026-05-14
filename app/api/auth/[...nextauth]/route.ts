@@ -90,9 +90,13 @@ export const authOptions: NextAuthOptions = {
           // ── Path 1: Tenant table (super_admin / customer_admin) ──
           // findMany + length guard: refuse to silently pick one when the
           // unique constraint is violated (shouldn't happen — Tenant.email
-          // IS @@unique — but the guard makes the failure mode loud).
+          // and Tenant.username are both @@unique — but the guard makes the
+          // failure mode loud).
+          // Accept either email or username (e.g. "superadmin"). When the
+          // input has no "@" we treat it as a username; otherwise email.
+          const isEmail = email.includes("@");
           const tenantMatches = await prisma.tenant.findMany({
-            where: { email },
+            where: isEmail ? { email } : { username: email },
             include: { subscription: true },
           });
           if (tenantMatches.length > 1) {
@@ -151,8 +155,10 @@ export const authOptions: NextAuthOptions = {
           // Same ambiguity guard. User.email is unique only within a tenant
           // (@@unique([tenantId, email])), so cross-tenant duplicates are
           // structurally possible — refuse rather than guess.
+          // Accept username as well: User.username also has @@unique with
+          // tenantId, so the same ambiguity guard applies.
           const userMatches = await prisma.user.findMany({
-            where: { email },
+            where: isEmail ? { email } : { username: email },
             include: { tenant: { include: { subscription: true } } },
           });
           if (userMatches.length > 1) {
