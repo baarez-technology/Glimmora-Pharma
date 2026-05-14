@@ -42,26 +42,20 @@ const SUPER_ADMIN_SEED: { username: string; password: string; user: AuthUser } =
 };
 
 const MOCK_ACCOUNTS: Record<string, { password: string; user: AuthUser }> = {
-  // Pharma Glimmora International
-  "admin@pharmaglimmora.com": { password: "Admin@123", user: { id: "u-001", name: "System Administrator", email: "admin@pharmaglimmora.com", role: "super_admin", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "custadmin@pharmaglimmora.com": { password: "CustAdmin@123", user: { id: "u-009", name: "Customer Administrator", email: "custadmin@pharmaglimmora.com", role: "customer_admin", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
+  // Pharma Glimmora International — must match prisma/seed.ts exactly.
+  // Tenant table → admin@pharmaglimmora.com (customer_admin, password Admin@123).
+  // User table  → qa/ra/csv/qc/it/ops@pharmaglimmora.com (all Demo@123).
+  "admin@pharmaglimmora.com": { password: "Admin@123", user: { id: "u-001", name: "System Administrator", email: "admin@pharmaglimmora.com", role: "customer_admin", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
   "qa@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-002", name: "Dr. Priya Sharma", email: "qa@pharmaglimmora.com", role: "qa_head", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
   "ra@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-003", name: "Rahul Mehta", email: "ra@pharmaglimmora.com", role: "regulatory_affairs", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
   "csv@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-004", name: "Anita Patel", email: "csv@pharmaglimmora.com", role: "csv_val_lead", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
   "qc@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-005", name: "Dr. Nisha Rao", email: "qc@pharmaglimmora.com", role: "qc_lab_director", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
   "it@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-006", name: "Vikram Singh", email: "it@pharmaglimmora.com", role: "it_cdo", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
   "ops@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-007", name: "Suresh Kumar", email: "ops@pharmaglimmora.com", role: "operations_head", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "viewer@pharmaglimmora.com": { password: "Viewer@123", user: { id: "u-008", name: "View Only User", email: "viewer@pharmaglimmora.com", role: "viewer", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  // ABC Pharma Ltd
-  "admin@abcpharma.com": { password: "Admin@123", user: { id: "u-abc-001", name: "ABC Admin", email: "admin@abcpharma.com", role: "super_admin", gxpSignatory: true, orgId: "org-2", tenantId: "tenant-abc" } },
-  "custadmin@abcpharma.com": { password: "CustAdmin@123", user: { id: "u-cust-abc", name: "ABC Customer Admin", email: "custadmin@abcpharma.com", role: "customer_admin", gxpSignatory: false, orgId: "org-2", tenantId: "tenant-abc" } },
-  "qa@abcpharma.com": { password: "QaHead@123", user: { id: "u-abc-002", name: "Dr. Sunita Rao", email: "qa@abcpharma.com", role: "qa_head", gxpSignatory: true, orgId: "org-2", tenantId: "tenant-abc" } },
-  // XYZ Biotech
-  "admin@xyzbiotech.com": { password: "Admin@123", user: { id: "u-xyz-001", name: "XYZ Admin", email: "admin@xyzbiotech.com", role: "super_admin", gxpSignatory: true, orgId: "org-3", tenantId: "tenant-xyz" } },
-  "custadmin@xyzbiotech.com": { password: "CustAdmin@123", user: { id: "u-cust-xyz", name: "XYZ Customer Admin", email: "custadmin@xyzbiotech.com", role: "customer_admin", gxpSignatory: false, orgId: "org-3", tenantId: "tenant-xyz" } },
-  "qa@xyzbiotech.com": { password: "QaHead@123", user: { id: "u-xyz-002", name: "Dr. Arjun Das", email: "qa@xyzbiotech.com", role: "qa_head", gxpSignatory: true, orgId: "org-3", tenantId: "tenant-xyz" } },
 };
 
+// Every row below must correspond to a real seeded account in prisma/seed.ts.
+// Two tables back this: Tenant (super_admin, customer_admin) and User (site users).
 const CRED_ROWS: { org: string; rows: [string, string, string, string][] }[] = [
   {
     org: "Platform (bootstrap)",
@@ -73,28 +67,13 @@ const CRED_ROWS: { org: string; rows: [string, string, string, string][] }[] = [
   {
     org: "Pharma Glimmora International",
     rows: [
-      ["Super Admin", "admin@pharmaglimmora.com", "Admin@123", "#ef4444"],
-      ["Customer Admin", "custadmin@pharmaglimmora.com", "CustAdmin@123", "#8b6914"],
+      ["Customer Admin", "admin@pharmaglimmora.com", "Admin@123", "#8b6914"],
       ["QA Head", "qa@pharmaglimmora.com", "Demo@123", "#a78bfa"],
+      ["Regulatory Affairs", "ra@pharmaglimmora.com", "Demo@123", "#fb923c"],
       ["CSV/Val Lead", "csv@pharmaglimmora.com", "Demo@123", "#38bdf8"],
       ["QC/Lab Director", "qc@pharmaglimmora.com", "Demo@123", "#10b981"],
-      ["Viewer", "viewer@pharmaglimmora.com", "Viewer@123", "#94a3b8"],
-    ],
-  },
-  {
-    org: "ABC Pharma Ltd",
-    rows: [
-      ["Super Admin", "admin@abcpharma.com", "Admin@123", "#ef4444"],
-      ["Customer Admin", "custadmin@abcpharma.com", "CustAdmin@123", "#8b6914"],
-      ["QA Head", "qa@abcpharma.com", "QaHead@123", "#a78bfa"],
-    ],
-  },
-  {
-    org: "XYZ Biotech",
-    rows: [
-      ["Super Admin", "admin@xyzbiotech.com", "Admin@123", "#ef4444"],
-      ["Customer Admin", "custadmin@xyzbiotech.com", "CustAdmin@123", "#8b6914"],
-      ["QA Head", "qa@xyzbiotech.com", "QaHead@123", "#a78bfa"],
+      ["IT/CDO", "it@pharmaglimmora.com", "Demo@123", "#06b6d4"],
+      ["Operations Head", "ops@pharmaglimmora.com", "Demo@123", "#84cc16"],
     ],
   },
 ];
