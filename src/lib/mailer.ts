@@ -26,15 +26,16 @@ const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 const IS_PROD = process.env.NODE_ENV === "production";
 const HAS_CREDS = !!(GMAIL_USER && GMAIL_APP_PASSWORD);
 
-if (IS_PROD && !HAS_CREDS) {
-  throw new Error("GMAIL_USER and GMAIL_APP_PASSWORD must be set in production.");
-}
-
 const globalForMailer = globalThis as unknown as {
   mailerTransporter: Transporter | undefined;
 };
 
 function getTransporter(): Transporter {
+  // Defer the production credential check to call-time so Next.js can build
+  // without GMAIL creds present as build-time env vars.
+  if (IS_PROD && !HAS_CREDS) {
+    throw new Error("GMAIL_USER and GMAIL_APP_PASSWORD must be set in production.");
+  }
   if (globalForMailer.mailerTransporter) return globalForMailer.mailerTransporter;
   const t = nodemailer.createTransport({
     host: "smtp.gmail.com",
