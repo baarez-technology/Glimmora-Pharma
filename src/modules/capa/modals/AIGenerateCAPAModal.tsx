@@ -141,7 +141,7 @@ export function AIGenerateCAPAModal({
     // calls /api/v1/auth/login and stores the token.
     const token = storedAiToken ?? getStoredToken();
     if (!token) {
-      setError("AI backend session is missing. Please sign out and sign in again to refresh your access token.");
+      setError("AI is still connecting. This usually takes 5-10 seconds on first sign-in. Please try again in a moment.");
       return;
     }
     try {
@@ -422,8 +422,9 @@ export function AIGenerateCAPAModal({
               type="submit"
               icon={Sparkles}
               loading={isSubmitting}
+              disabled={!storedAiToken}
             >
-              {isSubmitting ? "Analyzing..." : "Generate CAPA"}
+              {!storedAiToken ? "Connecting to AI..." : isSubmitting ? "Analyzing..." : "Generate CAPA"}
             </Button>
           </div>
         </form>
