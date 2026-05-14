@@ -337,7 +337,7 @@ export function ValidationPanel({
             <th scope="col" className="text-center py-1 font-semibold" style={{ color: "#8B5CF6" }}>Approval</th>
           </tr></thead>
           <tbody>{stages.map((s) => {
-            const isExec = s.status === "skipped" ? "\u23ED" : (s.documents?.length ?? 0) > 0 || ["approved", "complete", "in_review", "in-progress"].includes(s.status) ? "\u2713" : s.status === "draft" ? "\u270E" : "\u25CB";
+            const isExec = s.status === "skipped" ? "\u23ED" : ["approved", "complete", "in_review", "in-progress"].includes(s.status) && (s.documents?.length ?? 0) > 0 ? "\u2713" : (s.documents?.length ?? 0) > 0 ? "\uD83D\uDCCE" : s.status === "draft" ? "\u270E" : "\u25CB";
             const isAppr = s.status === "skipped" ? "\u23ED" : s.status === "approved" || s.status === "complete" ? "\u2713" : s.status === "in_review" || s.status === "in-progress" ? "\u223C" : s.status === "rejected" ? "\u2717" : "\u25CB";
             const execCol = isExec === "\u2713" ? "#10b981" : isExec === "\u270E" ? "#f59e0b" : "#64748b";
             const apprCol = isAppr === "\u2713" ? "#10b981" : isAppr === "\u223C" ? "#8B5CF6" : isAppr === "\u2717" ? "#ef4444" : "#64748b";
