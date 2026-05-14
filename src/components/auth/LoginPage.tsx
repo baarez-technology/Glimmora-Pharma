@@ -616,7 +616,11 @@ export function LoginPage() {
           <span className="text-[11px] text-[#7a736a]">Privacy · Terms</span>
         </div>
 
-        {/* Dev credentials toggle */}
+        {/* Dev credentials toggle — gated to non-production builds so production
+            users never see seed passwords. NODE_ENV is inlined at build time so
+            this entire block (plus CRED_ROWS data downstream) is tree-shaken
+            out of the production bundle. */}
+        {process.env.NODE_ENV !== "production" && (
         <div className="mt-4" style={{ display: loadingTenant ? "none" : undefined }}>
           <button
             type="button"
@@ -677,6 +681,7 @@ export function LoginPage() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
