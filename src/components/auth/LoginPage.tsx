@@ -471,7 +471,7 @@ export function LoginPage() {
               <Shield className="w-7 h-7 text-white" aria-hidden="true" />
             </div>
             <h1 className="text-[28px] font-extrabold text-[#302d29] tracking-tight mb-1">
-              Welcome Back Team !
+              Welcome Back Team Member !
             </h1>
             <p className="text-[14px] text-[#7a736a]">
               Log into your account
