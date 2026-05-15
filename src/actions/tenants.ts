@@ -6,6 +6,16 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { BCRYPT_COST } from "@/lib/passwords";
+import { getTenants } from "@/lib/queries/tenants";
+import type { Tenant as ReduxTenant } from "@/store/auth.slice";
+
+export async function listTenants(): Promise<ReduxTenant[]> {
+  const session = await requireAuth();
+  if (session.user.role !== "super_admin") {
+    throw new Error("Only Super Admin can list tenants");
+  }
+  return getTenants();
+}
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
