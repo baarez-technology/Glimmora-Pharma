@@ -46,7 +46,10 @@ api.interceptors.response.use(
     }
     if (err.response?.status === 401) {
       store.dispatch(logout());
-      window.location.href = "/login";
+      // ?session=expired is picked up by LoginPage on mount and turned into
+      // a "Your session expired" toast. Without the query param the user
+      // gets kicked to login with no explanation for the navigation.
+      window.location.href = "/login?session=expired";
     }
     return Promise.reject(err);
   },

@@ -13,6 +13,7 @@ import { logout, setCredentials, setTenants, type AuthUser, type Tenant } from "
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { logout as nextAuthLogout } from "@/lib/authClient";
 import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { SiteFilterBanner } from "./SiteFilterBanner";
@@ -46,6 +47,7 @@ export function AppShell({ children, initialTenant, initialUser }: AppShellProps
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const dispatch = useAppDispatch();
+  const toast = useToast();
   const reduxUser = useAppSelector((s) => s.auth.user);
   const reduxCurrentTenant = useAppSelector((s) => s.auth.currentTenant);
 
@@ -184,11 +186,15 @@ export function AppShell({ children, initialTenant, initialUser }: AppShellProps
               variant="ghost"
               fullWidth
               onClick={async () => {
+                toast.info("Signing out...");
                 try {
                   await nextAuthLogout();
                 } catch { /* ignore — fall through to local logout */ }
                 dispatch(logout());
-                window.location.href = "/login";
+                toast.success("Logged out successfully");
+                // Hard nav (this surface used window.location to defeat any
+                // stale SPA state). Slight delay so the toast renders.
+                setTimeout(() => { window.location.href = "/login"; }, 500);
               }}
             >
               Logout

@@ -28,7 +28,14 @@ const PALETTE: Record<ToastKind, { bg: string; border: string; text: string; Ico
   info:    { bg: "#dbeafe", border: "#3b82f6", text: "#1e40af", Icon: Info },
 };
 
-const DEFAULT_DURATION_MS = 4000;
+// Per-kind defaults: success is quick confirmation, info is the most
+// transient, error gets the longest hold because the user needs time to
+// read what went wrong. Callers can still override per-call.
+const DEFAULT_DURATIONS: Record<ToastKind, number> = {
+  success: 3000,
+  info:    2500,
+  error:   5000,
+};
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -45,11 +52,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const show = useCallback((kind: ToastKind, message: string, duration = DEFAULT_DURATION_MS) => {
+  const show = useCallback((kind: ToastKind, message: string, duration?: number) => {
     const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setToasts((prev) => [...prev, { id, kind, message, duration }]);
-    if (duration > 0) {
-      const handle = setTimeout(() => dismiss(id), duration);
+    const effectiveDuration = duration ?? DEFAULT_DURATIONS[kind];
+    setToasts((prev) => [...prev, { id, kind, message, duration: effectiveDuration }]);
+    if (effectiveDuration > 0) {
+      const handle = setTimeout(() => dismiss(id), effectiveDuration);
       timersRef.current.set(id, handle);
     }
     return id;
@@ -89,13 +97,15 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
-/* ── Viewport: stacked fixed bottom-right ───────────────────────── */
+/* ── Viewport: stacked fixed top-center ───────────────────────────
+   Centered horizontally just below the top edge of the viewport. Stacks
+   downward so the newest toast slides in above the older ones. */
 
 function ToastViewport({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: string) => void }) {
   if (toasts.length === 0) return null;
   return (
     <div
-      className="fixed bottom-6 right-6 z-[70] flex flex-col gap-2 pointer-events-none"
+      className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] flex flex-col gap-2 items-center w-auto max-w-[90vw] sm:max-w-md pointer-events-none"
       aria-label="Notifications"
     >
       {toasts.map((t) => (
@@ -112,7 +122,7 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2.5 shadow-lg min-w-[260px] max-w-[380px] animate-in slide-in-from-right-4 duration-200"
+      className="pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2.5 shadow-lg min-w-[260px] max-w-[380px] animate-in slide-in-from-top-4 fade-in duration-200"
       style={{ background: palette.bg, borderColor: palette.border, color: palette.text }}
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

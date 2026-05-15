@@ -122,6 +122,28 @@ export function LoginPage() {
   useEffect(() => { setMounted(true); }, []);
   const isDark = mounted && themeMode === "dark";
 
+  // Session-expired toast handoff. axios.ts (on a 401 from any API call)
+  // and AdminShell (on a 401 from /api/auth/me) both navigate to
+  // /login?session=expired so the user sees one consistent message
+  // regardless of which signal triggered the kick-out. We strip the
+  // param from the URL after surfacing the toast so a refresh doesn't
+  // re-show it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("session") === "expired") {
+      toast.error("Your session expired. Please sign in again.");
+      params.delete("session");
+      const qs = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        window.location.pathname + (qs ? `?${qs}` : ""),
+      );
+    }
+    // Mount-only — runs once when the LoginPage first renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Bootstrap: ensure platform super_admin account exists
   useEffect(() => {

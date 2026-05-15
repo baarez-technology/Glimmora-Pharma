@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import {
@@ -14,6 +14,7 @@ import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { logout, setCredentials, type UserRole } from "@/store/auth.slice";
 import { logout as nextAuthLogout, fetchCurrentUser } from "@/lib/authClient";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { useToast } from "@/components/ui/Toast";
 import { AIChatbot } from "@/components/chatbot/AIChatbot";
 
 const NAV_ITEMS = [
@@ -24,6 +25,7 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const pathname = usePathname();
+  const toast = useToast();
   const user = useAppSelector((s) => s.auth.user);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -32,12 +34,30 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
   // effect — lets the user recover from a transient /api/auth/me failure
   // without a full page reload.
   const [retryNonce, setRetryNonce] = useState(0);
+  // Flips true as soon as user is observed truthy. Used to distinguish
+  // "session expired mid-flow" (toast + redirect) from "anon visitor hit
+  // /admin directly" (silent — middleware handles the redirect).
+  const hadSessionRef = useRef(false);
+  // Set by handleLogout BEFORE dispatch(logout) so the fetchCurrentUser
+  // null-branch can tell intentional sign-out apart from cookie expiry.
+  // Without this we'd double-toast on every logout.
+  const intentionalLogoutRef = useRef(false);
 
   useEffect(() => {
     // SSR-safe mount flag — intentionally syncs on mount only.
 
     setMounted(true);
   }, []);
+
+  // Track that we DID have an authenticated user at some point. This ref is
+  // load-bearing for the session-expired toast below: when the auth effect
+  // later observes user=null AND fetchCurrentUser returns null, the only
+  // way that can happen is (a) the cookie expired / was cleared externally,
+  // or (b) the user clicked Logout. (a) deserves a toast; (b) handles its
+  // own toast via handleLogout. The ref pins (a) vs (b) apart.
+  useEffect(() => {
+    if (user) hadSessionRef.current = true;
+  }, [user]);
 
   // Hydrate Redux auth.user from the NextAuth session cookie when it's missing.
   // The session cookie can outlive the localStorage-persisted Redux state
@@ -56,7 +76,19 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
     setCredentialsLoadError(null);
     fetchCurrentUser()
       .then((u) => {
-        if (cancelled || !u) return;
+        if (cancelled) return;
+        if (!u) {
+          // /api/auth/me returned 401. If we'd previously had a session
+          // and the user didn't just click Logout, this is a session-
+          // expired transition — surface it instead of leaving the user
+          // stranded on /admin with no feedback. The same query param
+          // pattern axios.ts uses on its own 401 path so LoginPage shows
+          // a consistent message regardless of which signal triggered.
+          if (hadSessionRef.current && !intentionalLogoutRef.current) {
+            router.push("/login?session=expired");
+          }
+          return;
+        }
         dispatch(
           setCredentials({
             token: "nextauth-session",
@@ -80,7 +112,7 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
         );
       });
     return () => { cancelled = true; };
-  }, [user, dispatch, retryNonce]); // retryNonce: bumped by [Retry] to refire
+  }, [user, dispatch, retryNonce, router]); // retryNonce: bumped by [Retry] to refire
 
   const initials = mounted && user?.name
     ? user.name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
@@ -88,9 +120,16 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
   const displayName = mounted && user?.name ? user.name : "Super Admin";
 
   const handleLogout = async () => {
+    intentionalLogoutRef.current = true;
+    toast.info("Signing out...");
     try { await nextAuthLogout(); } catch { /* ignore */ }
     dispatch(logout());
-    router.push("/login");
+    toast.success("Logged out successfully");
+    // Slight delay so the success toast renders on /admin before the
+    // route transition. ToastProvider is at the root so the toast itself
+    // would persist across navigation, but the visual landing on /login
+    // reads cleaner when it's already visible at nav time.
+    setTimeout(() => router.push("/login"), 500);
   };
 
   return (

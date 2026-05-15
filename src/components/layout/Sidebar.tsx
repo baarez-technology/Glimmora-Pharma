@@ -26,6 +26,7 @@ import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { useActiveSite } from "@/hooks/useActiveSite";
 import { logout } from "@/store/auth.slice";
 import { logout as nextAuthLogout } from "@/lib/authClient";
+import { useToast } from "@/components/ui/Toast";
 
 interface NavItem {
   path: string;
@@ -89,6 +90,7 @@ function getGroupForPath(pathname: string): string {
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const toast = useToast();
   const pathname = usePathname();
   const activeSite = useActiveSite();
   const { allowedPaths, role } = useRole();
@@ -142,13 +144,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     // AUTH-03: Clear next-auth session cookie first (server-side), then
     // reset Redux state, then navigate. Errors are non-fatal — we still
     // want to clear local state and navigate if the network call fails.
+    toast.info("Signing out...");
     try {
       await nextAuthLogout();
     } catch (err) {
       console.warn("[logout] next-auth signOut failed", err);
     }
     dispatch(logout());
-    router.push("/login");
+    toast.success("Logged out successfully");
+    setTimeout(() => router.push("/login"), 500);
   };
 
   return (
