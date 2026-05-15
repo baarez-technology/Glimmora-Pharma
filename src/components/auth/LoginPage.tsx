@@ -20,6 +20,34 @@ import { login as nextAuthLogin, fetchCurrentUser } from "@/lib/authClient";
 import { aiLogin, aiSignup, AiAuthError } from "@/lib/aiAuth";
 import { flushPersist } from "@/store/persistence";
 import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
+
+/**
+ * Maps a NextAuth `result.error` string (or any free-form auth error) to a
+ * user-facing message. Used as a fallback when no specific branch in
+ * onSubmit() has already produced a tailored message.
+ */
+function mapAuthError(error: string | undefined | null): string {
+  if (!error) return "Sign-in failed. Please try again or contact support.";
+  switch (error) {
+    case "CredentialsSignin":
+      return "Email or password is incorrect.";
+    case "AccessDenied":
+      return "Your account is inactive. Contact your administrator.";
+    case "Verification":
+      return "Verification link expired or invalid.";
+    case "OAuthAccountNotLinked":
+      return "This email is already linked to another sign-in method.";
+    default: {
+      const lower = error.toLowerCase();
+      if (lower.includes("mfa") || lower.includes("otp")) return "Verification code required. Check your email.";
+      if (lower.includes("locked")) return "Account is locked. Try again later or contact admin.";
+      if (lower.includes("subscription")) return "Your subscription has expired. Contact your administrator.";
+      if (lower.includes("inactive")) return "Your account is inactive. Contact your administrator.";
+      return "Sign-in failed. Please try again or contact support.";
+    }
+  }
+}
 
 const schema = z.object({
   email: z.string().min(1, "Username or email is required"),
@@ -84,6 +112,7 @@ const CRED_ROWS: { org: string; rows: [string, string, string, string][] }[] = [
 export function LoginPage() {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const toast = useToast();
   const themeMode = useAppSelector((s) => s.theme.mode);
   const tenants = useAppSelector((s) => s.auth.tenants);
   const [showCreds, setShowCreds] = useState(false);
@@ -269,17 +298,15 @@ export function LoginPage() {
       if (!result.ok) {
         // Surface specific auth errors back to the form (subscription, etc.)
         if (result.error && result.error.includes("SUBSCRIPTION_INACTIVE")) {
-          setError("root", {
-            message:
-              "Your subscription has expired or no active plan is configured. Please contact your administrator.",
-          });
+          const msg = "Your subscription has expired or no active plan is configured. Please contact your administrator.";
+          setError("root", { message: msg });
+          toast.error(msg);
           return;
         }
         if (result.error && result.error.includes("USER_INACTIVE")) {
-          setError("root", {
-            message:
-              "Your account is inactive. Please contact your administrator to reactivate it.",
-          });
+          const msg = "Your account is inactive. Please contact your administrator to reactivate it.";
+          setError("root", { message: msg });
+          toast.error(msg);
           return;
         }
         console.warn("[login] next-auth rejected credentials:", result.error);
@@ -302,6 +329,7 @@ export function LoginPage() {
               window.history.replaceState({}, "", window.location.pathname);
             }
           } catch { /* ignore */ }
+          toast.success(`Welcome back, ${me.name || "team"}!`);
           if (user.role === "super_admin") {
             setLoadingName("Platform Admin");
             setLoadingTenant(true);
@@ -326,6 +354,7 @@ export function LoginPage() {
     const mockAccount = MOCK_ACCOUNTS[key];
     if (mockAccount && mockAccount.password === data.password) {
       dispatch(setCredentials({ token: "mock-token-" + Date.now(), user: mockAccount.user }));
+      toast.success(`Welcome back, ${mockAccount.user.name || "team"}!`);
       const userTenant = tenants.find((t) => t.id === mockAccount.user.tenantId);
       // Fire-and-forget: AI token refresh runs in the background so login
       // navigation isn't blocked by the AI backend's response time (which on
@@ -368,6 +397,7 @@ export function LoginPage() {
         // Refresh local tenant cache with the authoritative one from the server
         dispatch(setTenants([apiResult.tenant]));
         dispatch(setCredentials({ token: "api-token-" + Date.now(), user }));
+        toast.success(`Welcome back, ${user.name || "team"}!`);
         // Fire-and-forget — see comment at the first call site for rationale.
         void refreshAiToken(user, apiResult.tenant, data.email.trim(), data.password)
           .catch((err) => {
@@ -387,17 +417,15 @@ export function LoginPage() {
     } catch (err) {
       const reason = (err as Error & { reason?: string })?.reason;
       if (reason === "USER_INACTIVE") {
-        setError("root", {
-          message:
-            "Your account is inactive. Please contact your administrator to reactivate it.",
-        });
+        const msg = "Your account is inactive. Please contact your administrator to reactivate it.";
+        setError("root", { message: msg });
+        toast.error(msg);
         return;
       }
       if (reason === "SUBSCRIPTION_INACTIVE") {
-        setError("root", {
-          message:
-            "Your subscription has expired or no active plan is configured. Please contact your administrator.",
-        });
+        const msg = "Your subscription has expired or no active plan is configured. Please contact your administrator.";
+        setError("root", { message: msg });
+        toast.error(msg);
         return;
       }
       console.warn("[login] API unreachable, falling back to local cache", err);
@@ -413,10 +441,9 @@ export function LoginPage() {
       );
       if (tenantUser && (!tenantUser.password || tenantUser.password === data.password)) {
         if (tenantUser.status !== "Active") {
-          setError("root", {
-            message:
-              "Your account is inactive. Please contact your administrator to reactivate it.",
-          });
+          const msg = "Your account is inactive. Please contact your administrator to reactivate it.";
+          setError("root", { message: msg });
+          toast.error(msg);
           return;
         }
         const user: AuthUser = {
@@ -429,6 +456,7 @@ export function LoginPage() {
           tenantId: tenant.id,
         };
         dispatch(setCredentials({ token: "mock-token-" + Date.now(), user }));
+        toast.success(`Welcome back, ${user.name || "team"}!`);
         // Fire-and-forget — see comment at the first call site for rationale.
         void refreshAiToken(user, tenant, data.email.trim(), data.password)
           .catch((err) => {
@@ -457,7 +485,9 @@ export function LoginPage() {
       }
     }
 
+    const fallbackMsg = mapAuthError("CredentialsSignin");
     setError("root", { message: "Invalid username or password" });
+    toast.error(fallbackMsg);
   };
 
   return (
@@ -471,7 +501,7 @@ export function LoginPage() {
               <Shield className="w-7 h-7 text-white" aria-hidden="true" />
             </div>
             <h1 className="text-[28px] font-extrabold text-[#302d29] tracking-tight mb-1">
-              Welcome Back Team Member !
+              Welcome !
             </h1>
             <p className="text-[14px] text-[#7a736a]">
               Log into your account

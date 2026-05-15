@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { store, rehydrateState } from "@/store";
 import { readPersistedStateFromStorage } from "@/store/persistence";
 import { useAppSelector } from "@/hooks/useAppSelector";
+import { ToastProvider } from "@/components/ui/Toast";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 1000 * 60 * 5 } },
@@ -48,7 +49,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <QueryClientProvider client={queryClient}>
           <PersistenceRehydrator />
           <ThemeSync />
-          {children}
+          <ToastProvider>{children}</ToastProvider>
         </QueryClientProvider>
       </Provider>
     </SessionProvider>

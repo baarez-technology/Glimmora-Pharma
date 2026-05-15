@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
 import { Toggle } from "@/components/ui/Toggle";
+import { useToast } from "@/components/ui/Toast";
 import { evaluatePasswordStrength, generateStrongPassword } from "@/lib/passwords";
 import dayjs from "@/lib/dayjs";
 
@@ -904,6 +905,22 @@ function AccountDrawer({
 
 /* ══════════════════════════════════════ */
 
+/**
+ * Maps a save-time failure to a user-facing message for the toast.
+ * Covers AiAuthError shapes (status-coded) and falls back to the raw
+ * Error.message for tenant API / generic failures.
+ */
+function mapCustomerError(err: unknown): string {
+  if (err instanceof AiAuthError) {
+    if (err.status === 409) return "A customer with this email or username already exists.";
+    if (err.status === 422) return "Some fields are invalid. Check the form and try again.";
+    if (err.status === 502 || err.status === 503) return "AI service is unavailable. Customer was saved without AI features.";
+    return err.message || "Failed to save customer.";
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "Failed to save customer. Please try again.";
+}
+
 interface CustomerAccountsPageProps {
   initialTenants?: Tenant[];
   isSuperAdmin?: boolean;
@@ -934,6 +951,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
   const [postCreateTenantId, setPostCreateTenantId] = useState<string | null>(null);
   const [postCreateSubData, setPostCreateSubData] = useState<{ startDate: string; expiryDate: string; maxAccounts: number; status: "Active" | "Inactive" }>({ startDate: dayjs().format("YYYY-MM-DD"), expiryDate: dayjs().add(1, "year").format("YYYY-MM-DD"), maxAccounts: 15, status: "Active" });
   const [savedPopup, setSavedPopup] = useState<string | null>(null);
+  const toast = useToast();
 
   const router = useRouter();
 
@@ -1063,11 +1081,20 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       };
       // Optimistic local update
       dispatch(updateTenant({ id: editingTenant.id, patch }));
+      let updateOk = false;
+      let updateError: unknown = null;
       try {
         await updateTenantApi(editingTenant.id, patch);
+        updateOk = true;
       } catch (err) {
+        updateError = err;
         console.error("[admin] failed to persist tenant update", err);
         setSyncError("Saved locally but failed to sync to the database.");
+      }
+      if (updateOk) {
+        toast.success(`Customer "${data.customerName}" updated.`);
+      } else {
+        toast.error(`Saved locally but failed to sync "${data.customerName}": ${mapCustomerError(updateError)}`);
       }
       // MFA changes route through toggleTenantMFA so the audit pair and
       // sessionsValidAfter bump fire. Don't include mfaEnabled in the
@@ -1105,6 +1132,8 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       // re-trigger by editing later (we'll need to expose that).
       let aiUserId: string | undefined;
       let aiAccessToken: string | undefined;
+      let aiSignupOk = false;
+      let aiSignupError: unknown = null;
       try {
         const res = await aiSignup({
           user_id: adminUserId,
@@ -1116,7 +1145,9 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         });
         aiUserId = adminUserId;
         aiAccessToken = res.access_token;
+        aiSignupOk = true;
       } catch (err) {
+        aiSignupError = err;
         const reason = err instanceof AiAuthError ? err.message : "unknown";
         console.error("[admin] AI signup failed for customer admin — saving locally only:", reason);
         setSyncError(`Customer saved locally, but AI signup failed: ${reason}. Edit the customer to retry.`);
@@ -1166,11 +1197,28 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       };
       // Optimistic local insert
       dispatch(addTenant(newTenant));
+      let tenantApiOk = false;
+      let tenantApiError: unknown = null;
       try {
         await createTenantApi(newTenant);
+        tenantApiOk = true;
       } catch (err) {
+        tenantApiError = err;
         console.error("[admin] failed to persist new tenant", err);
         setSyncError("Saved locally but failed to sync to the database.");
+      }
+
+      // Outcome toast — distinguishes the three real-world cases:
+      //   1) Tenant DB write failed → critical: the user must retry.
+      //   2) Tenant DB ok but AI signup failed → soft: customer exists but
+      //      AI chatbot/CAPA features won't work until edit-retry.
+      //   3) Both ok → green path.
+      if (!tenantApiOk) {
+        toast.error(`Failed to save "${data.customerName}": ${mapCustomerError(tenantApiError)}`);
+      } else if (!aiSignupOk) {
+        toast.success(`Customer "${data.customerName}" created. AI features will activate shortly. (${mapCustomerError(aiSignupError)})`);
+      } else {
+        toast.success(`Customer "${data.customerName}" created with AI access.`);
       }
 
       // Auto-open subscription modal if no plan was added in the drawer
