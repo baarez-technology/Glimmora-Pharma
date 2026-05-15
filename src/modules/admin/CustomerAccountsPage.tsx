@@ -801,71 +801,65 @@ function AccountDrawer({
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 rounded-b-xl" style={{ borderTop: "1px solid var(--bg-border)" }}>
-          {/* "Fill this" hint strip — appears once the user has touched any
-              field or attempted submit, then disappears the moment all
-              blocking errors are resolved. Amber, not red: red is for the
-              field-level error text below each input. */}
-          {(() => {
-            const labels: Record<string, string> = {
-              customerName: "Customer Name",
-              username: "Username",
-              email: "Email",
-              newPassword: "Password",
-              confirmPassword: "Confirm Password",
-            };
-            const blockingFields = Object.keys(errors).filter((k) => labels[k]).map((k) => labels[k]);
-            const showHint = blockingFields.length > 0 && (Object.values(touched).some(Boolean) || submitAttempted);
-            if (!showHint) return null;
-            return (
-              <div className="px-6 pt-3">
+        {(() => {
+          // Compute once for both the hint strip and the Save button title.
+          const labels: Record<string, string> = {
+            customerName: "Customer Name",
+            username: "Username",
+            email: "Email",
+            newPassword: "Password",
+            confirmPassword: "Confirm Password",
+          };
+          const blockingFields = Object.keys(errors).filter((k) => labels[k]).map((k) => labels[k]);
+          const showHint = blockingFields.length > 0 && (Object.values(touched).some(Boolean) || submitAttempted);
+          return (
+            <div className="shrink-0 rounded-b-xl" style={{ borderTop: "1px solid var(--bg-border)" }}>
+              {/* "Fill this" hint slot — ALWAYS rendered. visibility toggles
+                  on showHint so the strip doesn't shift the rest of the modal
+                  the first time the user blurs a field (which would otherwise
+                  move the next input under the user's mouse mid-click and
+                  break field-to-field navigation). Amber, not red: red is
+                  for the field-level error text below each input. */}
+              <div className="px-6 pt-3" aria-hidden={!showHint}>
                 <div
                   role="status"
                   aria-live="polite"
                   className="flex items-start gap-2 rounded-lg border border-[#f59e0b]/40 bg-[#fef9ed] px-3 py-2"
+                  style={{ visibility: showHint ? "visible" : "hidden" }}
                 >
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#b45309]" aria-hidden="true" />
                   <div className="text-xs text-[#7a5320]">
                     <span className="font-semibold">Please complete:</span>{" "}
-                    {blockingFields.join(", ")}
+                    {showHint ? blockingFields.join(", ") : " "}
                   </div>
                 </div>
               </div>
-            );
-          })()}
-          <div className="flex items-center justify-end gap-3 px-6 py-4">
-            <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
-            {/* Save button stays clickable even when invalid — the click
-                trips submitAttempted so the hint strip + inline errors
-                surface immediately. opacity-50 is the visual cue that it
-                won't submit yet; the title gives a hover explanation. */}
-            <span title={!canSave ? `Complete: ${(() => {
-              const labels: Record<string, string> = {
-                customerName: "Customer Name",
-                username: "Username",
-                email: "Email",
-                newPassword: "Password",
-                confirmPassword: "Confirm Password",
-              };
-              return Object.keys(errors).filter((k) => labels[k]).map((k) => labels[k]).join(", ");
-            })()}` : undefined}>
-              <Button
-                variant="primary"
-                size="sm"
-                icon={Save}
-                onClick={() => {
-                  setSubmitAttempted(true);
-                  if (Object.keys(errors).length === 0) {
-                    handleSubmit();
-                  }
-                }}
-                className={canSave ? "" : "opacity-50 cursor-not-allowed"}
-              >
-                {mode === "create" ? "Save Account" : "Save Changes"}
-              </Button>
-            </span>
-          </div>
-        </div>
+              <div className="flex items-center justify-end gap-3 px-6 py-4">
+                <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+                {/* Save button stays clickable even when invalid — the click
+                    trips submitAttempted so the hint strip + inline errors
+                    surface immediately. opacity-50 is the visual cue that it
+                    won't submit yet; the title gives a hover explanation. */}
+                <span title={!canSave ? `Complete: ${blockingFields.join(", ")}` : undefined}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={Save}
+                    onClick={() => {
+                      setSubmitAttempted(true);
+                      if (Object.keys(errors).length === 0) {
+                        handleSubmit();
+                      }
+                    }}
+                    className={canSave ? "" : "opacity-50 cursor-not-allowed"}
+                  >
+                    {mode === "create" ? "Save Account" : "Save Changes"}
+                  </Button>
+                </span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Subscription modal (Cancel reverts changes) ── */}
