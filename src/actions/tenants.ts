@@ -205,7 +205,20 @@ export async function deleteTenant(id: string): Promise<ActionResult> {
   if (session.user.role !== "super_admin") {
     return { success: false, error: "Access denied" };
   }
+  if (id === session.user.tenantId) {
+    return { success: false, error: "You cannot delete your own account" };
+  }
   try {
+    const target = await prisma.tenant.findUnique({
+      where: { id },
+      select: { role: true },
+    });
+    if (!target) {
+      return { success: false, error: "Tenant not found" };
+    }
+    if (target.role === "super_admin") {
+      return { success: false, error: "Platform super-admin accounts cannot be deleted" };
+    }
     await prisma.tenant.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
