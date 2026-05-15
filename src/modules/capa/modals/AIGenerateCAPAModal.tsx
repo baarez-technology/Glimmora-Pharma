@@ -79,15 +79,18 @@ export function AIGenerateCAPAModal({
   // Pull the AI backend access token straight off the logged-in user's
   // tenant-user record (set by the login flow). Avoids prompting for
   // a second username/password — re-login refreshes the token.
+  // AI backend permissive since 2026-05-15 — fall back to a placeholder so
+  // the "Generate CAPA" button isn't stuck on "Connecting to AI..." for
+  // users who never received a real aiAccessToken at login.
   const { authUserId, tenantId, storedAiToken } = useAppSelector((s) => {
     const u = s.auth.user;
-    if (!u) return { authUserId: null, tenantId: null, storedAiToken: null };
+    if (!u) return { authUserId: null, tenantId: null, storedAiToken: "anonymous" };
     const tenant = s.auth.tenants.find((t) => t.id === u.tenantId);
     const tu = tenant?.config?.users?.find((x) => x.id === u.id);
     return {
       authUserId: u.id,
       tenantId: u.tenantId,
-      storedAiToken: tu?.aiAccessToken ?? null,
+      storedAiToken: tu?.aiAccessToken ?? u.aiAccessToken ?? "anonymous",
     };
   });
 
