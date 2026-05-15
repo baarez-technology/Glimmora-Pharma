@@ -1,8 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getServerSession } from "next-auth/next";
+import bcrypt from "bcryptjs";
 import { authOptions } from "../../app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { mapTenantFromPrisma } from "@/lib/mappers/tenantMapper";
+import { BCRYPT_COST } from "@/lib/passwords";
 
 interface SubscriptionPlanInput {
   id?: string;
@@ -66,18 +68,51 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         active?: boolean;
         mfaEnabled?: boolean;
         subscriptionPlans?: SubscriptionPlanInput[];
+        // The Redux Tenant object the AddCustomer modal posts carries the
+        // admin's plaintext password nested at config.users[0].password.
+        // We hash it here (server-side, with the canonical BCRYPT_COST) so
+        // the column NextAuth's authorize() reads (`passwordHash`) is
+        // populated. Without this step the row was being created with
+        // passwordHash="" and login silently failed: bcrypt.compare(any, "")
+        // returns false, authorize() returns null, NextAuth surfaces a
+        // generic CredentialsSignin and the user sees nothing meaningful.
+        config?: {
+          users?: Array<{
+            role?: string;
+            password?: string;
+            username?: string;
+            email?: string;
+          }>;
+        };
       };
       if (!body?.id || !body?.name || !body?.adminEmail) {
         return res.status(400).json({ error: "id, name and adminEmail are required" });
       }
+      // Locate the admin user inside the nested config. Prefer the one with
+      // role=customer_admin / super_admin; fall back to the first user so a
+      // legacy caller that doesn't tag the role still works.
+      const adminUser =
+        body.config?.users?.find((u) => u?.role === "customer_admin" || u?.role === "super_admin") ??
+        body.config?.users?.[0];
+      const plaintext = adminUser?.password ?? "";
+      if (!plaintext) {
+        return res.status(400).json({
+          error: "Admin password is required (config.users[0].password)",
+        });
+      }
+      // If the caller pre-hashed (unlikely from the modal, but reserved for
+      // server-to-server seeding), accept the hash as-is. Otherwise hash now.
+      const passwordHash = body.passwordHash && body.passwordHash.length > 0
+        ? body.passwordHash
+        : await bcrypt.hash(plaintext, BCRYPT_COST);
       await prisma.tenant.create({
         data: {
           id: body.id,
           customerCode: body.id,
           name: body.name,
           email: body.adminEmail,
-          username: body.username ?? body.adminEmail.split("@")[0],
-          passwordHash: body.passwordHash ?? "",
+          username: body.username ?? adminUser?.username ?? body.adminEmail.split("@")[0],
+          passwordHash,
           role: "customer_admin",
           isActive: body.active ?? true,
           mfaEnabled: body.mfaEnabled ?? false,
