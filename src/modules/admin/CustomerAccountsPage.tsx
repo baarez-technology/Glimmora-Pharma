@@ -31,27 +31,10 @@ import { isTenantEffectivelyActive, getInactiveReason } from "@/lib/tenantStatus
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
+import { Toggle } from "@/components/ui/Toggle";
 import dayjs from "@/lib/dayjs";
 
 /* ── Helpers ── */
-
-function nextCustomerCode(name: string, existingTenants: { id: string }[]) {
-  // Generate code from company name initials: "Pharma Glimmora International" → "PGI_001"
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => w[0].toUpperCase())
-    .join("")
-    .slice(0, 4) || "GP";
-  const existingCodes = new Set(existingTenants.map((t) => t.id));
-  let seq = 1;
-  let code = `${initials}_${String(seq).padStart(3, "0")}`;
-  while (existingCodes.has(code)) {
-    seq++;
-    code = `${initials}_${String(seq).padStart(3, "0")}`;
-  }
-  return code;
-}
 
 /* ── Yes / No toggle button ── */
 
@@ -325,7 +308,10 @@ export function SubscriptionPlansModal({
 /* ── Account form data ── */
 
 interface AccountFormData {
-  customerCode: string;
+  // Customer code is no longer in the form — the API derives it server-side
+  // from the tenant id (pages/api/tenants.ts:76 sets customerCode: body.id).
+  // User role is always "customer_admin" for this modal — hardcoded in the
+  // parent's create handler payload, not collected here.
   customerName: string;
   username: string;
   email: string;
@@ -341,7 +327,6 @@ interface AccountFormData {
 
 function makeEmptyForm(): AccountFormData {
   return {
-    customerCode: "",
     customerName: "",
     username: "",
     email: "",
@@ -380,6 +365,9 @@ function AccountDrawer({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [subModalOpen, setSubModalOpen] = useState(false);
   const [subSnapshot, setSubSnapshot] = useState<SubPlan[] | null>(null);
+  // Drag-drop overlay: only shown when the user is actively dragging a file
+  // over the modal. Keeps the body uncluttered in the common no-drag state.
+  const [isDragging, setIsDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -408,7 +396,18 @@ function AccountDrawer({
 
   const handleSubmit = () => { if (validate()) { onSave(form); onClose(); } };
 
-  const handleFileDrop = (e: React.DragEvent) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && (f.type === "image/png" || f.type === "image/jpeg")) set("logoFile", f); };
+  // Live form-validity check for the Save button's disabled state. Mirrors the
+  // existing validate() logic but is pure (no setErrors side effect) so it can
+  // run on every render. Password-strength gating (>= 3 segments) is added in
+  // a follow-up commit alongside the strength meter and generator.
+  const canSave =
+    form.customerName.trim().length > 0 &&
+    form.username.trim().length > 0 &&
+    form.email.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) &&
+    (mode === "edit" || (form.newPassword.length > 0 && form.newPassword === form.confirmPassword));
+
+  // Drop handler is on the modal root (via onDrop) — no separate helper needed.
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => set("logoFile", e.target.files?.[0] ?? null);
 
   // Subscription helpers
@@ -445,12 +444,39 @@ function AccountDrawer({
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
       {/* Modal */}
-      <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl shadow-2xl mx-4" style={{ background: "var(--bg-surface)", border: "1px solid var(--bg-border)" }}>
+      <div
+        className="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl shadow-2xl mx-4"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--bg-border)" }}
+        onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={(e) => {
+          // Only clear when leaving the modal entirely — not when entering a child.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          const f = e.dataTransfer.files[0];
+          if (f && (f.type === "image/png" || f.type === "image/jpeg")) set("logoFile", f);
+        }}
+      >
+        {/* Drop overlay — visible only during active drag */}
+        {isDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl pointer-events-none" style={{ background: "var(--brand-muted)", border: "2px dashed var(--brand)" }}>
+            <div className="text-center">
+              <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: "var(--brand)" }} aria-hidden="true" />
+              <p className="text-[13px] font-semibold" style={{ color: "var(--brand)" }}>Drop logo here</p>
+              <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>PNG or JPG, max 5MB</p>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 shrink-0 rounded-t-xl" style={{ borderBottom: "1px solid var(--bg-border)" }}>
           <div>
             <h2 className="text-[16px] font-semibold" style={{ color: "var(--text-primary)" }}>{mode === "create" ? "Add Customer Account" : "Edit Account"}</h2>
-            {mode === "edit" && <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{form.customerName}</p>}
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              {mode === "create" ? "Create a new tenant and its Customer Administrator account." : form.customerName}
+            </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 rounded-md border-none cursor-pointer bg-transparent" style={{ color: "var(--text-muted)" }}>
             <X className="w-5 h-5" aria-hidden="true" />
@@ -462,18 +488,34 @@ function AccountDrawer({
           {/* ── ACCOUNT INFO ── */}
           <div>
             <h3 className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Account Information</h3>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Customer Code</label><input type="text" value={form.customerCode} disabled className="input opacity-60 cursor-not-allowed" /></div>
-              <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>User Role</label><input type="text" value="Customer Administrator" disabled className="input opacity-60 cursor-not-allowed" /></div>
-            </div>
-            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Customer Name <span style={{ color: "var(--danger)" }}>*</span></label><input type="text" value={form.customerName} onChange={(e) => set("customerName", e.target.value)} placeholder="Enter customer name" className="input" />{errors.customerName && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.customerName}</p>}</div>
-            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Username <span style={{ color: "var(--danger)" }}>*</span></label><input type="text" value={form.username} onChange={(e) => set("username", e.target.value)} placeholder="Enter username" className="input" />{errors.username && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.username}</p>}</div>
-            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Email <span style={{ color: "var(--danger)" }}>*</span></label><input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="Enter email address" className="input" />{errors.email && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.email}</p>}</div>
-            <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Upload Logo</label>
-              <div onDragOver={(e) => e.preventDefault()} onDrop={handleFileDrop} onClick={() => fileRef.current?.click()} className="flex flex-col items-center justify-center gap-1.5 py-5 rounded-xl cursor-pointer" style={{ border: "2px dashed var(--bg-border)", background: "var(--bg-elevated)" }}>
-                <Upload className="w-5 h-5" style={{ color: "var(--text-muted)" }} aria-hidden="true" /><p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Drag & drop or <span style={{ color: "var(--brand)", fontWeight: 500 }}>browse</span></p><p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{form.logoFile ? form.logoFile.name : "PNG, JPG · Max 5MB"}</p>
-                <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleFileSelect} />
-              </div>
+            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Customer Name <span style={{ color: "var(--danger)" }}>*</span></label><input type="text" value={form.customerName} onChange={(e) => set("customerName", e.target.value)} placeholder="e.g. Acme Pharma Ltd." className="input" />{errors.customerName && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.customerName}</p>}</div>
+            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Username <span style={{ color: "var(--danger)" }}>*</span></label><input type="text" value={form.username} onChange={(e) => set("username", e.target.value)} placeholder="e.g. acme_admin" className="input" />{errors.username && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.username}</p>}</div>
+            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Email <span style={{ color: "var(--danger)" }}>*</span></label><input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="admin@company.com" className="input" />{errors.email && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.email}</p>}</div>
+            {/* Compact logo upload — full drop-zone overlay is on the modal root. */}
+            <div>
+              <label className={LABEL} style={{ color: "var(--text-secondary)" }}>Logo <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(optional)</span></label>
+              {form.logoFile ? (
+                <div className="flex items-center gap-3 p-2 rounded-lg" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
+                  <div className="w-10 h-10 rounded shrink-0 flex items-center justify-center" style={{ background: "var(--bg-surface)", border: "1px solid var(--bg-border)" }}>
+                    <FileText className="w-5 h-5" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] truncate" style={{ color: "var(--text-primary)" }}>{form.logoFile.name}</p>
+                    <div className="flex gap-3 mt-0.5">
+                      <button type="button" onClick={() => fileRef.current?.click()} className="text-[11px] font-medium border-none bg-transparent cursor-pointer p-0" style={{ color: "var(--brand)" }}>Replace</button>
+                      <button type="button" onClick={() => set("logoFile", null)} className="text-[11px] font-medium border-none bg-transparent cursor-pointer p-0" style={{ color: "var(--danger)" }}>Remove</button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-medium border cursor-pointer" style={{ background: "var(--bg-elevated)", borderColor: "var(--bg-border)", color: "var(--text-primary)" }}>
+                    <Upload className="w-3.5 h-3.5" aria-hidden="true" /> Upload logo
+                  </button>
+                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>PNG or JPG, max 5MB</span>
+                </div>
+              )}
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleFileSelect} />
             </div>
           </div>
 
@@ -484,10 +526,15 @@ function AccountDrawer({
               <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Language</label><select value={form.language} onChange={(e) => set("language", e.target.value)} className="select"><option>English, United States</option><option>English, United Kingdom</option><option>Hindi</option><option>Arabic</option></select></div>
               <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Time Zone</label><select value={form.timezone} onChange={(e) => set("timezone", e.target.value)} className="select"><option value="Asia/Kolkata">Asia/Kolkata</option><option value="Asia/Qatar">Asia/Qatar</option><option value="America/New_York">America/New_York</option><option value="Europe/London">Europe/London</option><option value="Asia/Dubai">Asia/Dubai</option></select></div>
             </div>
-            <YesNo label="Active" value={form.active} onChange={(v) => set("active", v)} />
+            {/* Active toggle: only in edit mode. Create defaults to active=true (set in makeEmptyForm); deactivation is a separate row-level action. */}
+            {mode === "edit" && (
+              <div className="mb-3">
+                <Toggle id="toggle-active" label="Active" checked={form.active} onChange={(v) => set("active", v)} />
+              </div>
+            )}
             {isSuperAdmin && (
-              <div className="mt-3">
-                <YesNo label="Require MFA" value={form.mfaEnabled} onChange={(v) => set("mfaEnabled", v)} />
+              <div>
+                <Toggle id="toggle-mfa" label="Require MFA" checked={form.mfaEnabled} onChange={(v) => set("mfaEnabled", v)} />
                 <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
                   User receives an email verification code on every login. Enabling on an existing tenant signs out all active sessions.
                 </p>
@@ -520,8 +567,10 @@ function AccountDrawer({
                 <button type="button" onClick={openSubModal} className="text-[11px] font-medium border-none bg-transparent cursor-pointer shrink-0" style={{ color: "var(--brand)" }}>Edit Subscription</button>
               </div>
             ) : (
-              <div className="rounded-lg p-4 flex items-center justify-between" style={{ background: "var(--warning-bg)", border: "1px solid var(--warning)" }}>
-                <span className="text-[12px]" style={{ color: "var(--warning)" }}>No active subscription</span>
+              // Neutral card — "no subscription" is the default state for a fresh tenant,
+              // not a warning. Warning amber reserved for actual expiry/inactive cases.
+              <div className="rounded-lg p-4 flex items-center justify-between" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
+                <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No active subscription</span>
                 <button type="button" onClick={() => { addSub(); openSubModal(); }} className="text-[11px] font-semibold border-none bg-transparent cursor-pointer" style={{ color: "var(--brand)" }}>+ Add Subscription</button>
               </div>
             )}
@@ -531,7 +580,7 @@ function AccountDrawer({
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 shrink-0 rounded-b-xl" style={{ borderTop: "1px solid var(--bg-border)" }}>
           <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" size="sm" icon={Save} onClick={handleSubmit}>{mode === "create" ? "Save Account" : "Save Changes"}</Button>
+          <Button variant="primary" size="sm" icon={Save} onClick={handleSubmit} disabled={!canSave}>{mode === "create" ? "Save Account" : "Save Changes"}</Button>
         </div>
       </div>
 
@@ -896,12 +945,11 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
   };
 
   const getFormData = (): AccountFormData => {
-    if (!editingTenant) return { ...makeEmptyForm(), customerCode: nextCustomerCode("New Customer", tenants) };
+    if (!editingTenant) return makeEmptyForm();
     const admin = editingTenant.config.users.find(
       (u) => u.role === "customer_admin" || u.role === "super_admin",
     );
     return {
-      customerCode: editingTenant.id.replace("tenant-", "GP_"),
       customerName: editingTenant.name,
       username: admin?.username ?? admin?.email?.split("@")[0] ?? "",
       email: editingTenant.adminEmail,
