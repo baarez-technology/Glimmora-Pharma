@@ -14,6 +14,9 @@ import {
   Save,
   Upload,
   FileText,
+  Eye,
+  EyeOff,
+  RefreshCw,
 } from "lucide-react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -32,6 +35,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
 import { Toggle } from "@/components/ui/Toggle";
+import { evaluatePasswordStrength, generateStrongPassword } from "@/lib/passwords";
 import dayjs from "@/lib/dayjs";
 
 /* ── Helpers ── */
@@ -368,6 +372,10 @@ function AccountDrawer({
   // Drag-drop overlay: only shown when the user is actively dragging a file
   // over the modal. Keeps the body uncluttered in the common no-drag state.
   const [isDragging, setIsDragging] = useState(false);
+  // Password UX state — show/hide eyes + a 3s toast after generate.
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [pwToast, setPwToast] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -381,11 +389,21 @@ function AccountDrawer({
   const validate = () => {
     const e: Record<string, string> = {};
     if (!form.customerName.trim()) e.customerName = "Required";
+    else if (form.customerName.trim().length < 2) e.customerName = "Minimum 2 characters";
+
     if (!form.username.trim()) e.username = "Required";
+    else if (form.username.trim().length < 3) e.username = "Minimum 3 characters";
+    else if (!/^[a-z0-9_]+$/.test(form.username.trim())) e.username = "Lowercase letters, digits, and underscores only";
+
     if (!form.email.trim()) e.email = "Required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = "Enter a valid email";
+
     if (mode === "create") {
       if (!form.newPassword) e.newPassword = "Required";
+      else if (form.newPassword.length < 12) e.newPassword = "Minimum 12 characters";
+      else if (evaluatePasswordStrength(form.newPassword) < 3) {
+        e.newPassword = "Password is too weak — mix upper, lower, digits, and symbols";
+      }
       if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords do not match";
     } else if (form.newPassword && form.newPassword !== form.confirmPassword) {
       e.confirmPassword = "Passwords do not match";
@@ -396,16 +414,40 @@ function AccountDrawer({
 
   const handleSubmit = () => { if (validate()) { onSave(form); onClose(); } };
 
-  // Live form-validity check for the Save button's disabled state. Mirrors the
-  // existing validate() logic but is pure (no setErrors side effect) so it can
-  // run on every render. Password-strength gating (>= 3 segments) is added in
-  // a follow-up commit alongside the strength meter and generator.
+  // Computed once per render — feeds the strength meter and gates the Save
+  // button. Kept colocated with canSave so they stay in lockstep.
+  const passwordStrength = evaluatePasswordStrength(form.newPassword);
+
+  // Live form-validity check for the Save button's disabled state. Mirrors
+  // validate() but is pure (no setErrors side effect) so it runs every render.
   const canSave =
-    form.customerName.trim().length > 0 &&
-    form.username.trim().length > 0 &&
+    form.customerName.trim().length >= 2 &&
+    form.username.trim().length >= 3 &&
+    /^[a-z0-9_]+$/.test(form.username.trim()) &&
     form.email.trim().length > 0 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) &&
-    (mode === "edit" || (form.newPassword.length > 0 && form.newPassword === form.confirmPassword));
+    (mode === "edit" || (
+      form.newPassword.length >= 12 &&
+      passwordStrength >= 3 &&
+      form.newPassword === form.confirmPassword
+    ));
+
+  const handleGeneratePassword = async () => {
+    const pwd = generateStrongPassword(16);
+    setForm((prev) => ({ ...prev, newPassword: pwd, confirmPassword: pwd }));
+    setShowNewPassword(true);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(pwd);
+        setPwToast("Password generated and copied to clipboard.");
+      } else {
+        setPwToast("Password generated. Copy it from the field below.");
+      }
+    } catch {
+      setPwToast("Password generated (clipboard copy failed — please copy manually).");
+    }
+    setTimeout(() => setPwToast(null), 3000);
+  };
 
   // Drop handler is on the modal root (via onDrop) — no separate helper needed.
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => set("logoFile", e.target.files?.[0] ?? null);
@@ -544,11 +586,108 @@ function AccountDrawer({
 
           {/* ── PASSWORD ── */}
           <div>
-            <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Password</h3>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Password</h3>
+              <button
+                type="button"
+                onClick={handleGeneratePassword}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold border-none bg-transparent cursor-pointer"
+                style={{ color: "var(--brand)" }}
+                aria-label="Generate strong password"
+              >
+                <RefreshCw className="w-3 h-3" aria-hidden="true" />
+                Generate
+              </button>
+            </div>
             {mode === "edit" && <p className="text-[10px] mb-3" style={{ color: "var(--text-muted)" }}>Leave blank to keep current password</p>}
             <div className="grid grid-cols-2 gap-3">
-              <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>New Password{mode === "create" && <span style={{ color: "var(--danger)" }}> *</span>}</label><input type="password" value={form.newPassword} onChange={(e) => set("newPassword", e.target.value)} placeholder={mode === "edit" ? "••••••••" : "Enter password"} className="input" />{errors.newPassword && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.newPassword}</p>}</div>
-              <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Confirm{mode === "create" && <span style={{ color: "var(--danger)" }}> *</span>}</label><input type="password" value={form.confirmPassword} onChange={(e) => set("confirmPassword", e.target.value)} placeholder={mode === "edit" ? "••••••••" : "Confirm"} className="input" />{errors.confirmPassword && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.confirmPassword}</p>}</div>
+              <div>
+                <label htmlFor="pw-new" className={LABEL} style={{ color: "var(--text-secondary)" }}>
+                  New Password{mode === "create" && <span style={{ color: "var(--danger)" }}> *</span>}
+                </label>
+                <div className="relative">
+                  <input
+                    id="pw-new"
+                    type={showNewPassword ? "text" : "password"}
+                    value={form.newPassword}
+                    onChange={(e) => set("newPassword", e.target.value)}
+                    placeholder={mode === "edit" ? "••••••••" : "Enter password"}
+                    className="input"
+                    style={{ paddingRight: 36 }}
+                    aria-describedby={errors.newPassword ? "pw-new-error" : (form.newPassword ? "pw-new-strength" : undefined)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    className="absolute top-1/2 -translate-y-1/2 right-2 border-none bg-transparent cursor-pointer p-1 flex items-center"
+                    style={{ color: "var(--text-muted)" }}
+                    aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showNewPassword}
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                  </button>
+                </div>
+                {form.newPassword.length > 0 && (() => {
+                  // 4-segment strength bar. Colour ramps from danger -> success;
+                  // label gives screen-reader-friendly context (the bar alone is
+                  // colour-only, so the label is the accessible cue).
+                  const segColor =
+                    passwordStrength <= 1 ? "var(--danger)" :
+                    passwordStrength === 2 ? "var(--warning)" :
+                    passwordStrength === 3 ? "#eab308" :
+                    "var(--success)";
+                  const segLabel =
+                    passwordStrength <= 1 ? "Very weak" :
+                    passwordStrength === 2 ? "Weak" :
+                    passwordStrength === 3 ? "Good" :
+                    "Strong";
+                  return (
+                    <div id="pw-new-strength" className="mt-1.5" role="status" aria-live="polite">
+                      <div className="flex gap-1" aria-hidden="true">
+                        {[1, 2, 3, 4].map((i) => (
+                          <div
+                            key={i}
+                            className="h-1 flex-1 rounded-full transition-colors"
+                            style={{ background: i <= passwordStrength ? segColor : "var(--bg-elevated)" }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-[10px] mt-1" style={{ color: segColor }}>
+                        Strength: {segLabel}
+                      </p>
+                    </div>
+                  );
+                })()}
+                {errors.newPassword && <p id="pw-new-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.newPassword}</p>}
+              </div>
+              <div>
+                <label htmlFor="pw-confirm" className={LABEL} style={{ color: "var(--text-secondary)" }}>
+                  Confirm{mode === "create" && <span style={{ color: "var(--danger)" }}> *</span>}
+                </label>
+                <div className="relative">
+                  <input
+                    id="pw-confirm"
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={form.confirmPassword}
+                    onChange={(e) => set("confirmPassword", e.target.value)}
+                    placeholder={mode === "edit" ? "••••••••" : "Confirm"}
+                    className="input"
+                    style={{ paddingRight: 36 }}
+                    aria-describedby={errors.confirmPassword ? "pw-confirm-error" : undefined}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((v) => !v)}
+                    className="absolute top-1/2 -translate-y-1/2 right-2 border-none bg-transparent cursor-pointer p-1 flex items-center"
+                    style={{ color: "var(--text-muted)" }}
+                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showConfirmPassword}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                  </button>
+                </div>
+                {errors.confirmPassword && <p id="pw-confirm-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.confirmPassword}</p>}
+              </div>
             </div>
           </div>
 
@@ -606,6 +745,18 @@ function AccountDrawer({
               <Button variant="primary" size="sm" icon={Save} onClick={saveSubModal}>Save Plan</Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Password-generator toast — bottom-right, auto-dismisses after 3s. */}
+      {pwToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-[70] rounded-lg px-4 py-3 text-[12px] font-medium shadow-lg"
+          style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success)" }}
+        >
+          {pwToast}
         </div>
       )}
     </div>
