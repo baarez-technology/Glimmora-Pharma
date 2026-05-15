@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -17,6 +17,7 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -366,7 +367,14 @@ function AccountDrawer({
   isSuperAdmin?: boolean;
 }) {
   const [form, setForm] = useState<AccountFormData>(initial);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Per-field "user has interacted" map. A field's error is only surfaced
+  // after the user has blurred it or attempted submit — pristine fields stay
+  // silent so a fresh modal isn't a wall of red.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  // Flips true the first time the user clicks Save. After that, every error
+  // is visible regardless of touched state — covers the "user never tabbed,
+  // just clicked Save" path.
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [subModalOpen, setSubModalOpen] = useState(false);
   const [subSnapshot, setSubSnapshot] = useState<SubPlan[] | null>(null);
   // Drag-drop overlay: only shown when the user is actively dragging a file
@@ -379,14 +387,24 @@ function AccountDrawer({
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open) { setForm(initial); setErrors({}); setSubModalOpen(false); }
+    if (open) {
+      setForm(initial);
+      setTouched({});
+      setSubmitAttempted(false);
+      setSubModalOpen(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const set = <K extends keyof AccountFormData>(key: K, value: AccountFormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const validate = () => {
+  const markTouched = (field: string) => setTouched((t) => ({ ...t, [field]: true }));
+
+  // Errors are derived from form + mode on every render — no setErrors. This
+  // lets the inline error text disappear the instant the user fixes a field,
+  // without waiting for another submit click to refresh state.
+  const errors = useMemo(() => {
     const e: Record<string, string> = {};
     if (!form.customerName.trim()) e.customerName = "Required";
     else if (form.customerName.trim().length < 2) e.customerName = "Minimum 2 characters";
@@ -404,15 +422,23 @@ function AccountDrawer({
       else if (evaluatePasswordStrength(form.newPassword) < 3) {
         e.newPassword = "Password is too weak — mix upper, lower, digits, and symbols";
       }
-      if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords do not match";
+      if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords don't match";
     } else if (form.newPassword && form.newPassword !== form.confirmPassword) {
-      e.confirmPassword = "Passwords do not match";
+      e.confirmPassword = "Passwords don't match";
     }
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
+    return e;
+  }, [form, mode]);
 
-  const handleSubmit = () => { if (validate()) { onSave(form); onClose(); } };
+  // A field-level error is "visible" once the user has interacted with that
+  // field OR clicked Save. Pristine fields stay silent.
+  const errorVisible = (name: string) => (touched[name] || submitAttempted) && !!errors[name];
+
+  const handleSubmit = () => {
+    if (Object.keys(errors).length === 0) {
+      onSave(form);
+      onClose();
+    }
+  };
 
   // Computed once per render — feeds the strength meter and gates the Save
   // button. Kept colocated with canSave so they stay in lockstep.
@@ -530,9 +556,63 @@ function AccountDrawer({
           {/* ── ACCOUNT INFO ── */}
           <div>
             <h3 className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Account Information</h3>
-            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Customer Name <span style={{ color: "var(--danger)" }}>*</span></label><input type="text" value={form.customerName} onChange={(e) => set("customerName", e.target.value)} placeholder="e.g. Acme Pharma Ltd." className="input" />{errors.customerName && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.customerName}</p>}</div>
-            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Username <span style={{ color: "var(--danger)" }}>*</span></label><input type="text" value={form.username} onChange={(e) => set("username", e.target.value)} placeholder="e.g. acme_admin" className="input" />{errors.username && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.username}</p>}</div>
-            <div className="mb-3"><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Email <span style={{ color: "var(--danger)" }}>*</span></label><input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="admin@company.com" className="input" />{errors.email && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.email}</p>}</div>
+            <div className="mb-3">
+              <label htmlFor="acct-customer-name" className={LABEL} style={{ color: "var(--text-secondary)" }}>
+                Customer Name <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <input
+                id="acct-customer-name"
+                type="text"
+                value={form.customerName}
+                onChange={(e) => set("customerName", e.target.value)}
+                onBlur={() => markTouched("customerName")}
+                placeholder="e.g. Acme Pharma Ltd."
+                aria-invalid={errorVisible("customerName")}
+                aria-describedby={errorVisible("customerName") ? "customerName-error" : undefined}
+                className={`input ${errorVisible("customerName") ? "border-[#dc2626] focus:border-[#dc2626]" : ""}`}
+              />
+              {errorVisible("customerName") && (
+                <p id="customerName-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.customerName}</p>
+              )}
+            </div>
+            <div className="mb-3">
+              <label htmlFor="acct-username" className={LABEL} style={{ color: "var(--text-secondary)" }}>
+                Username <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <input
+                id="acct-username"
+                type="text"
+                value={form.username}
+                onChange={(e) => set("username", e.target.value)}
+                onBlur={() => markTouched("username")}
+                placeholder="e.g. acme_admin"
+                aria-invalid={errorVisible("username")}
+                aria-describedby={errorVisible("username") ? "username-error" : undefined}
+                className={`input ${errorVisible("username") ? "border-[#dc2626] focus:border-[#dc2626]" : ""}`}
+              />
+              {errorVisible("username") && (
+                <p id="username-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.username}</p>
+              )}
+            </div>
+            <div className="mb-3">
+              <label htmlFor="acct-email" className={LABEL} style={{ color: "var(--text-secondary)" }}>
+                Email <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <input
+                id="acct-email"
+                type="email"
+                value={form.email}
+                onChange={(e) => set("email", e.target.value)}
+                onBlur={() => markTouched("email")}
+                placeholder="admin@company.com"
+                aria-invalid={errorVisible("email")}
+                aria-describedby={errorVisible("email") ? "email-error" : undefined}
+                className={`input ${errorVisible("email") ? "border-[#dc2626] focus:border-[#dc2626]" : ""}`}
+              />
+              {errorVisible("email") && (
+                <p id="email-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.email}</p>
+              )}
+            </div>
             {/* Compact logo upload — full drop-zone overlay is on the modal root. */}
             <div>
               <label className={LABEL} style={{ color: "var(--text-secondary)" }}>Logo <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(optional)</span></label>
@@ -611,10 +691,12 @@ function AccountDrawer({
                     type={showNewPassword ? "text" : "password"}
                     value={form.newPassword}
                     onChange={(e) => set("newPassword", e.target.value)}
+                    onBlur={() => markTouched("newPassword")}
                     placeholder={mode === "edit" ? "••••••••" : "Enter password"}
-                    className="input"
+                    className={`input ${errorVisible("newPassword") ? "border-[#dc2626] focus:border-[#dc2626]" : ""}`}
                     style={{ paddingRight: 36 }}
-                    aria-describedby={errors.newPassword ? "pw-new-error" : (form.newPassword ? "pw-new-strength" : undefined)}
+                    aria-invalid={errorVisible("newPassword")}
+                    aria-describedby={errorVisible("newPassword") ? "pw-new-error" : (form.newPassword ? "pw-new-strength" : undefined)}
                   />
                   <button
                     type="button"
@@ -658,7 +740,7 @@ function AccountDrawer({
                     </div>
                   );
                 })()}
-                {errors.newPassword && <p id="pw-new-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.newPassword}</p>}
+                {errorVisible("newPassword") && <p id="pw-new-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.newPassword}</p>}
               </div>
               <div>
                 <label htmlFor="pw-confirm" className={LABEL} style={{ color: "var(--text-secondary)" }}>
@@ -670,10 +752,12 @@ function AccountDrawer({
                     type={showConfirmPassword ? "text" : "password"}
                     value={form.confirmPassword}
                     onChange={(e) => set("confirmPassword", e.target.value)}
+                    onBlur={() => markTouched("confirmPassword")}
                     placeholder={mode === "edit" ? "••••••••" : "Confirm"}
-                    className="input"
+                    className={`input ${errorVisible("confirmPassword") ? "border-[#dc2626] focus:border-[#dc2626]" : ""}`}
                     style={{ paddingRight: 36 }}
-                    aria-describedby={errors.confirmPassword ? "pw-confirm-error" : undefined}
+                    aria-invalid={errorVisible("confirmPassword")}
+                    aria-describedby={errorVisible("confirmPassword") ? "pw-confirm-error" : undefined}
                   />
                   <button
                     type="button"
@@ -686,7 +770,7 @@ function AccountDrawer({
                     {showConfirmPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
                   </button>
                 </div>
-                {errors.confirmPassword && <p id="pw-confirm-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.confirmPassword}</p>}
+                {errorVisible("confirmPassword") && <p id="pw-confirm-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.confirmPassword}</p>}
               </div>
             </div>
           </div>
@@ -717,9 +801,70 @@ function AccountDrawer({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 shrink-0 rounded-b-xl" style={{ borderTop: "1px solid var(--bg-border)" }}>
-          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" size="sm" icon={Save} onClick={handleSubmit} disabled={!canSave}>{mode === "create" ? "Save Account" : "Save Changes"}</Button>
+        <div className="shrink-0 rounded-b-xl" style={{ borderTop: "1px solid var(--bg-border)" }}>
+          {/* "Fill this" hint strip — appears once the user has touched any
+              field or attempted submit, then disappears the moment all
+              blocking errors are resolved. Amber, not red: red is for the
+              field-level error text below each input. */}
+          {(() => {
+            const labels: Record<string, string> = {
+              customerName: "Customer Name",
+              username: "Username",
+              email: "Email",
+              newPassword: "Password",
+              confirmPassword: "Confirm Password",
+            };
+            const blockingFields = Object.keys(errors).filter((k) => labels[k]).map((k) => labels[k]);
+            const showHint = blockingFields.length > 0 && (Object.values(touched).some(Boolean) || submitAttempted);
+            if (!showHint) return null;
+            return (
+              <div className="px-6 pt-3">
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-start gap-2 rounded-lg border border-[#f59e0b]/40 bg-[#fef9ed] px-3 py-2"
+                >
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#b45309]" aria-hidden="true" />
+                  <div className="text-xs text-[#7a5320]">
+                    <span className="font-semibold">Please complete:</span>{" "}
+                    {blockingFields.join(", ")}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+          <div className="flex items-center justify-end gap-3 px-6 py-4">
+            <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+            {/* Save button stays clickable even when invalid — the click
+                trips submitAttempted so the hint strip + inline errors
+                surface immediately. opacity-50 is the visual cue that it
+                won't submit yet; the title gives a hover explanation. */}
+            <span title={!canSave ? `Complete: ${(() => {
+              const labels: Record<string, string> = {
+                customerName: "Customer Name",
+                username: "Username",
+                email: "Email",
+                newPassword: "Password",
+                confirmPassword: "Confirm Password",
+              };
+              return Object.keys(errors).filter((k) => labels[k]).map((k) => labels[k]).join(", ");
+            })()}` : undefined}>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={Save}
+                onClick={() => {
+                  setSubmitAttempted(true);
+                  if (Object.keys(errors).length === 0) {
+                    handleSubmit();
+                  }
+                }}
+                className={canSave ? "" : "opacity-50 cursor-not-allowed"}
+              >
+                {mode === "create" ? "Save Account" : "Save Changes"}
+              </Button>
+            </span>
+          </div>
         </div>
       </div>
 
