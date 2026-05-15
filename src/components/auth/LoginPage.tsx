@@ -297,6 +297,13 @@ export function LoginPage() {
             orgId: me.orgId,
           };
           dispatch(setCredentials({ token: "nextauth-token-" + Date.now(), user }));
+          // Fire-and-forget: AI token refresh runs in the background. Without
+          // this, the AI Assistant chatbot shows "AI session is missing".
+          const userTenant = tenants.find((t) => t.id === user.tenantId);
+          void refreshAiToken(user, userTenant, data.email.trim(), data.password)
+            .catch((err) => {
+              console.warn("[login] AI token refresh failed in background:", err);
+            });
           try {
             if (typeof window !== "undefined" && window.location.search) {
               window.history.replaceState({}, "", window.location.pathname);
