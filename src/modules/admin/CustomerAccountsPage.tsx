@@ -418,11 +418,12 @@ function AccountDrawer({
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = "Enter a valid email";
 
     if (mode === "create") {
+      // Minimum 6 characters — no strength-score gate. The 4-segment strength
+      // meter below the field still renders so the user sees how strong their
+      // password is, and the Generate button still produces a 16-char strong
+      // one. We just don't block submission on weakness anymore.
       if (!form.newPassword) e.newPassword = "Required";
-      else if (form.newPassword.length < 12) e.newPassword = "Minimum 12 characters";
-      else if (evaluatePasswordStrength(form.newPassword) < 3) {
-        e.newPassword = "Password is too weak — mix upper, lower, digits, and symbols";
-      }
+      else if (form.newPassword.length < 6) e.newPassword = "Minimum 6 characters";
       if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords don't match";
     } else if (form.newPassword && form.newPassword !== form.confirmPassword) {
       e.confirmPassword = "Passwords don't match";
@@ -454,8 +455,7 @@ function AccountDrawer({
     form.email.trim().length > 0 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) &&
     (mode === "edit" || (
-      form.newPassword.length >= 12 &&
-      passwordStrength >= 3 &&
+      form.newPassword.length >= 6 &&
       form.newPassword === form.confirmPassword
     ));
 
