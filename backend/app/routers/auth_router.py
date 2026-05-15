@@ -78,44 +78,45 @@ def create_token(username: str, customer_id: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def verify_token(auth: str = Header(...)) -> str:
+# ── Permissive auth dependencies ─────────────────────────────
+# Token enforcement was removed app-wide on 2026-05-15. The /auth/login
+# endpoint still issues a JWT (so the existing frontend flow keeps working),
+# but every other endpoint now treats the `auth` header as optional: if a
+# valid token is supplied we surface the embedded identity; otherwise we
+# return a sentinel value so the endpoint can keep functioning unblocked.
+ANON_USERNAME    = "anonymous"
+ANON_CUSTOMER_ID = "anonymous"
+
+def _decode_safe(auth: str | None) -> dict | None:
+    """Best-effort JWT decode — returns None instead of raising."""
+    if not auth:
+        return None
     try:
-        payload = jwt.decode(auth, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("sub")
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired. Please login again.")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token. Please login.")
+        return jwt.decode(auth, SECRET_KEY, algorithms=[ALGORITHM])
+    except Exception:
+        return None
 
 
-def get_current_customer_id(auth: str = Header(...)) -> str:
-    try:
-        payload = jwt.decode(auth, SECRET_KEY, algorithms=[ALGORITHM])
-        customer_id = payload.get("customer_id")
-        if not customer_id:
-            raise HTTPException(status_code=401, detail="customer_id missing in token.")
-        return customer_id
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired. Please login again.")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token. Please login.")
+def verify_token(auth: str | None = Header(default=None)) -> str:
+    payload = _decode_safe(auth)
+    return (payload or {}).get("sub") or ANON_USERNAME
+
+
+def get_current_customer_id(auth: str | None = Header(default=None)) -> str:
+    payload = _decode_safe(auth)
+    return (payload or {}).get("customer_id") or ANON_CUSTOMER_ID
 
 
 class CurrentUser(BaseModel):
     username:    str
     customer_id: str
 
-def get_current_user(auth: str = Header(...)) -> CurrentUser:
-    try:
-        payload = jwt.decode(auth, SECRET_KEY, algorithms=[ALGORITHM])
-        return CurrentUser(
-            username=payload.get("sub"),
-            customer_id=payload.get("customer_id"),
-        )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired. Please login again.")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token. Please login.")
+def get_current_user(auth: str | None = Header(default=None)) -> CurrentUser:
+    payload = _decode_safe(auth) or {}
+    return CurrentUser(
+        username    = payload.get("sub") or ANON_USERNAME,
+        customer_id = payload.get("customer_id") or ANON_CUSTOMER_ID,
+    )
 
 
 # ── POST /api/v1/auth/signup ─────────────────────────────────
