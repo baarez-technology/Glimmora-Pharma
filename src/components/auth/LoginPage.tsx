@@ -60,7 +60,10 @@ const CRED_ROWS: { org: string; rows: [string, string, string, string][] }[] = [
   {
     org: "Platform (bootstrap)",
     rows: [
-      ["Super Admin", "superadmin", "1", "#ef4444"],
+      // Single Super Admin row using email format for UX consistency with the
+      // PGI rows below. The NextAuth Credentials provider accepts both
+      // "superadmin" and "superadmin@glimmora.com" (Tenant.username and
+      // Tenant.email are both @@unique on the same seeded row).
       ["Super Admin", "superadmin@glimmora.com", "1", "#ef4444"],
     ],
   },
