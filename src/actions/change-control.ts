@@ -346,13 +346,17 @@ export async function createChangeControl(
           const reference = await generateReference(
             "CC",
             new Date(),
-            (start, end) =>
-              tx.changeControl.count({
+            async (prefix, year) => {
+              const row = await tx.changeControl.findFirst({
                 where: {
                   tenantId: session.user.tenantId,
-                  createdAt: { gte: start, lt: end },
+                  reference: { startsWith: `${prefix}-${year}-` },
                 },
-              }),
+                orderBy: { reference: "desc" },
+                select: { reference: true },
+              });
+              return row?.reference ?? null;
+            },
           );
           return tx.changeControl.create({
             data: {

@@ -101,13 +101,17 @@ export async function createCAPA(
           const reference = await generateReference(
             "CAPA",
             new Date(),
-            (start, end) =>
-              tx.cAPA.count({
+            async (prefix, year) => {
+              const row = await tx.cAPA.findFirst({
                 where: {
                   tenantId: session.user.tenantId,
-                  createdAt: { gte: start, lt: end },
+                  reference: { startsWith: `${prefix}-${year}-` },
                 },
-              }),
+                orderBy: { reference: "desc" },
+                select: { reference: true },
+              });
+              return row?.reference ?? null;
+            },
           );
           return tx.cAPA.create({
             data: {
