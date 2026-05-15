@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   ShieldCheck,
   Download,
-  FileText,
   RefreshCw,
   Search,
   Funnel,
@@ -312,14 +311,6 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
             >
               Export CSV
             </Button>
-            {/* PDF export not yet implemented — disabled with a hover hint
-                rather than faking the action. The button gets removed when
-                the backend export endpoint lands. */}
-            <span title="PDF export coming soon">
-              <Button variant="ghost" size="sm" icon={FileText} disabled>
-                Export PDF
-              </Button>
-            </span>
             <Button
               variant="ghost"
               size="sm"
