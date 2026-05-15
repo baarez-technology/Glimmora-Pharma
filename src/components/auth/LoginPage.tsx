@@ -519,6 +519,10 @@ export function LoginPage() {
               Work email <span className="text-[#dc2626]" aria-hidden="true">*</span>
               <span className="sr-only">(required)</span>
             </label>
+            {/* suppressHydrationWarning on form fields is intentional:
+                password-manager / form-filler browser extensions (Bitwarden,
+                LastPass, 1Password, etc.) inject fdprocessedid attributes
+                post-SSR, causing a benign hydration mismatch. Do not remove. */}
             <div className="relative">
               <Mail className="w-3.5 h-3.5 text-[#a39e96] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
               <input
@@ -530,6 +534,7 @@ export function LoginPage() {
                 aria-required="true"
                 aria-invalid={errors.email ? true : undefined}
                 aria-describedby={errors.email ? "email-error" : undefined}
+                suppressHydrationWarning
                 {...register("email")}
                 className="w-full bg-white border border-[#e8e4dd] rounded-lg pl-9.5 pr-3 py-2.5 text-[13px] text-[#302d29] placeholder:text-[#a39e96] outline-none focus:border-[#8b6914] focus:ring-[3px] focus:ring-[rgba(139,105,20,0.12)] transition-all duration-150"
               />
@@ -558,6 +563,7 @@ export function LoginPage() {
                 aria-required="true"
                 aria-invalid={errors.password ? true : undefined}
                 aria-describedby={errors.password ? "password-error" : undefined}
+                suppressHydrationWarning
                 {...register("password")}
                 className="w-full bg-white border border-[#e8e4dd] rounded-lg pl-9.5 pr-3 py-2.5 text-[13px] text-[#302d29] placeholder:text-[#a39e96] outline-none focus:border-[#8b6914] focus:ring-[3px] focus:ring-[rgba(139,105,20,0.12)] transition-all duration-150"
               />
@@ -567,7 +573,7 @@ export function LoginPage() {
             )}
           </div>
 
-          <Button type="submit" icon={LogIn} loading={isSubmitting} fullWidth className="py-2.75">
+          <Button type="submit" icon={LogIn} loading={isSubmitting} fullWidth className="py-2.75" suppressHydrationWarning>
             {isSubmitting ? "Signing in..." : "Sign in"}
           </Button>
 
@@ -582,6 +588,7 @@ export function LoginPage() {
               while staying distinct from the white email/passcode fields. */}
           <button
             type="button"
+            suppressHydrationWarning
             className="w-full inline-flex items-center justify-center gap-2 bg-[#f7efe2] border border-[#e8d9b8] rounded-lg py-2.5 text-[13px] font-semibold text-[#302d29] cursor-pointer outline-none transition-all duration-150 hover:bg-[#f0e3c8] hover:border-[#8b6914] focus:border-[#8b6914] focus:ring-[3px] focus:ring-[rgba(139,105,20,0.12)]"
           >
             <Building2 className="w-4 h-4 text-[#8b6914]" aria-hidden="true" />
@@ -607,6 +614,7 @@ export function LoginPage() {
           <button
             type="button"
             onClick={() => setShowCreds((v) => !v)}
+            suppressHydrationWarning
             className={clsx(
               "w-full flex items-center justify-center gap-2",
               "py-2 rounded-lg text-[11px] font-medium",
