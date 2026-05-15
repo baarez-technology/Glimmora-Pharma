@@ -1,5 +1,12 @@
 import type { Tenant } from "@/store/auth.slice";
 import { getSession } from "next-auth/react";
+import {
+  createTenant as createTenantAction,
+  updateTenant as updateTenantAction,
+  deleteTenant as deleteTenantAction,
+  createSubscription as createSubscriptionAction,
+  listTenants as listTenantsAction,
+} from "@/actions/tenants";
 
 const BASE = "/api";
 
@@ -37,29 +44,68 @@ async function authHeaders(): Promise<HeadersInit> {
 }
 
 export async function fetchTenants(): Promise<Tenant[]> {
-  return logCall("GET", "/tenants", async () => {
-    const headers = await authHeaders();
-    const res = await fetch(`${BASE}/tenants`, { credentials: "include", headers });
-    if (res.status === 401) throw new Error("Not authenticated — please log in again");
-    if (res.status === 403) throw new Error("Insufficient permissions — Super Admin only");
-    if (!res.ok) throw new Error(`Failed to fetch tenants: ${res.status}`);
-    const data = await res.json();
-    return data.tenants as Tenant[];
+  return logCall("GET", "/tenants (server action)", async () => {
+    await authHeaders(); // ensure a session exists before the call
+    try {
+      return await listTenantsAction();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Super Admin")) {
+        throw new Error("Insufficient permissions — Super Admin only");
+      }
+      if (msg.toLowerCase().includes("not authenticated")) {
+        throw new Error("Not authenticated — please log in again");
+      }
+      throw err;
+    }
   });
 }
 
+/**
+ * Persist a newly created tenant to Neon by invoking the createTenant server
+ * action. The Redux Tenant shape is flattened: the customer_admin user from
+ * config.users[0] supplies email/username/password, and the tenant.id is
+ * reused as the customerCode so subsequent lookups can correlate.
+ *
+ * After the tenant row exists, each entry in tenant.subscriptionPlans is
+ * upserted via createSubscription so the subscription gate (AppShell) sees
+ * a live plan for the new account.
+ */
 export async function createTenantApi(tenant: Tenant): Promise<void> {
-  return logCall("POST", "/tenants", async () => {
-    const headers = await authHeaders();
-    const res = await fetch(`${BASE}/tenants`, {
-      method: "POST",
-      credentials: "include",
-      headers,
-      body: JSON.stringify(tenant),
+  return logCall("POST", "/tenants (server action)", async () => {
+    const admin = tenant.config?.users?.find((u) => u.role === "customer_admin")
+      ?? tenant.config?.users?.[0];
+    if (!admin) throw new Error("Tenant must include a customer_admin user");
+    if (!admin.password) {
+      throw new Error("New customer admin must have a password");
+    }
+    const result = await createTenantAction({
+      name: tenant.name,
+      email: admin.email,
+      username: admin.username ?? admin.email,
+      customerCode: tenant.id,
+      password: admin.password,
+      timezone: tenant.config?.org?.timezone ?? "Asia/Kolkata",
+      isActive: tenant.active ?? true,
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error ?? `Failed to create tenant: ${res.status}`);
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+    const created = result.data as { id: string } | undefined;
+    if (!created?.id) return;
+
+    // Subscriptions: create one row per plan in the Redux payload.
+    for (const plan of tenant.subscriptionPlans ?? []) {
+      const subRes = await createSubscriptionAction({
+        tenantId: created.id,
+        maxAccounts: plan.maxAccounts,
+        startDate: plan.startDate,
+        expiryDate: plan.endDate,
+        status: plan.status,
+      });
+      if (!subRes.success) {
+        console.warn("[tenantApi] createSubscription failed:", subRes.error);
+      }
     }
   });
 }
@@ -68,31 +114,27 @@ export async function updateTenantApi(
   id: string,
   patch: Partial<Tenant>,
 ): Promise<void> {
-  return logCall("PATCH", `/tenants (id=${id})`, async () => {
-    const headers = await authHeaders();
-    const res = await fetch(`${BASE}/tenants`, {
-      method: "PATCH",
-      credentials: "include",
-      headers,
-      body: JSON.stringify({ id, ...patch }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error ?? `Failed to update tenant: ${res.status}`);
+  return logCall("PATCH", `/tenants (server action, id=${id})`, async () => {
+    // Only forward fields the server action understands. Most Redux Tenant
+    // mutations are UI-local (config.sites, config.frameworks, etc.) and don't
+    // need to persist back here — the dedicated server actions handle them.
+    const data: Parameters<typeof updateTenantAction>[1] = {};
+    if (patch.name !== undefined) data.name = patch.name;
+    if (patch.adminEmail !== undefined) data.email = patch.adminEmail;
+    if (patch.active !== undefined) data.isActive = patch.active;
+    if (Object.keys(data).length === 0) return;
+    const result = await updateTenantAction(id, data);
+    if (!result.success) {
+      throw new Error(result.error);
     }
   });
 }
 
 export async function deleteTenantApi(id: string): Promise<void> {
-  return logCall("DELETE", `/tenants?id=${id}`, async () => {
-    await authHeaders(); // ensure session
-    const res = await fetch(`${BASE}/tenants?id=${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error ?? `Failed to delete tenant: ${res.status}`);
+  return logCall("DELETE", `/tenants (server action, id=${id})`, async () => {
+    const result = await deleteTenantAction(id);
+    if (!result.success) {
+      throw new Error(result.error);
     }
   });
 }

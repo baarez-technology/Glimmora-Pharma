@@ -6,6 +6,16 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { BCRYPT_COST } from "@/lib/passwords";
+import { getTenants } from "@/lib/queries/tenants";
+import type { Tenant as ReduxTenant } from "@/store/auth.slice";
+
+export async function listTenants(): Promise<ReduxTenant[]> {
+  const session = await requireAuth();
+  if (session.user.role !== "super_admin") {
+    throw new Error("Only Super Admin can list tenants");
+  }
+  return getTenants();
+}
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -195,7 +205,20 @@ export async function deleteTenant(id: string): Promise<ActionResult> {
   if (session.user.role !== "super_admin") {
     return { success: false, error: "Access denied" };
   }
+  if (id === session.user.tenantId) {
+    return { success: false, error: "You cannot delete your own account" };
+  }
   try {
+    const target = await prisma.tenant.findUnique({
+      where: { id },
+      select: { role: true },
+    });
+    if (!target) {
+      return { success: false, error: "Tenant not found" };
+    }
+    if (target.role === "super_admin") {
+      return { success: false, error: "Platform super-admin accounts cannot be deleted" };
+    }
     await prisma.tenant.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
