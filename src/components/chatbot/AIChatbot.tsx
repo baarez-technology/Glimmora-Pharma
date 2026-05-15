@@ -16,6 +16,7 @@ import {
   AiChatError,
   type ChatMessage,
 } from "@/lib/aiChat";
+import { friendlyAiError } from "@/lib/friendlyError";
 
 /**
  * Floating AI chatbot.
@@ -218,8 +219,8 @@ export function AIChatbot() {
       const res = await aiChatSend(text, messages, aiToken);
       setMessages([...next, { role: "assistant", content: res.reply ?? "(no reply)" }]);
     } catch (e) {
-      const msg = e instanceof AiChatError ? e.message : e instanceof Error ? e.message : "Chat failed";
-      setError(msg);
+      console.error("[chatbot] chat failed", e);
+      setError(friendlyAiError(e, "Couldn't send your message. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -543,8 +544,8 @@ export function AIChatbot() {
         const transcribed = (r as { text?: string }).text ?? "";
         setInput((prev) => (prev ? `${prev} ${transcribed}` : transcribed));
       } catch (e) {
-        const msg = e instanceof AiChatError ? e.message : e instanceof Error ? e.message : "Transcription failed";
-        setError(msg);
+        console.error("[chatbot] transcription failed", e);
+        setError(friendlyAiError(e, "We couldn't transcribe that recording. Please try again."));
       } finally {
         setBusy(false);
       }
@@ -587,8 +588,8 @@ export function AIChatbot() {
         return next;
       });
     } catch (e) {
-      const msg = e instanceof AiChatError ? e.message : e instanceof Error ? e.message : "Voice chat failed";
-      setError(msg);
+      console.error("[chatbot] voice chat failed", e);
+      setError(friendlyAiError(e, "Voice chat failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -607,8 +608,8 @@ export function AIChatbot() {
         await audioRef.current.play().catch(() => undefined);
       }
     } catch (e) {
-      const msg = e instanceof AiChatError ? e.message : e instanceof Error ? e.message : "Speech failed";
-      setError(msg);
+      console.error("[chatbot] speech synthesis failed", e);
+      setError(friendlyAiError(e, "Couldn't play the audio response. Please try again."));
     } finally {
       setTtsIdx(null);
     }

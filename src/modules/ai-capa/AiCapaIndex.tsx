@@ -13,6 +13,7 @@ import {
   selectAiCustomerId,
   AiBackendError,
 } from "@/lib/aiBackend";
+import { friendlyAiError } from "@/lib/friendlyError";
 
 /**
  * AI CAPA index — lists every CAPA the AI backend knows about for the
@@ -67,7 +68,7 @@ export function AiCapaIndex() {
         : [];
       setRows(list);
     } catch (e) {
-      setError(e instanceof AiBackendError ? e.message : e instanceof Error ? e.message : "List fetch failed");
+      console.error("[ai-capa] list fetch failed", e); setError(friendlyAiError(e, "Couldn't load the CAPA list. Please try again."));
     } finally {
       setLoading(false);
     }

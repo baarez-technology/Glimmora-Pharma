@@ -16,6 +16,7 @@ import {
   selectAiToken, selectAiCustomerId,
   AiBackendError,
 } from "@/lib/aiBackend";
+import { friendlyAiError } from "@/lib/friendlyError";
 
 /**
  * AI CAPA lifecycle dashboard.
@@ -494,7 +495,7 @@ function RcaModal({ open, onClose, onSubmitted, capaId, customerId, token }: Bas
       await onSubmitted();
       onClose();
     } catch (e) {
-      setError(e instanceof AiBackendError ? e.message : e instanceof Error ? e.message : "Submit failed");
+      console.error("[ai-capa] submit failed", e); setError(friendlyAiError(e, "Submit failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -539,7 +540,7 @@ function ActionPlanModal({ open, onClose, onSubmitted, capaId, customerId, rcaId
       await onSubmitted();
       onClose();
     } catch (e) {
-      setError(e instanceof AiBackendError ? e.message : e instanceof Error ? e.message : "Submit failed");
+      console.error("[ai-capa] submit failed", e); setError(friendlyAiError(e, "Submit failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -596,7 +597,7 @@ function MonitoringModal({ open, onClose, onSubmitted, capaId, customerId, actio
       await onSubmitted();
       onClose();
     } catch (e) {
-      setError(e instanceof AiBackendError ? e.message : e instanceof Error ? e.message : "Submit failed");
+      console.error("[ai-capa] submit failed", e); setError(friendlyAiError(e, "Submit failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -665,7 +666,7 @@ function EffectivenessModal({ open, onClose, onSubmitted, capaId, customerId, ac
       await onSubmitted();
       onClose();
     } catch (e) {
-      setError(e instanceof AiBackendError ? e.message : e instanceof Error ? e.message : "Submit failed");
+      console.error("[ai-capa] submit failed", e); setError(friendlyAiError(e, "Submit failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -759,7 +760,7 @@ function ClosureModal({ open, onClose, onSubmitted, capaId, customerId, effectiv
       await onSubmitted();
       onClose();
     } catch (e) {
-      setError(e instanceof AiBackendError ? e.message : e instanceof Error ? e.message : "Submit failed");
+      console.error("[ai-capa] submit failed", e); setError(friendlyAiError(e, "Submit failed. Please try again."));
     } finally {
       setBusy(false);
     }

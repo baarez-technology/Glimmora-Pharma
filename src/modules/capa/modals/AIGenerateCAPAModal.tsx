@@ -9,6 +9,7 @@ import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { updateTenantUser } from "@/store/auth.slice";
 import { capaCreate, AiBackendError } from "@/lib/aiBackend";
+import { friendlyAiError } from "@/lib/friendlyError";
 
 const aiCapaSchema = z.object({
   customer_id: z.string().min(1, "Customer ID is required"),
@@ -173,15 +174,8 @@ export function AIGenerateCAPAModal({
         setError("AI backend rejected the cached token (401). Please sign out and sign in again to refresh it.");
         return;
       }
-      // AiBackendError.message is already the flattened FastAPI detail string;
-      // generic Errors fall back to a friendly default.
-      setError(
-        err instanceof AiBackendError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : "Failed to generate CAPA",
-      );
+      console.error("[capa] generate CAPA failed", err);
+      setError(friendlyAiError(err, "Couldn't generate CAPA. Please try again."));
     }
   }
 
@@ -644,7 +638,7 @@ function DismissAlertControl({ capaId, alertType }: { capaId: string; alertType:
       }, token);
       setDone(true);
     } catch (e) {
-      setError(e instanceof AiBackendError ? e.message : e instanceof Error ? e.message : "Dismiss failed");
+      console.error("[capa] dismiss alert failed", e); setError(friendlyAiError(e, "Couldn't dismiss the alert. Please try again."));
     } finally {
       setBusy(false);
     }

@@ -17,6 +17,7 @@ import {
   selectAiToken,
   AiBackendError,
 } from "@/lib/aiBackend";
+import { friendlyAiError } from "@/lib/friendlyError";
 
 /**
  * AI Backend Tools — direct lookups for every endpoint that doesn't have
@@ -188,7 +189,7 @@ function LookupCard({ icon, title, path, inputLabel, placeholder, onSubmit }: Lo
       const r = await onSubmit(id.trim());
       setResult(r ?? "(no body)");
     } catch (e) {
-      setError(e instanceof AiBackendError ? `${e.status}: ${e.message}` : e instanceof Error ? e.message : "Request failed");
+      console.error("[ai-tools] request failed", e); setError(friendlyAiError(e, "Request failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -249,7 +250,7 @@ function PingCard({ icon, title, path, onSubmit }: PingCardProps) {
       const r = await onSubmit();
       setResult(r ?? "(no body)");
     } catch (e) {
-      setError(e instanceof AiBackendError ? `${e.status}: ${e.message}` : e instanceof Error ? e.message : "Request failed");
+      console.error("[ai-tools] request failed", e); setError(friendlyAiError(e, "Request failed. Please try again."));
     } finally {
       setBusy(false);
     }

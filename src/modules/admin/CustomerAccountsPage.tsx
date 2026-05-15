@@ -31,6 +31,7 @@ import {
 import { fetchTenants, createTenantApi, updateTenantApi, deleteTenantApi } from "@/lib/tenantApi";
 import { toggleTenantMFA } from "@/actions/tenants";
 import { aiSignup, generateCustomerId, AiAuthError } from "@/lib/aiAuth";
+import { friendlyAiError } from "@/lib/friendlyError";
 import { isTenantEffectivelyActive, getInactiveReason } from "@/lib/tenantStatus";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -915,10 +916,11 @@ function mapCustomerError(err: unknown): string {
     if (err.status === 409) return "A customer with this email or username already exists.";
     if (err.status === 422) return "Some fields are invalid. Check the form and try again.";
     if (err.status === 502 || err.status === 503) return "AI service is unavailable. Customer was saved without AI features.";
-    return err.message || "Failed to save customer.";
   }
-  if (err instanceof Error && err.message) return err.message;
-  return "Failed to save customer. Please try again.";
+  // friendlyAiError handles the long technical dumps (OpenAI dict-style
+  // payloads, FastAPI validation arrays, network errors) and falls back
+  // to a clean sentence when the raw message is structural noise.
+  return friendlyAiError(err, "Failed to save customer. Please try again.");
 }
 
 interface CustomerAccountsPageProps {
@@ -1148,9 +1150,8 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         aiSignupOk = true;
       } catch (err) {
         aiSignupError = err;
-        const reason = err instanceof AiAuthError ? err.message : "unknown";
-        console.error("[admin] AI signup failed for customer admin — saving locally only:", reason);
-        setSyncError(`Customer saved locally, but AI signup failed: ${reason}. Edit the customer to retry.`);
+        console.error("[admin] AI signup failed for customer admin — saving locally only:", err);
+        setSyncError(`Customer saved, but AI features need a retry. ${mapCustomerError(err)} Edit the customer to retry.`);
       }
 
       const newTenant: Tenant = {
