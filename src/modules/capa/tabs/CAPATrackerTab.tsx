@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { ClipboardCheck, Plus, Search, ChevronRight, Link2, CheckCircle2, Sparkles } from "lucide-react";
 import dayjs from "@/lib/dayjs";
@@ -55,6 +56,7 @@ export function CAPATrackerTab({
   onAddOpen, onAiOpen, onEditOpen, onSignOpen, onSubmitForReview,
   onNavigateGap, onNavigateCapa,
 }: CAPATrackerTabProps) {
+  const router = useRouter();
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const showSiteColumn = !selectedSiteId && sites.length > 1;
   const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
@@ -170,7 +172,28 @@ export function CAPATrackerTab({
                     {isOverdue(c) && <div className="text-[10px] text-[#ef4444] font-medium">Overdue</div>}
                   </td>
                   <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4 text-[#10b981]" aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
-                  <td><Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${referenceDisplay} detail`} /></td>
+                  <td>
+                    <div className="flex items-center justify-end gap-1">
+                      {/* AI Lifecycle — opens /ai-capa/<reference> in the
+                          AI-managed lifecycle dashboard. stopPropagation so
+                          the row's onClick (which opens the detail modal)
+                          doesn't fire as well. The button is shown for every
+                          row; if the CAPA isn't AI-tracked the lifecycle page
+                          surfaces an empty-state for the missing record. */}
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        icon={Sparkles}
+                        aria-label={`Open ${referenceDisplay} in AI lifecycle`}
+                        title="Open AI lifecycle"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/ai-capa/${encodeURIComponent(c.reference ?? c.id)}`);
+                        }}
+                      />
+                      <Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${referenceDisplay} detail`} />
+                    </div>
+                  </td>
                 </tr>
                 );
               })}
