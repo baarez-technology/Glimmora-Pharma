@@ -7,7 +7,7 @@ import { useAppSelector } from "@/hooks/useAppSelector";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import {
-  capaStatus,
+  capaCreate, capaStatus,
   rcaByCapa, rcaSubmit,
   actionPlanByCapa, actionPlanSubmit, type ActionItem,
   monitoringByCapa, monitoringCheck, type ActionProgressUpdate,
@@ -40,6 +40,13 @@ export function AiCapaPage({ capaId }: Props) {
   const router = useRouter();
   const token = useAppSelector(selectAiToken);
   const customerId = useAppSelector(selectAiCustomerId);
+  // Local CAPA lookup so we can offer "Register with AI backend" when the
+  // user lands here via the per-row sparkle on a manually-created CAPA
+  // that isn't tracked upstream. Match by either Prisma id or the
+  // human-readable reference — the sparkle passes whichever is available.
+  const localCapa = useAppSelector((s) =>
+    s.capa.items.find((c) => c.id === capaId || c.reference === capaId) ?? null,
+  );
 
   const [capa, setCapa] = useState<unknown>(null);
   const [rca, setRca] = useState<unknown>(null);
@@ -52,6 +59,42 @@ export function AiCapaPage({ capaId }: Props) {
 
   // Modal state — only one open at a time.
   const [openModal, setOpenModal] = useState<null | "rca" | "plan" | "monitoring" | "effectiveness" | "closure">(null);
+
+  // Registration state for the "not tracked in AI backend" empty-state.
+  const [registering, setRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+
+  async function registerWithAiBackend() {
+    if (!token || !customerId || !localCapa) return;
+    setRegistering(true);
+    setRegisterError(null);
+    try {
+      // Local CAPA stores Area / Equipment inside the description blob;
+      // pull them back out if we wrote them in the AI-generate flow,
+      // otherwise fall back to safe placeholders so the backend accepts.
+      const desc = localCapa.description ?? "";
+      const areaMatch = desc.match(/Area:\s*([^\n]+)/i);
+      const equipMatch = desc.match(/Equipment\/Product:\s*([^\n]+)/i);
+      const problemStatement = desc.split("\n")[0]?.trim() || desc.trim() || "—";
+      const res = await capaCreate(
+        {
+          customer_id: customerId,
+          problem_statement: problemStatement,
+          source: localCapa.source ?? "Other",
+          area_affected: areaMatch?.[1]?.trim() || "—",
+          equipment_product: equipMatch?.[1]?.trim() || "—",
+          initial_severity: localCapa.risk ?? "Medium",
+        },
+        token,
+      );
+      router.push(`/ai-capa/${encodeURIComponent(res.capa_id)}`);
+    } catch (e) {
+      console.error("[ai-capa] register failed", e);
+      setRegisterError(friendlyAiError(e, "Could not register this CAPA with the AI backend."));
+    } finally {
+      setRegistering(false);
+    }
+  }
 
   const refresh: Refresh = useCallback(async () => {
     if (!token) {
@@ -221,17 +264,40 @@ export function AiCapaPage({ capaId }: Props) {
         <Section title="Not tracked in AI backend">
           <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
             CAPA <code>{capaId}</code> exists in the local CAPA library but
-            is not registered with the AI backend, so the RCA &rarr; Action
-            plan &rarr; Monitoring &rarr; Effectiveness &rarr; Closure
-            lifecycle stages cannot be submitted here. AI lifecycle stages
-            are only available for CAPAs that were created through the
-            <strong> &ldquo;AI CAPA&rdquo; </strong> generator on the CAPA
-            Tracker.
+            is not registered with the AI backend yet. Register it now to
+            unlock the RCA &rarr; Action plan &rarr; Monitoring &rarr;
+            Effectiveness &rarr; Closure lifecycle stages.
           </p>
-          <div className="flex items-center gap-2 mt-3">
-            <Button variant="primary" onClick={() => router.push("/capa")}>Back to CAPA Tracker</Button>
-            <Button variant="secondary" onClick={() => router.push("/ai-capa")}>View all AI CAPAs</Button>
+          {registerError && (
+            <div role="alert" className="rounded-lg px-3 py-2 text-[12px] mt-3" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger)" }}>
+              {registerError}
+            </div>
+          )}
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <Button
+              variant="primary"
+              icon={Sparkles}
+              loading={registering}
+              disabled={!localCapa || !customerId}
+              onClick={registerWithAiBackend}
+            >
+              Register with AI backend
+            </Button>
+            <Button variant="secondary" onClick={() => router.push("/capa")}>Back to CAPA Tracker</Button>
+            <Button variant="ghost" onClick={() => router.push("/ai-capa")}>View all AI CAPAs</Button>
           </div>
+          {!localCapa && (
+            <p className="text-[11px] mt-2" style={{ color: "var(--text-muted)" }}>
+              This CAPA isn't loaded in the local tracker either. Open the
+              CAPA Tracker first so the row is available, then try again.
+            </p>
+          )}
+          {!customerId && (
+            <p className="text-[11px] mt-2" style={{ color: "var(--text-muted)" }}>
+              Your tenant has no AI customer id assigned. Ask the customer
+              admin to complete the AI signup flow before registering CAPAs.
+            </p>
+          )}
         </Section>
       ) : null}
 
