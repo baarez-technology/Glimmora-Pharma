@@ -6,12 +6,73 @@ import type { CAPA } from "@/store/capa.slice";
 /**
  * RCA tab body. Read-only display of the root cause analysis text +
  * methodology badge. Editing happens via the detail modal's Edit button
- * (which opens EditCAPAModal). The empty-state previously carried an
- * orange "RCA not yet documented" warning; that was consolidated into
- * the SubmissionChecklist on the Overview tab as part of the UX wins.
+ * (which opens EditCAPAModal). When a method is selected but the
+ * free-text root cause hasn't been filled in yet, we render a
+ * method-specific scaffold (5 Why questions, Fishbone categories, Fault
+ * Tree prompts) so the tab is usable as a thinking aid rather than just
+ * a blank placeholder.
  */
+
+/** Method-specific scaffold prompts. Rendered when the rca text is empty. */
+const SCAFFOLDS: Record<string, { title: string; prompts: string[] }> = {
+  "5 Why": {
+    title: "5-Why scaffold",
+    prompts: [
+      "Why 1 — Why did the issue happen?",
+      "Why 2 — Why did Why 1 happen?",
+      "Why 3 — Why did Why 2 happen?",
+      "Why 4 — Why did Why 3 happen?",
+      "Why 5 — Why did Why 4 happen?  (root cause)",
+    ],
+  },
+  // Older "5-Why" string (hyphen variant from earlier seed/AI flows) — keep
+  // it mapped so historical records render the scaffold too.
+  "5-Why": {
+    title: "5-Why scaffold",
+    prompts: [
+      "Why 1 — Why did the issue happen?",
+      "Why 2 — Why did Why 1 happen?",
+      "Why 3 — Why did Why 2 happen?",
+      "Why 4 — Why did Why 3 happen?",
+      "Why 5 — Why did Why 4 happen?  (root cause)",
+    ],
+  },
+  "Fishbone": {
+    title: "Fishbone (Ishikawa) categories",
+    prompts: [
+      "People — who was involved, what training/role gaps contributed?",
+      "Process — which SOP / step / hand-off failed?",
+      "Equipment — what machine, instrument, or tool was implicated?",
+      "Materials — were inputs, reagents, or components out of spec?",
+      "Environment — temperature, humidity, contamination, layout?",
+      "Measurement — calibration, sampling, test method variance?",
+    ],
+  },
+  "Fault Tree": {
+    title: "Fault Tree analysis",
+    prompts: [
+      "Top event — state the failure in one sentence.",
+      "Immediate causes (AND/OR) — what conditions combine to produce the top event?",
+      "Intermediate causes — drill each branch one level deeper.",
+      "Basic events — atomic failures that need no further explanation.",
+      "Identify which basic events are credible, single-point-of-failure, or detectable.",
+    ],
+  },
+  "Other": {
+    title: "Free-form analysis",
+    prompts: [
+      "Describe the failure mode in detail.",
+      "List contributing factors (people, process, equipment, environment).",
+      "Identify the most probable root cause.",
+      "Note any contradicting evidence or alternative hypotheses.",
+    ],
+  },
+};
+
 export function RcaBody({ capa }: { capa: CAPA }) {
   const hasRca = (capa.rca?.trim().length ?? 0) > 0;
+  const scaffold = capa.rcaMethod ? SCAFFOLDS[capa.rcaMethod] : null;
+
   return (
     <div role="tabpanel" id="subpanel-rca" aria-labelledby="subtab-rca" tabIndex={0} className="space-y-3">
       {capa.rcaMethod && (
@@ -22,11 +83,24 @@ export function RcaBody({ capa }: { capa: CAPA }) {
       )}
       {hasRca ? (
         <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>{capa.rca}</p>
+      ) : scaffold ? (
+        <div className="rounded-lg p-3 bg-(--bg-elevated) border border-(--bg-border) space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+            {scaffold.title}
+          </p>
+          <ol className="space-y-1.5 list-none p-0 m-0">
+            {scaffold.prompts.map((p, i) => (
+              <li key={i} className="flex gap-2 text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                <span className="w-5 shrink-0 font-semibold" style={{ color: "var(--brand)" }}>{i + 1}.</span>
+                <span>{p}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="text-[11px] italic pt-1" style={{ color: "var(--text-muted)" }}>
+            Use Edit to capture answers against each prompt before submitting for QA review.
+          </p>
+        </div>
       ) : (
-        // The orange "RCA not yet documented" warning that used to render
-        // here was removed — the SubmissionChecklist on the Overview tab
-        // and the persistent next-step banner above the tab strip both
-        // already surface this signal. A single empty-state hint is enough.
         <p className="text-[12px] italic" style={{ color: "var(--text-muted)" }}>
           No root cause analysis documented yet. Use Edit to add one (5 Whys, Fishbone, Fault Tree).
         </p>
