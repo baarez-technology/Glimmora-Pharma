@@ -47,6 +47,13 @@ export function AiCapaPage({ capaId }: Props) {
   const localCapa = useAppSelector((s) =>
     s.capa.items.find((c) => c.id === capaId || c.reference === capaId) ?? null,
   );
+  // After a successful register-with-backend call, the AI backend assigns
+  // its own capa_id which is different from the URL's capaId. We keep
+  // that mapping locally so the stage submit modals target the AI id
+  // without forcing a navigation (which would re-mount the page and may
+  // race the backend's read-after-write availability for capaStatus).
+  const [aiCapaId, setAiCapaId] = useState<string | null>(null);
+  const effectiveCapaId = aiCapaId ?? capaId;
 
   const [capa, setCapa] = useState<unknown>(null);
   const [rca, setRca] = useState<unknown>(null);
@@ -87,7 +94,12 @@ export function AiCapaPage({ capaId }: Props) {
         },
         token,
       );
-      router.push(`/ai-capa/${encodeURIComponent(res.capa_id)}`);
+      // Optimistically render StageCards from the create response so the
+      // user immediately sees the RCA "Submit RCA" action; don't navigate
+      // away (capaStatus may not be read-after-write consistent yet).
+      setAiCapaId(res.capa_id);
+      setCapa(res);
+      setRca(null); setPlan(null); setMonitoring(null); setEffectiveness(null); setClosure(null);
     } catch (e) {
       console.error("[ai-capa] register failed", e);
       setRegisterError(friendlyAiError(e, "Could not register this CAPA with the AI backend."));
@@ -105,7 +117,7 @@ export function AiCapaPage({ capaId }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const c = await capaStatus(capaId, token).then(
+      const c = await capaStatus(effectiveCapaId, token).then(
         (v) => ({ status: "fulfilled" as const, value: v }),
         (reason) => ({ status: "rejected" as const, reason }),
       );
@@ -131,11 +143,11 @@ export function AiCapaPage({ capaId }: Props) {
       const wantEff = !isOpen;
       const wantClosure = !isOpen;
       const [r, p, m, e, cl] = await Promise.allSettled([
-        wantRca ? rcaByCapa(capaId, token) : Promise.resolve(null),
-        wantPlan ? actionPlanByCapa(capaId, token) : Promise.resolve(null),
-        wantMon ? monitoringByCapa(capaId, token) : Promise.resolve(null),
-        wantEff ? effectivenessByCapa(capaId, token) : Promise.resolve(null),
-        wantClosure ? closureByCapa(capaId, token) : Promise.resolve(null),
+        wantRca ? rcaByCapa(effectiveCapaId, token) : Promise.resolve(null),
+        wantPlan ? actionPlanByCapa(effectiveCapaId, token) : Promise.resolve(null),
+        wantMon ? monitoringByCapa(effectiveCapaId, token) : Promise.resolve(null),
+        wantEff ? effectivenessByCapa(effectiveCapaId, token) : Promise.resolve(null),
+        wantClosure ? closureByCapa(effectiveCapaId, token) : Promise.resolve(null),
       ]);
       setRca(extractRecord(r));
       setPlan(extractRecord(p));
@@ -145,7 +157,7 @@ export function AiCapaPage({ capaId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [capaId, token]);
+  }, [effectiveCapaId, token]);
 
   useEffect(() => {
     void refresh();
@@ -173,9 +185,12 @@ export function AiCapaPage({ capaId }: Props) {
           <div>
             <h1 className="page-title flex items-center gap-2">
               <Sparkles className="w-5 h-5" aria-hidden="true" style={{ color: "var(--brand)" }} />
-              {capaId}
+              {effectiveCapaId}
             </h1>
-            <p className="page-subtitle mt-1">AI-managed CAPA lifecycle · customer {customerId ?? "—"}</p>
+            <p className="page-subtitle mt-1">
+              AI-managed CAPA lifecycle · customer {customerId ?? "—"}
+              {aiCapaId && aiCapaId !== capaId ? ` · linked from ${capaId}` : ""}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -306,7 +321,7 @@ export function AiCapaPage({ capaId }: Props) {
         open={openModal === "rca"}
         onClose={() => setOpenModal(null)}
         onSubmitted={refresh}
-        capaId={capaId}
+        capaId={effectiveCapaId}
         customerId={customerId ?? ""}
         token={token}
       />
@@ -314,7 +329,7 @@ export function AiCapaPage({ capaId }: Props) {
         open={openModal === "plan"}
         onClose={() => setOpenModal(null)}
         onSubmitted={refresh}
-        capaId={capaId}
+        capaId={effectiveCapaId}
         customerId={customerId ?? ""}
         rcaId={rcaId(rca) ?? ""}
         token={token}
@@ -323,7 +338,7 @@ export function AiCapaPage({ capaId }: Props) {
         open={openModal === "monitoring"}
         onClose={() => setOpenModal(null)}
         onSubmitted={refresh}
-        capaId={capaId}
+        capaId={effectiveCapaId}
         customerId={customerId ?? ""}
         actionPlanId={planId(plan) ?? ""}
         defaultActions={planActions(plan)}
@@ -333,7 +348,7 @@ export function AiCapaPage({ capaId }: Props) {
         open={openModal === "effectiveness"}
         onClose={() => setOpenModal(null)}
         onSubmitted={refresh}
-        capaId={capaId}
+        capaId={effectiveCapaId}
         customerId={customerId ?? ""}
         actionPlanId={planId(plan) ?? ""}
         defaultEvidence={planActions(plan).map((a) => ({
@@ -348,7 +363,7 @@ export function AiCapaPage({ capaId }: Props) {
         open={openModal === "closure"}
         onClose={() => setOpenModal(null)}
         onSubmitted={refresh}
-        capaId={capaId}
+        capaId={effectiveCapaId}
         customerId={customerId ?? ""}
         effectivenessId={effectivenessId(effectiveness) ?? ""}
         token={token}
