@@ -427,7 +427,14 @@ export function AIGenerateCAPAModal({
         </form>
       )}
 
-      {result && <AIResultPanel result={result} onBack={() => setResult(null)} onAccept={handleAccept} />}
+      {result && (
+        <AIResultPanel
+          result={result}
+          onBack={() => setResult(null)}
+          onSave={handleAccept}
+          onClose={handleClose}
+        />
+      )}
     </Modal>
   );
 }
@@ -435,11 +442,13 @@ export function AIGenerateCAPAModal({
 function AIResultPanel({
   result,
   onBack,
-  onAccept,
+  onSave,
+  onClose,
 }: {
   result: AICapaResponse;
   onBack: () => void;
-  onAccept: () => void;
+  onSave: () => void;
+  onClose: () => void;
 }) {
   const riskPct = Math.round(result.risk_score * 100);
   const riskColor =
@@ -563,9 +572,22 @@ function AIResultPanel({
         <Button variant="ghost" type="button" onClick={onBack}>
           New analysis
         </Button>
-        <Button variant="primary" type="button" icon={CheckCircle2} onClick={onAccept}>
-          Accept &amp; close
-        </Button>
+        <div className="flex gap-2">
+          {/* Close — discard the AI suggestion. The CAPA exists on the AI
+              backend already (the capa/create POST fired before this panel
+              rendered) so the lifecycle viewer at /ai-capa/<id> can still
+              reach it, but nothing is written to the local Prisma CAPA
+              library and nothing appears in the CAPA Tracker. */}
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Close
+          </Button>
+          {/* Save to library — persists the AI CAPA into this customer's
+              local CAPA library (Prisma) via createCAPA server action, then
+              opens the AI lifecycle dashboard for RCA → Action plan → … */}
+          <Button variant="primary" type="button" icon={CheckCircle2} onClick={onSave}>
+            Save to library
+          </Button>
+        </div>
       </div>
     </div>
   );
