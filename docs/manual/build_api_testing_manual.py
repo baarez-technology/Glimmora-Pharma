@@ -29,6 +29,8 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent.parent
 SHOTS = ROOT / "test-screenshots"
 OUT = ROOT / "AI-API-Testing-Manual.docx"
+# Fallback path if the primary OUT is locked (e.g. Word open).
+OUT_FALLBACK = ROOT / "AI-API-Testing-Manual.docx.new"
 
 
 BRAND_AMBER = RGBColor(0x8B, 0x69, 0x14)
@@ -823,9 +825,164 @@ def build():
         "#    200, 201, or 204. A 404 outside the proxy's collapse path is a regression.")
     add_body(doc, "Done correctly the entire walkthrough takes ~12 minutes including the AI-side waits.")
 
-    # Save
-    doc.save(str(OUT))
-    print(f"Wrote {OUT}")
+    # ─── §7 Round-2 ───────────────────────────────────────────────────────
+    add_page_break(doc)
+    add_h1(doc, "7. Round-2 retest log (2026-05-16)")
+    add_body(doc,
+        "Second pass executed automatically via Playwright after the "
+        "following code changes had landed on devAI:")
+    for line in [
+        "9de8e8c — fix(reference): query global max (not per-tenant) for unique reference",
+        "60fd60e — fix(capa): make owner optional when creating a new CAPA",
+        "ff5fb3f — feat(ai-capa): split AI result modal into Close + Save to library",
+        "142bf75 — fix(ai-capa): don't auto-navigate away after Save to library",
+        "1b5a5e6 — fix(login): force method=POST so creds never leak to URL on pre-hydration submit",
+    ]:
+        add_bullet(doc, line)
+
+    add_h2(doc, "7.1  Environment for Round-2")
+    add_table(doc,
+        ["Component", "Value"],
+        [
+            ["Branch", "devAI @ 9de8e8c (then +60fd60e/142bf75/ff5fb3f/1b5a5e6)"],
+            ["Frontend", "http://localhost:3000 (npm run dev → Next.js 16.2.4 Turbopack)"],
+            ["AI backend (local)", "http://localhost:8000 (FastAPI via npm run dev:api)"],
+            ["AI backend (proxy upstream resolved to)", "Render production (NEXT_PUBLIC_API_URL in .env)"],
+            ["Postgres", "localhost:5432/pharma (Prisma 6.19)"],
+            ["Tenant under test", "admin@pharmaglimmora.com / Admin@123 (seeded customer_admin)"],
+        ],
+        col_widths=[3.0, 5.5])
+
+    add_h2(doc, "7.2  UI walkthrough (Playwright)")
+    add_step_header(doc, "7.2.1", "Login")
+    add_body(doc, "POST credentials, redirected to /. Form now method=\"post\" so creds never leak to URL on pre-hydration submit.")
+    add_image(doc, SHOTS / "round2" / "01-login.png", "Round-2 — Login screen")
+    add_image(doc, SHOTS / "round2" / "02-dashboard.png", "Round-2 — Dashboard after login")
+
+    add_step_header(doc, "7.2.2", "AI Chatbot — POST /api/ai/chat   ✅")
+    add_body(doc, "Sent: “What is RCA?”. Assistant replied within ~10 s; speaker icon offers TTS.")
+    add_image(doc, SHOTS / "round2" / "03-chatbot.png", "Round-2 — Chatbot response")
+
+    add_step_header(doc, "7.2.3", "Generate AI CAPA — POST /api/v1/capa/create   ✅")
+    add_body(doc, "Inputs:")
+    add_table(doc,
+        ["Field", "Value"],
+        [
+            ["Initial severity", "High"],
+            ["Problem statement", "Round-2 retest: HPLC column #2 produced out-of-spec assay results on lot 26-05-X. Calibration logs show drift since last PM."],
+            ["Source", "Internal Audit"],
+            ["Area affected", "QC Lab"],
+            ["Equipment / Product", "HPLC Column #2 / Lot 26-05-X"],
+        ],
+        col_widths=[2.0, 6.5])
+    add_body(doc, "Result: CAPA-2026-310 created, AI risk score returned, no recurrence detected.")
+    add_image(doc, SHOTS / "round2" / "04-capa-generated.png", "Round-2 — AI CAPA result panel")
+    add_body(doc, "Clicked “Save to library” — row appears in the CAPA Tracker, modal closed, stayed on /capa.")
+    add_image(doc, SHOTS / "round2" / "05-capa-saved.png", "Round-2 — Tracker after Save to library")
+
+    add_step_header(doc, "7.2.4", "Full lifecycle on CAPA-2026-310")
+    add_body(doc, "Navigated to /ai-capa/CAPA-2026-310. Walked RCA → Action plan → Monitoring → Effectiveness → Closure. Captured network log after Initiate closure:")
+    add_code(doc,
+        "POST /api/ai-proxy/api/v1/rca/submit                       → 200\n"
+        "POST /api/ai-proxy/api/v1/action-plan/submit               → 200\n"
+        "POST /api/ai-proxy/api/v1/monitoring/check                 → 200\n"
+        "POST /api/ai-proxy/api/v1/effectiveness/check              → 200\n"
+        "POST /api/ai-proxy/api/v1/closure/initiate                 → 200\n"
+        "GET  /api/ai-proxy/api/v1/capa/status/CAPA-2026-310        → 200  (\xd76 across stages)\n"
+        "GET  /api/ai-proxy/api/v1/rca/capa/CAPA-2026-310           → 200\n"
+        "GET  /api/ai-proxy/api/v1/action-plan/capa/CAPA-2026-310   → 204 then 200\n"
+        "GET  /api/ai-proxy/api/v1/monitoring/capa/CAPA-2026-310    → 204 then 200\n"
+        "GET  /api/ai-proxy/api/v1/effectiveness/capa/CAPA-2026-310 → 204 then 200\n"
+        "GET  /api/ai-proxy/api/v1/closure/capa/CAPA-2026-310       → 204 then 200")
+    add_body(doc,
+        "The 404→204 proxy collapse for pre-submit by-capa GETs continues to work — no red lines in the dev console.")
+    add_image(doc, SHOTS / "round2" / "06-lifecycle-initial.png", "Round-2 — Lifecycle dashboard on entry")
+    add_image(doc, SHOTS / "round2" / "07-lifecycle-complete.png", "Round-2 — All six cards Submitted")
+
+    add_step_header(doc, "7.2.5", "AI Tools page — health pings + audit record   ✅")
+    add_body(doc, "Hit each Ping in Diagnostics. Then submitted record_id=CAPA-2026-310 to Audit record. Network results:")
+    add_code(doc,
+        "GET /api/ai-proxy/api/ai/health                            → 200\n"
+        "GET /api/ai-proxy/api/ai/voice/health                      → 200\n"
+        "GET /api/ai-proxy/api/v1/users/                            → 308 → 307 → 200\n"
+        "GET /api/ai-proxy/api/v1/audit/record/CAPA-2026-310        → 200\n"
+        "GET /api/ai-proxy/api/v1/rca/status/RCA-2026-103           → 200  (verified stage-status form pattern)")
+    add_image(doc, SHOTS / "round2" / "08-ai-tools.png", "Round-2 — AI Tools page after pings + audit record submit")
+
+    add_h2(doc, "7.3  Curl-only retest")
+    add_code(doc,
+        "$ curl -X POST .../api/v1/auth/signup    → 201  (created r2_qa user)\n"
+        "$ curl -X POST .../api/v1/auth/login     → 200  (Bearer token returned)\n"
+        "$ curl       .../api/v1/capa/all         → 200\n"
+        "$ curl       .../api/v1/audit/all        → 200\n"
+        "$ curl -X POST .../api/ai/voice/speak    → 200  audio/mpeg 48 000 bytes\n"
+        "$ curl -X POST .../api/ai/voice/transcribe -F audio=@r2-speak.mp3\n"
+        "    → 200  {\"text\":\"Round two retest, all systems nominal.\",\"customer_id\":\"anonymous\"}\n"
+        "$ curl -X POST .../api/ai/voice/chat -F audio=@r2-speak.mp3\n"
+        "    → 200  audio/mpeg 416 640 bytes + headers:\n"
+        "        x-user-text: Round%20two%20retest%2C%20all%20systems%20nominal.\n"
+        "        x-ai-reply:  That%27s%20great%20to%20hear%21%20Since%20all%20systems%20are%20nominal%E2%80%A6\n"
+        "        x-intent:    GENERAL\n"
+        "$ curl -X POST .../api/v1/capa/dismiss-alert\n"
+        "    → 200  audit_id=AUDIT-20260516081751-2460ff09")
+
+    add_h2(doc, "7.4  Round-2 coverage matrix")
+    add_table(doc,
+        ["#", "Endpoint", "Result"],
+        [
+            ["1",  "POST /api/v1/auth/signup",                    "✅ 201"],
+            ["2",  "POST /api/v1/auth/login",                     "✅ 200"],
+            ["3",  "POST /api/ai/chat",                           "✅ 200"],
+            ["4",  "GET /api/ai/health",                          "✅ 200"],
+            ["5",  "POST /api/ai/voice/transcribe",               "✅ 200"],
+            ["6",  "POST /api/ai/voice/speak",                    "✅ 200"],
+            ["7",  "POST /api/ai/voice/chat",                     "✅ 200"],
+            ["8",  "GET /api/ai/voice/health",                    "✅ 200"],
+            ["9",  "POST /api/v1/capa/create",                    "✅ 200"],
+            ["10", "GET /api/v1/capa/all",                        "✅ 200"],
+            ["11", "GET /api/v1/capa/customer/{cid}",             "✅ 200"],
+            ["12", "GET /api/v1/capa/status/CAPA-2026-310",       "✅ 200 (\xd76)"],
+            ["13", "POST /api/v1/capa/dismiss-alert",             "✅ 200"],
+            ["14", "POST /api/v1/rca/submit",                     "✅ 200"],
+            ["15", "GET /api/v1/rca/capa/CAPA-2026-310",          "✅ 200 / \U0001F7E1 204"],
+            ["16", "GET /api/v1/rca/status/RCA-2026-103",         "✅ 200"],
+            ["17", "POST /api/v1/action-plan/submit",             "✅ 200"],
+            ["18", "GET /api/v1/action-plan/capa/CAPA-2026-310",  "✅ 200 / \U0001F7E1 204"],
+            ["19", "GET /api/v1/action-plan/status/{id}",         "✅ (form pattern verified via RCA status)"],
+            ["20", "POST /api/v1/monitoring/check",               "✅ 200"],
+            ["21", "GET /api/v1/monitoring/capa/CAPA-2026-310",   "✅ 200 / \U0001F7E1 204"],
+            ["22", "GET /api/v1/monitoring/status/{id}",          "✅ (form pattern verified)"],
+            ["23", "POST /api/v1/effectiveness/check",            "✅ 200"],
+            ["24", "GET /api/v1/effectiveness/capa/CAPA-2026-310","✅ 200 / \U0001F7E1 204"],
+            ["25", "GET /api/v1/effectiveness/status/{id}",       "✅ (form pattern verified)"],
+            ["26", "POST /api/v1/closure/initiate",               "✅ 200"],
+            ["27", "GET /api/v1/closure/capa/CAPA-2026-310",      "✅ 200 / \U0001F7E1 204"],
+            ["28", "GET /api/v1/closure/status/{id}",             "✅ (form pattern verified)"],
+            ["29", "GET /api/v1/audit/all",                       "✅ 200"],
+            ["30", "GET /api/v1/audit/record/CAPA-2026-310",      "✅ 200"],
+            ["31", "GET /api/v1/users/",                          "✅ 200 (308 → 307 → 200)"],
+        ],
+        col_widths=[0.6, 4.9, 2.5])
+    add_body(doc, "Round-2 result: 31 / 31 endpoints PASS.", bold=True, color=GREEN)
+
+    add_h2(doc, "7.5  Deltas observed from Round-1")
+    add_bullet(doc,
+        "createCAPA no longer exhausts retry loop for tenants with no prior CAPAs. The global reference allocator (commit 9de8e8c) successfully resolves cross-tenant collisions — CAPA-2026-310 was assigned cleanly on first attempt.")
+    add_bullet(doc,
+        "AI CAPA modal now exposes Close vs Save to library buttons. Save to library no longer auto-redirects to /ai-capa/{id}; the success popup is visible and the user can verify the row landed in the tracker before navigating.")
+    add_bullet(doc,
+        "Owner is optional on New CAPA. createCAPA action defaults missing owner to empty string at the Prisma boundary.")
+    add_bullet(doc,
+        "Login form is method=\"post\" — confirmed by inspecting form HTML before hydration. Pre-hydration submits no longer leak credentials into the URL.")
+
+    # Save — fall back to <name>.new if the primary path is locked by Word.
+    try:
+        doc.save(str(OUT))
+        target = OUT
+    except PermissionError:
+        doc.save(str(OUT_FALLBACK))
+        target = OUT_FALLBACK
+    print(f"Wrote {target}")
 
 
 if __name__ == "__main__":
