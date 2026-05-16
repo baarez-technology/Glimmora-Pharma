@@ -553,6 +553,14 @@ export function LoginPage() {
         {/* Form */}
         <form
           onSubmit={handleSubmit(onSubmit)}
+          method="post"
+          // method="post" is purely defensive: handleSubmit() preventDefault()s
+          // every real submission. But if the user clicks Sign in BEFORE React
+          // hydration finishes (slow dev server, race with password-manager
+          // auto-submit), the native browser submission runs. Without method
+          // set the default is GET — which leaks email + password to the URL
+          // as ?email=…&password=…. Forcing POST keeps the values in the
+          // request body even on pre-hydration submits.
           aria-label="Sign in to Pharma Glimmora"
           noValidate
           className="w-full space-y-4 mt-8"
