@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import {
   capaCreate, capaStatus,
-  rcaByCapa, rcaSubmit,
-  actionPlanByCapa, actionPlanSubmit, type ActionItem,
-  monitoringByCapa, monitoringCheck, type ActionProgressUpdate,
-  effectivenessByCapa, effectivenessCheck, type EvidenceItem, type TrendData,
-  closureByCapa, closureInitiate,
+  rcaByCapa, rcaStatus, rcaSubmit,
+  actionPlanByCapa, actionPlanStatus, actionPlanSubmit, type ActionItem,
+  monitoringByCapa, monitoringStatus, monitoringCheck, type ActionProgressUpdate,
+  effectivenessByCapa, effectivenessStatus, effectivenessCheck, type EvidenceItem, type TrendData,
+  closureByCapa, closureStatus, closureInitiate,
   selectAiToken, selectAiCustomerId,
   AiBackendError,
 } from "@/lib/aiBackend";
@@ -170,11 +170,33 @@ export function AiCapaPage({ capaId }: Props) {
         wantEff ? effectivenessByCapa(effectiveCapaId, token) : Promise.resolve(null),
         wantClosure ? closureByCapa(effectiveCapaId, token) : Promise.resolve(null),
       ]);
-      setRca(extractRecord(r));
-      setPlan(extractRecord(p));
-      setMonitoring(extractRecord(m));
-      setEffectiveness(extractRecord(e));
-      setClosure(extractRecord(cl));
+      const rcaRec = extractRecord(r);
+      const planRec = extractRecord(p);
+      const monRec = extractRecord(m);
+      const effRec = extractRecord(e);
+      const closeRec = extractRecord(cl);
+
+      // The by-capa endpoints only return summary fields. Follow up with
+      // /status/{id} for any stage that has an id so the structured views
+      // get the full record (actions[], action_updates[], evidence[], etc).
+      const rId = rcaId(rcaRec);
+      const apId = planId(planRec);
+      const mId = recordIdFrom(monRec, "monitoring_id", "monitoring_history", "monitorings");
+      const effId = effectivenessId(effRec);
+      const clId = recordIdFrom(closeRec, "closure_id", "closures");
+
+      const [rDetail, pDetail, mDetail, eDetail, clDetail] = await Promise.allSettled([
+        rId ? rcaStatus(rId, token) : Promise.resolve(null),
+        apId ? actionPlanStatus(apId, token) : Promise.resolve(null),
+        mId ? monitoringStatus(mId, token) : Promise.resolve(null),
+        effId ? effectivenessStatus(effId, token) : Promise.resolve(null),
+        clId ? closureStatus(clId, token) : Promise.resolve(null),
+      ]);
+      setRca(rDetail.status === "fulfilled" && rDetail.value ? rDetail.value : rcaRec);
+      setPlan(pDetail.status === "fulfilled" && pDetail.value ? pDetail.value : planRec);
+      setMonitoring(mDetail.status === "fulfilled" && mDetail.value ? mDetail.value : monRec);
+      setEffectiveness(eDetail.status === "fulfilled" && eDetail.value ? eDetail.value : effRec);
+      setClosure(clDetail.status === "fulfilled" && clDetail.value ? clDetail.value : closeRec);
     } finally {
       setLoading(false);
     }
@@ -600,12 +622,24 @@ function ActionPlanView({ data }: { data: unknown }) {
   const r = firstRecord(data, "action_plans", "plans");
   if (!r) return null;
   const actions = asArray(r.actions);
+  const rating = asString(r.overall_plan_rating ?? r.overall_rating);
+  const cosmetic = r.is_cosmetic_capa === true;
+  const effCurr = asString(r.effectiveness_prediction_current);
+  const effImpr = asString(r.effectiveness_prediction_improved);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Plan ID: <span className="font-mono">{asString(r.action_plan_id)}</span></span>
+        {rating !== "—" && <Pill tone={ratingTone(rating)}>Plan: {rating}</Pill>}
+        {cosmetic && <Pill tone="red">Cosmetic CAPA alert</Pill>}
         {asString(r.status) !== "—" && <Pill tone={statusTone(asString(r.status))}>{asString(r.status)}</Pill>}
       </div>
+      {(effCurr !== "—" || effImpr !== "—") && (
+        <FieldGrid>
+          {effCurr !== "—" && <Field label="Effectiveness (current)" value={effCurr} />}
+          {effImpr !== "—" && <Field label="Effectiveness (improved)" value={effImpr} />}
+        </FieldGrid>
+      )}
       {actions.length > 0 ? (
         <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--bg-border)" }}>
           <table className="data-table">
@@ -641,7 +675,7 @@ function ActionPlanView({ data }: { data: unknown }) {
 }
 
 function MonitoringView({ data }: { data: unknown }) {
-  const r = firstRecord(data, "monitorings", "monitoring");
+  const r = firstRecord(data, "monitoring_history", "monitorings", "monitoring");
   if (!r) return null;
   const updates = asArray(r.action_updates);
   return (
