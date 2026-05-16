@@ -35,7 +35,7 @@ const CreateCAPASchema = z.object({
     "Other",
   ]),
   risk: z.enum(["Critical", "High", "Medium", "Low"]),
-  owner: z.string().min(1, "Owner is required"),
+  owner: z.string().optional(),
   dueDate: z.string().min(1, "Due date is required"),
   siteId: z.string().optional(),
   linkedFindingId: z.string().optional(),
@@ -125,6 +125,9 @@ export async function createCAPA(
           return tx.cAPA.create({
             data: {
               ...rest,
+              // owner is now zod-optional; the Prisma column is still
+              // non-null, so default an empty string when not supplied.
+              owner: rest.owner ?? "",
               reference,
               tenantId: session.user.tenantId,
               status: "open",
