@@ -446,14 +446,16 @@ function AccountDrawer({
 
   // Live form-validity check for the Save button's disabled state. Mirrors
   // validate() but is pure (no setErrors side effect) so it runs every render.
+  // No length minimums — the strength meter is informational and never blocks
+  // submission; only required-ness, username/email format, and match are gated.
   const canSave =
-    form.customerName.trim().length >= 2 &&
-    form.username.trim().length >= 3 &&
+    form.customerName.trim().length > 0 &&
+    form.username.trim().length > 0 &&
     /^[a-z0-9_]+$/.test(form.username.trim()) &&
     form.email.trim().length > 0 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) &&
     (mode === "edit" || (
-      form.newPassword.length >= 6 &&
+      form.newPassword.length > 0 &&
       form.newPassword === form.confirmPassword
     ));
 
