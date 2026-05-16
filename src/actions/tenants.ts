@@ -219,36 +219,22 @@ export async function deleteTenant(id: string): Promise<ActionResult> {
     if (target.role === "super_admin") {
       return { success: false, error: "Platform super-admin accounts cannot be deleted" };
     }
-    // Atomic: delete the tenant + write the audit-log row in a single
-    // transaction. Either both succeed (the row is gone AND the audit trail
-    // records who removed it) or both roll back. Prevents the previous
-    // "tenant deleted but audit-log insert threw → caller sees failure even
-    // though the row is gone" inconsistency.
-    await prisma.$transaction([
-      prisma.tenant.delete({ where: { id } }),
-      prisma.auditLog.create({
-        data: {
-          tenantId: session.user.tenantId,
-          userName: session.user.name,
-          userRole: session.user.role,
-          module: "Admin",
-          action: "TENANT_DELETED",
-          recordId: id,
-        },
-      }),
-    ]);
+    await prisma.tenant.delete({ where: { id } });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "Admin",
+        action: "TENANT_DELETED",
+        recordId: id,
+      },
+    });
     revalidatePath("/admin");
     return { success: true, data: null };
   } catch (err) {
     console.error("[action] deleteTenant failed:", err);
-    // Surface the actual Prisma error to the caller — e.g. FK violations from
-    // a non-cascading relation are now visible instead of being hidden behind
-    // the generic "Failed to delete account".
-    const message =
-      err instanceof Error && err.message
-        ? err.message.split("\n")[0].slice(0, 200)
-        : "Failed to delete account";
-    return { success: false, error: message };
+    return { success: false, error: "Failed to delete account" };
   }
 }
 
