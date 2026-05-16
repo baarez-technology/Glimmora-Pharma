@@ -98,13 +98,22 @@ export async function createCAPA(
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         capa = await prisma.$transaction(async (tx) => {
+          // Reference lookup is intentionally GLOBAL (no tenantId filter).
+          // CAPA.reference has a global @unique index, not @@unique on
+          // [tenantId, reference] — so two tenants each computing their
+          // per-tenant max would both produce "CAPA-2026-001" and the second
+          // insert would hit P2002 every retry (the per-tenant max still
+          // says "this tenant has none"). Reading the global max for the
+          // year guarantees the computed next-number is strictly greater
+          // than anything already in the unique index. Tenants may see
+          // gaps in their own sequence — that's the documented trade-off
+          // of the global unique design.
           const reference = await generateReference(
             "CAPA",
             new Date(),
             async (prefix, year) => {
               const row = await tx.cAPA.findFirst({
                 where: {
-                  tenantId: session.user.tenantId,
                   reference: { startsWith: `${prefix}-${year}-` },
                 },
                 orderBy: { reference: "desc" },

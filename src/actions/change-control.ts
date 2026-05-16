@@ -343,13 +343,16 @@ export async function createChangeControl(
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         cc = await prisma.$transaction(async (tx) => {
+          // GLOBAL lookup (no tenantId filter). ChangeControl.reference has
+          // a global @unique index, so two tenants each computing their
+          // per-tenant max both produce "CC-2026-001" and the second insert
+          // hits P2002. See the matching note in src/actions/capas/lifecycle.ts.
           const reference = await generateReference(
             "CC",
             new Date(),
             async (prefix, year) => {
               const row = await tx.changeControl.findFirst({
                 where: {
-                  tenantId: session.user.tenantId,
                   reference: { startsWith: `${prefix}-${year}-` },
                 },
                 orderBy: { reference: "desc" },
