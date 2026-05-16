@@ -457,7 +457,22 @@ def build():
         "analysis card with CAPA id (e.g. CAPA-2026-305), AI risk score (0–100 %), pattern detected text, "
         "recurrence alert, AI recommendation, and similar past CAPAs.")
     add_image(doc, SHOTS / "17-capa-created.png", "Screenshot 17 — AI CAPA generated")
-    add_body(doc, "Click Accept & close → redirects to /ai-capa/<CAPA-ID> (the lifecycle page).")
+    add_body(doc,
+        "Two buttons in the result card:")
+    add_bullet(doc,
+        "Close — discard the suggestion. Nothing is written to the local "
+        "CAPA library; the AI backend still has the record (created by the "
+        "capa/create POST above) and the row remains accessible via "
+        "/ai-capa or /ai-capa/<aiBackendId>, but it will not appear in the "
+        "CAPA Tracker on /capa.")
+    add_bullet(doc,
+        "Save to library — persists the CAPA into this customer's local "
+        "library via the createCAPA server action. After clicking Save to "
+        "library the modal closes and you stay on /capa; the new row "
+        "appears in the CAPA Tracker table and a green popup confirms the "
+        "save.")
+    add_body(doc,
+        "Click Save to library for this walkthrough.")
 
     add_page_break(doc)
 
@@ -468,6 +483,23 @@ def build():
         "behaviour on the returned status field. On entry it fans out Promise.allSettled across the five "
         "/<stage>/capa/{id} GET endpoints; stages not yet submitted return 204 via the proxy 404→204 "
         "collapse (silent).")
+
+    add_h3(doc, "Reaching the lifecycle page")
+    add_body(doc,
+        "After Save to library you are on /capa. The lifecycle dashboard for "
+        "an individual CAPA lives at /ai-capa/<CAPA-ID>. Two ways to get there:")
+    add_bullet(doc,
+        "Direct URL — paste http://localhost:3000/ai-capa/CAPA-2026-305 "
+        "(substitute the id shown on the result card or in the success "
+        "popup) into the address bar.")
+    add_bullet(doc,
+        "Via the /ai-capa index — open the AI CAPAs page (top-right user "
+        "menu → AI CAPAs, or visit /ai-capa directly). The list shows "
+        "every backend-tracked CAPA for the current customer; click any "
+        "row to open its lifecycle dashboard.")
+    add_body(doc,
+        "Either path lands on the page shown in Screenshot 18 below.",
+        italic=True, color=GRAY)
 
     add_step_header(doc, "2.3.0", "Initial state — GET /api/v1/capa/status/{id}")
     add_image(doc, SHOTS / "18-ai-capa-lifecycle.png", "Screenshot 18 — Lifecycle page on entry")
