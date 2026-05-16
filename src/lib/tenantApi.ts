@@ -8,6 +8,29 @@ import {
   listTenants as listTenantsAction,
 } from "@/actions/tenants";
 
+/**
+ * Error thrown when a server action rejects a write. Carries the raw
+ * server error string and (when the failure was a Zod schema rejection)
+ * a per-field error map so the form can light up the offending inputs
+ * instead of showing the generic "Validation failed" toast.
+ */
+export class TenantApiError extends Error {
+  fieldErrors?: Record<string, string[]>;
+  constructor(message: string, fieldErrors?: Record<string, string[]>) {
+    super(message);
+    this.name = "TenantApiError";
+    this.fieldErrors = fieldErrors;
+  }
+}
+
+function formatFieldErrors(fieldErrors: Record<string, string[]> | undefined): string {
+  if (!fieldErrors) return "";
+  const parts = Object.entries(fieldErrors)
+    .map(([field, msgs]) => `${field}: ${(msgs ?? []).join(", ")}`)
+    .filter(Boolean);
+  return parts.join(" · ");
+}
+
 const BASE = "/api";
 
 /** Logs the success/failure outcome of an API call with timing. */
@@ -89,7 +112,9 @@ export async function createTenantApi(tenant: Tenant): Promise<void> {
       isActive: tenant.active ?? true,
     });
     if (!result.success) {
-      throw new Error(result.error);
+      const detail = formatFieldErrors(result.fieldErrors);
+      const msg = detail ? `${result.error} — ${detail}` : result.error;
+      throw new TenantApiError(msg, result.fieldErrors);
     }
     const created = result.data as { id: string } | undefined;
     if (!created?.id) return;
@@ -125,7 +150,9 @@ export async function updateTenantApi(
     if (Object.keys(data).length === 0) return;
     const result = await updateTenantAction(id, data);
     if (!result.success) {
-      throw new Error(result.error);
+      const detail = formatFieldErrors(result.fieldErrors);
+      const msg = detail ? `${result.error} — ${detail}` : result.error;
+      throw new TenantApiError(msg, result.fieldErrors);
     }
   });
 }
@@ -134,7 +161,7 @@ export async function deleteTenantApi(id: string): Promise<void> {
   return logCall("DELETE", `/tenants (server action, id=${id})`, async () => {
     const result = await deleteTenantAction(id);
     if (!result.success) {
-      throw new Error(result.error);
+      throw new TenantApiError(result.error);
     }
   });
 }

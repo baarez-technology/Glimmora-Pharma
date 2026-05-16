@@ -28,7 +28,7 @@ import {
   setTenants,
   type Tenant,
 } from "@/store/auth.slice";
-import { fetchTenants, createTenantApi, updateTenantApi, deleteTenantApi } from "@/lib/tenantApi";
+import { fetchTenants, createTenantApi, updateTenantApi, deleteTenantApi, TenantApiError } from "@/lib/tenantApi";
 import { toggleTenantMFA } from "@/actions/tenants";
 import { friendlyAiError } from "@/lib/friendlyError";
 import { isTenantEffectivelyActive, getInactiveReason } from "@/lib/tenantStatus";
@@ -405,25 +405,32 @@ function AccountDrawer({
   // Errors are derived from form + mode on every render — no setErrors. This
   // lets the inline error text disappear the instant the user fixes a field,
   // without waiting for another submit click to refresh state.
+  // Validation rules mirror the server-side Zod schema in
+  // src/actions/tenants.ts (CreateTenantSchema) so the modal can't accept
+  // values that will fail at the server with "Validation failed". Keep
+  // these in lockstep when the schema changes.
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
-    if (!form.customerName.trim()) e.customerName = "Required";
+    const name = form.customerName.trim();
+    if (!name) e.customerName = "Required";
+    else if (name.length < 2) e.customerName = "Must be at least 2 characters";
 
-    if (!form.username.trim()) e.username = "Required";
-    else if (!/^[a-z0-9_]+$/.test(form.username.trim())) e.username = "Lowercase letters, digits, and underscores only";
+    const uname = form.username.trim();
+    if (!uname) e.username = "Required";
+    else if (uname.length < 2) e.username = "Must be at least 2 characters";
+    else if (!/^[a-z0-9_]+$/.test(uname)) e.username = "Lowercase letters, digits, and underscores only";
 
-    if (!form.email.trim()) e.email = "Required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = "Enter a valid email";
+    const email = form.email.trim();
+    if (!email) e.email = "Required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Enter a valid email";
 
     if (mode === "create") {
-      // No length floor — single-character demo passwords are accepted. The
-      // 4-segment strength meter below the field still renders so the user
-      // sees how strong their password is, and the Generate button still
-      // produces a 16-char strong one. Submission is not blocked on weakness.
       if (!form.newPassword) e.newPassword = "Required";
+      else if (form.newPassword.length < 6) e.newPassword = "Must be at least 6 characters";
       if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords don't match";
-    } else if (form.newPassword && form.newPassword !== form.confirmPassword) {
-      e.confirmPassword = "Passwords don't match";
+    } else if (form.newPassword) {
+      if (form.newPassword.length < 6) e.newPassword = "Must be at least 6 characters";
+      if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords don't match";
     }
     return e;
   }, [form, mode]);
@@ -448,15 +455,14 @@ function AccountDrawer({
   // No length minimums — the strength meter is informational and never blocks
   // submission; only required-ness, username/email format, and match are gated.
   const canSave =
-    form.customerName.trim().length > 0 &&
-    form.username.trim().length > 0 &&
+    form.customerName.trim().length >= 2 &&
+    form.username.trim().length >= 2 &&
     /^[a-z0-9_]+$/.test(form.username.trim()) &&
     form.email.trim().length > 0 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) &&
-    (mode === "edit" || (
-      form.newPassword.length > 0 &&
-      form.newPassword === form.confirmPassword
-    ));
+    (mode === "edit"
+      ? (!form.newPassword || (form.newPassword.length >= 6 && form.newPassword === form.confirmPassword))
+      : form.newPassword.length >= 6 && form.newPassword === form.confirmPassword);
 
   const handleGeneratePassword = async () => {
     const pwd = generateStrongPassword(16);
@@ -906,9 +912,28 @@ function AccountDrawer({
 
 /**
  * Maps a save-time failure to a user-facing message for the toast.
- * Falls back to friendlyAiError for tenant API / generic failures.
+ * TenantApiError carries server fieldErrors (Zod failures) — surface
+ * them inline so the user knows which field is wrong instead of the
+ * generic "Validation failed" sentence.
  */
 function mapCustomerError(err: unknown): string {
+  if (err instanceof TenantApiError) {
+    if (err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
+      const fieldLabels: Record<string, string> = {
+        name: "Customer name",
+        email: "Email",
+        username: "Username",
+        password: "Password",
+        customerCode: "Customer code",
+      };
+      const parts = Object.entries(err.fieldErrors).map(([field, msgs]) => {
+        const label = fieldLabels[field] ?? field;
+        return `${label}: ${(msgs ?? []).join(", ")}`;
+      });
+      return parts.join(" · ");
+    }
+    return err.message;
+  }
   return friendlyAiError(err, "Failed to save customer. Please try again.");
 }
 
@@ -1038,22 +1063,19 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
           users: updatedUsers,
         },
       };
-      // Optimistic local update
-      dispatch(updateTenant({ id: editingTenant.id, patch }));
-      let updateOk = false;
-      let updateError: unknown = null;
+      // Server-first: write to the DB first; only mutate Redux on success.
+      // Prevents the "saved locally but not in DB" phantom state that left
+      // the tenant unreachable for login on subsequent attempts.
       try {
         await updateTenantApi(editingTenant.id, patch);
-        updateOk = true;
-      } catch (err) {
-        updateError = err;
-        console.error("[admin] failed to persist tenant update", err);
-        setSyncError("Saved locally but failed to sync to the database.");
-      }
-      if (updateOk) {
+        dispatch(updateTenant({ id: editingTenant.id, patch }));
+        setSyncError(null);
         toast.success(`Customer "${data.customerName}" updated.`);
-      } else {
-        toast.error(`Saved locally but failed to sync "${data.customerName}": ${mapCustomerError(updateError)}`);
+      } catch (err) {
+        console.error("[admin] failed to persist tenant update", err);
+        setSyncError(null);
+        toast.error(`Could not update "${data.customerName}": ${mapCustomerError(err)}`);
+        return;
       }
       // MFA changes route through toggleTenantMFA so the audit pair and
       // sessionsValidAfter bump fire. Don't include mfaEnabled in the
@@ -1123,24 +1145,21 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
           ],
         },
       };
-      // Optimistic local insert
-      dispatch(addTenant(newTenant));
-      let tenantApiOk = false;
-      let tenantApiError: unknown = null;
+      // Server-first: write to the DB first; only insert into Redux on
+      // success. Prevents the "saved locally but not in DB" phantom state
+      // that left the new customer unable to sign in (the DB lookup at
+      // login would return nothing while Redux still showed the row).
       try {
         await createTenantApi(newTenant);
-        tenantApiOk = true;
       } catch (err) {
-        tenantApiError = err;
         console.error("[admin] failed to persist new tenant", err);
-        setSyncError("Saved locally but failed to sync to the database.");
+        setSyncError(null);
+        toast.error(`Could not create "${data.customerName}": ${mapCustomerError(err)}`);
+        return;
       }
-
-      if (!tenantApiOk) {
-        toast.error(`Failed to save "${data.customerName}": ${mapCustomerError(tenantApiError)}`);
-      } else {
-        toast.success(`Customer "${data.customerName}" created.`);
-      }
+      dispatch(addTenant(newTenant));
+      setSyncError(null);
+      toast.success(`Customer "${data.customerName}" created.`);
 
       // Auto-open subscription modal if no plan was added in the drawer
       if (data.subscriptionPlans.length === 0) {
@@ -1590,8 +1609,13 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
               if (!tenant) return;
               const plan = { id: `sp-${Date.now()}`, startDate: postCreateSubData.startDate, endDate: postCreateSubData.expiryDate, maxAccounts: postCreateSubData.maxAccounts, status: postCreateSubData.status, createdAt: new Date().toISOString() };
               const patch: Partial<Tenant> = { subscriptionPlans: [...(tenant.subscriptionPlans ?? []), plan] };
-              dispatch(updateTenant({ id: postCreateTenantId, patch }));
-              try { await updateTenantApi(postCreateTenantId, patch); } catch { setSyncError("Saved locally but failed to sync."); }
+              try {
+                await updateTenantApi(postCreateTenantId, patch);
+                dispatch(updateTenant({ id: postCreateTenantId, patch }));
+              } catch (err) {
+                toast.error(`Could not add subscription: ${mapCustomerError(err)}`);
+                return;
+              }
               setPostCreateSubOpen(false);
               setPostCreateTenantId(null);
               setSavedPopup("Account and subscription created");
