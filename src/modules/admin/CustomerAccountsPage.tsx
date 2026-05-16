@@ -1268,15 +1268,23 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
     if (!deletingTenant) return;
     setDeleting(true);
     const id = deletingTenant.id;
-    // Optimistic local removal
-    dispatch(removeTenant(id));
+    // Server-first: only remove from Redux AFTER the server confirms the
+    // tenant.delete + audit-log insert transaction committed. Stops the
+    // earlier UX where the row vanished locally even when the DB delete
+    // failed (FK violation, audit-log error, etc.) and the user was left
+    // with the toast saying "Removed locally but failed to delete from the
+    // database."
     try {
       await deleteTenantApi(id);
+      dispatch(removeTenant(id));
       setDeletingTenant(null);
     } catch (err) {
       console.error("[admin] failed to delete tenant", err);
-      setSyncError("Removed locally but failed to delete from the database.");
-      setDeletingTenant(null);
+      const message =
+        err instanceof Error && err.message ? err.message : friendlyError(undefined);
+      setSyncError(message);
+      // Keep the deletingTenant open so the user sees the inline error in
+      // the confirmation popup and can retry or cancel.
     } finally {
       setDeleting(false);
     }
