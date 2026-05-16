@@ -13,7 +13,6 @@ import {
   aiVoiceChat,
   aiVoiceTranscribe,
   aiVoiceSpeak,
-  AiChatError,
   type ChatMessage,
 } from "@/lib/aiChat";
 import { friendlyAiError } from "@/lib/friendlyError";

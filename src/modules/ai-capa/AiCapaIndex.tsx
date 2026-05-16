@@ -11,7 +11,6 @@ import {
   capaListByCustomer,
   selectAiToken,
   selectAiCustomerId,
-  AiBackendError,
 } from "@/lib/aiBackend";
 import { friendlyAiError } from "@/lib/friendlyError";
 
