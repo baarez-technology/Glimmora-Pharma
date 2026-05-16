@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, RefreshCw, Plus, Trash2, AlertTriangle, CheckCircle2, Send, Sparkles, RotateCcw } from "lucide-react";
+import { ArrowLeft, RefreshCw, Plus, Trash2, AlertTriangle, CheckCircle2, Send, Sparkles, RotateCcw, Copy, Check } from "lucide-react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -40,6 +40,8 @@ export function AiCapaPage({ capaId }: Props) {
   const router = useRouter();
   const token = useAppSelector(selectAiToken);
   const customerId = useAppSelector(selectAiCustomerId);
+  const userRole = useAppSelector((s) => s.auth.user?.role ?? "");
+  const isCustomerAdmin = userRole === "customer_admin" || userRole === "super_admin";
   // Local CAPA lookup so we can offer "Register with AI backend" when the
   // user lands here via the per-row sparkle on a manually-created CAPA
   // that isn't tracked upstream. Match by either Prisma id or the
@@ -219,6 +221,11 @@ export function AiCapaPage({ capaId }: Props) {
 
   const recurring = isRecurring(capa);
   const riskScore = getRiskScore(capa);
+  const capaStatusLabel = (() => {
+    const s = getField(capa, "status");
+    return typeof s === "string" ? s : "—";
+  })();
+  const capaCreatedAtLabel = formatDate(getField(capa, "created_at"));
 
   return (
     <main className="w-full space-y-5" aria-label="AI CAPA lifecycle">
@@ -249,19 +256,31 @@ export function AiCapaPage({ capaId }: Props) {
 
       {/* Summary card */}
       <Section title="Summary">
-        {loading && !capa ? (
-          <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>Loading…</p>
-        ) : capa ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Stat label="Status" value={String(getField(capa, "status") ?? "—")} />
-            <Stat label="Risk score" value={riskScore != null ? `${Math.round(riskScore * 100)}%` : "—"} valueColor={riskScore != null && riskScore >= 0.75 ? "var(--danger)" : riskScore != null && riskScore >= 0.4 ? "var(--warning)" : "var(--success)"} />
-            <Stat label="Recurring" value={recurring ? "Yes" : "No"} valueColor={recurring ? "var(--warning)" : "var(--text-primary)"} />
-            <Stat label="Created" value={formatDate(getField(capa, "created_at"))} />
-          </div>
-        ) : (
-          <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>No CAPA data.</p>
-        )}
+        <SummaryBody
+          loading={loading}
+          hasCapa={capa != null}
+          status={capaStatusLabel}
+          riskScore={riskScore}
+          recurring={recurring}
+          createdAt={capaCreatedAtLabel}
+        />
       </Section>
+
+      {/* Stage IDs — copy-friendly panel so users can grab every stage id
+          in one place (for the /ai-tools page, audit lookups, etc.) without
+          hunting through each card. */}
+      {capa != null && isCustomerAdmin && (
+        <Section title="Stage IDs" subtitle="Admin diagnostic — click any id to copy it for use on the AI Tools page or external lookups.">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            <CopyableId label="CAPA" value={effectiveCapaId} />
+            <CopyableId label="RCA" value={rcaId(rca)} />
+            <CopyableId label="Action plan" value={planId(plan)} />
+            <CopyableId label="Monitoring" value={recordIdFrom(monitoring, "monitoring_id", "monitoring_history", "monitorings")} />
+            <CopyableId label="Effectiveness" value={effectivenessId(effectiveness)} />
+            <CopyableId label="Closure" value={recordIdFrom(closure, "closure_id", "closures")} />
+          </div>
+        </Section>
+      )}
 
       {/* Lifecycle stages — only meaningful when the CAPA actually exists
           in the AI backend. If the capa fetch 404'd (e.g. the user opened
@@ -446,14 +465,82 @@ function BackLink({ onClick }: { onClick: () => void }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function SummaryBody({ loading, hasCapa, status, riskScore, recurring, createdAt }: {
+  loading: boolean;
+  hasCapa: boolean;
+  status: string;
+  riskScore: number | null;
+  recurring: boolean;
+  createdAt: string;
+}) {
+  if (loading && !hasCapa) {
+    return <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>Loading…</p>;
+  }
+  if (!hasCapa) {
+    return <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>No CAPA data.</p>;
+  }
+  const riskColor =
+    riskScore != null && riskScore >= 0.75 ? "var(--danger)" :
+    riskScore != null && riskScore >= 0.4 ? "var(--warning)" :
+    "var(--success)";
+  const riskValue = riskScore != null ? `${Math.round(riskScore * 100)}%` : "—";
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <Stat label="Status" value={status} />
+      <Stat label="Risk score" value={riskValue} valueColor={riskColor} />
+      <Stat label="Recurring" value={recurring ? "Yes" : "No"} valueColor={recurring ? "var(--warning)" : "var(--text-primary)"} />
+      <Stat label="Created" value={createdAt} />
+    </div>
+  );
+}
+
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
     <section className="card">
-      <div className="card-header">
+      <div className="card-header" style={{ flexDirection: "column", alignItems: "flex-start" }}>
         <h2 className="card-title">{title}</h2>
+        {subtitle && <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>{subtitle}</p>}
       </div>
       <div className="card-body">{children}</div>
     </section>
+  );
+}
+
+function CopyableId({ label, value }: { label: string; value: string | null }) {
+  const [copied, setCopied] = useState(false);
+  const empty = !value;
+  async function copy() {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { /* clipboard blocked — silently no-op */ }
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      disabled={empty}
+      title={empty ? "Not yet generated" : "Click to copy"}
+      className="rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 transition-colors"
+      style={{
+        background: "var(--bg-elevated)",
+        border: "1px solid var(--bg-border)",
+        cursor: empty ? "not-allowed" : "pointer",
+        opacity: empty ? 0.55 : 1,
+      }}
+    >
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "var(--text-muted)" }}>{label}</p>
+        <p className="text-[12px] font-mono truncate" style={{ color: "var(--text-primary)" }}>{value ?? "—"}</p>
+      </div>
+      {!empty && (
+        copied
+          ? <Check className="w-3.5 h-3.5 shrink-0" aria-hidden="true" style={{ color: "var(--success)" }} />
+          : <Copy className="w-3.5 h-3.5 shrink-0" aria-hidden="true" style={{ color: "var(--text-muted)" }} />
+      )}
+    </button>
   );
 }
 
