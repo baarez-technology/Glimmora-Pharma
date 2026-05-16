@@ -162,53 +162,78 @@ export function AiCapaPage({ capaId }: Props) {
         )}
       </Section>
 
-      <StageCard
-        title="Root Cause Analysis (RCA)"
-        data={rca}
-        emptyAction={
-          <Button variant="primary" icon={Plus} onClick={() => setOpenModal("rca")}>Submit RCA</Button>
-        }
-      />
+      {/* Lifecycle stages — only meaningful when the CAPA actually exists
+          in the AI backend. If the capa fetch 404'd (e.g. the user opened
+          a manually-created CAPA via the per-row sparkle button), render
+          a dedicated empty-state instead of letting them fill stage
+          modals that will all 404 on submit. */}
+      {capa ? (
+        <>
+          <StageCard
+            title="Root Cause Analysis (RCA)"
+            data={rca}
+            emptyAction={
+              <Button variant="primary" icon={Plus} onClick={() => setOpenModal("rca")}>Submit RCA</Button>
+            }
+          />
 
-      <StageCard
-        title="Action Plan"
-        data={plan}
-        emptyAction={
-          <Button variant="primary" icon={Plus} onClick={() => setOpenModal("plan")} disabled={!rcaId(rca)}>
-            {rcaId(rca) ? "Submit action plan" : "Submit RCA first"}
-          </Button>
-        }
-      />
+          <StageCard
+            title="Action Plan"
+            data={plan}
+            emptyAction={
+              <Button variant="primary" icon={Plus} onClick={() => setOpenModal("plan")} disabled={!rcaId(rca)}>
+                {rcaId(rca) ? "Submit action plan" : "Submit RCA first"}
+              </Button>
+            }
+          />
 
-      <StageCard
-        title="Implementation Monitoring"
-        data={monitoring}
-        emptyAction={
-          <Button variant="primary" icon={Plus} onClick={() => setOpenModal("monitoring")} disabled={!planId(plan)}>
-            {planId(plan) ? "Submit monitoring check" : "Submit action plan first"}
-          </Button>
-        }
-      />
+          <StageCard
+            title="Implementation Monitoring"
+            data={monitoring}
+            emptyAction={
+              <Button variant="primary" icon={Plus} onClick={() => setOpenModal("monitoring")} disabled={!planId(plan)}>
+                {planId(plan) ? "Submit monitoring check" : "Submit action plan first"}
+              </Button>
+            }
+          />
 
-      <StageCard
-        title="Effectiveness Check"
-        data={effectiveness}
-        emptyAction={
-          <Button variant="primary" icon={Plus} onClick={() => setOpenModal("effectiveness")} disabled={!planId(plan)}>
-            {planId(plan) ? "Run effectiveness check" : "Submit action plan first"}
-          </Button>
-        }
-      />
+          <StageCard
+            title="Effectiveness Check"
+            data={effectiveness}
+            emptyAction={
+              <Button variant="primary" icon={Plus} onClick={() => setOpenModal("effectiveness")} disabled={!planId(plan)}>
+                {planId(plan) ? "Run effectiveness check" : "Submit action plan first"}
+              </Button>
+            }
+          />
 
-      <StageCard
-        title="Closure"
-        data={closure}
-        emptyAction={
-          <Button variant="primary" icon={Plus} onClick={() => setOpenModal("closure")} disabled={!effectivenessId(effectiveness)}>
-            {effectivenessId(effectiveness) ? "Initiate closure" : "Run effectiveness check first"}
-          </Button>
-        }
-      />
+          <StageCard
+            title="Closure"
+            data={closure}
+            emptyAction={
+              <Button variant="primary" icon={Plus} onClick={() => setOpenModal("closure")} disabled={!effectivenessId(effectiveness)}>
+                {effectivenessId(effectiveness) ? "Initiate closure" : "Run effectiveness check first"}
+              </Button>
+            }
+          />
+        </>
+      ) : !loading ? (
+        <Section title="Not tracked in AI backend">
+          <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
+            CAPA <code>{capaId}</code> exists in the local CAPA library but
+            is not registered with the AI backend, so the RCA &rarr; Action
+            plan &rarr; Monitoring &rarr; Effectiveness &rarr; Closure
+            lifecycle stages cannot be submitted here. AI lifecycle stages
+            are only available for CAPAs that were created through the
+            <strong> &ldquo;AI CAPA&rdquo; </strong> generator on the CAPA
+            Tracker.
+          </p>
+          <div className="flex items-center gap-2 mt-3">
+            <Button variant="primary" onClick={() => router.push("/capa")}>Back to CAPA Tracker</Button>
+            <Button variant="secondary" onClick={() => router.push("/ai-capa")}>View all AI CAPAs</Button>
+          </div>
+        </Section>
+      ) : null}
 
       {/* Modals */}
       <RcaModal
