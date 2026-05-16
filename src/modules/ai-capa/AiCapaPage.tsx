@@ -52,7 +52,21 @@ export function AiCapaPage({ capaId }: Props) {
   // that mapping locally so the stage submit modals target the AI id
   // without forcing a navigation (which would re-mount the page and may
   // race the backend's read-after-write availability for capaStatus).
-  const [aiCapaId, setAiCapaId] = useState<string | null>(null);
+  // Persist the mapping in localStorage keyed by the local id so the user
+  // doesn't have to re-register every time they navigate back to the page.
+  const aiCapaIdStorageKey = `glimmora.aiCapaIdFor:${capaId}`;
+  const [aiCapaId, setAiCapaIdState] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return window.localStorage.getItem(aiCapaIdStorageKey); } catch { return null; }
+  });
+  const setAiCapaId = useCallback((next: string | null) => {
+    setAiCapaIdState(next);
+    if (typeof window === "undefined") return;
+    try {
+      if (next) window.localStorage.setItem(aiCapaIdStorageKey, next);
+      else window.localStorage.removeItem(aiCapaIdStorageKey);
+    } catch { /* storage disabled — keep in-memory only */ }
+  }, [aiCapaIdStorageKey]);
   const effectiveCapaId = aiCapaId ?? capaId;
 
   const [capa, setCapa] = useState<unknown>(null);
@@ -125,6 +139,13 @@ export function AiCapaPage({ capaId }: Props) {
         setCapa(null);
         setRca(null); setPlan(null); setMonitoring(null); setEffectiveness(null); setClosure(null);
         const reason = c.reason instanceof AiBackendError ? c.reason.message : String(c.reason);
+        // If the cached AI mapping points to a CAPA the backend no longer
+        // knows about (deleted, wiped DB, wrong customer), drop the mapping
+        // so the empty-state lets the user register fresh instead of
+        // looping the 404 forever.
+        if (aiCapaId && c.reason instanceof AiBackendError && c.reason.status === 404) {
+          setAiCapaId(null);
+        }
         setError(`CAPA fetch failed: ${reason}`);
         return;
       }
@@ -157,7 +178,7 @@ export function AiCapaPage({ capaId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [effectiveCapaId, token]);
+  }, [effectiveCapaId, token, aiCapaId, setAiCapaId]);
 
   useEffect(() => {
     void refresh();
