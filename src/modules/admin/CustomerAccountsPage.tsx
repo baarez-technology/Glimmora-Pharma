@@ -409,22 +409,19 @@ function AccountDrawer({
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
     if (!form.customerName.trim()) e.customerName = "Required";
-    else if (form.customerName.trim().length < 2) e.customerName = "Minimum 2 characters";
 
     if (!form.username.trim()) e.username = "Required";
-    else if (form.username.trim().length < 3) e.username = "Minimum 3 characters";
     else if (!/^[a-z0-9_]+$/.test(form.username.trim())) e.username = "Lowercase letters, digits, and underscores only";
 
     if (!form.email.trim()) e.email = "Required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = "Enter a valid email";
 
     if (mode === "create") {
-      // Minimum 6 characters — no strength-score gate. The 4-segment strength
-      // meter below the field still renders so the user sees how strong their
-      // password is, and the Generate button still produces a 16-char strong
-      // one. We just don't block submission on weakness anymore.
+      // No length floor — single-character demo passwords are accepted. The
+      // 4-segment strength meter below the field still renders so the user
+      // sees how strong their password is, and the Generate button still
+      // produces a 16-char strong one. Submission is not blocked on weakness.
       if (!form.newPassword) e.newPassword = "Required";
-      else if (form.newPassword.length < 6) e.newPassword = "Minimum 6 characters";
       if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords don't match";
     } else if (form.newPassword && form.newPassword !== form.confirmPassword) {
       e.confirmPassword = "Passwords don't match";
