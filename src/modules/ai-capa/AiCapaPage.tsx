@@ -251,6 +251,7 @@ export function AiCapaPage({ capaId }: Props) {
           <StageCard
             title="Root Cause Analysis (RCA)"
             data={rca}
+            renderData={(d) => <RcaView data={d} />}
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("rca")}>Submit RCA</Button>
             }
@@ -259,6 +260,7 @@ export function AiCapaPage({ capaId }: Props) {
           <StageCard
             title="Action Plan"
             data={plan}
+            renderData={(d) => <ActionPlanView data={d} />}
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("plan")} disabled={!rcaId(rca)}>
                 {rcaId(rca) ? "Submit action plan" : "Submit RCA first"}
@@ -269,6 +271,7 @@ export function AiCapaPage({ capaId }: Props) {
           <StageCard
             title="Implementation Monitoring"
             data={monitoring}
+            renderData={(d) => <MonitoringView data={d} />}
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("monitoring")} disabled={!planId(plan)}>
                 {planId(plan) ? "Submit monitoring check" : "Submit action plan first"}
@@ -279,6 +282,7 @@ export function AiCapaPage({ capaId }: Props) {
           <StageCard
             title="Effectiveness Check"
             data={effectiveness}
+            renderData={(d) => <EffectivenessView data={d} />}
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("effectiveness")} disabled={!planId(plan)}>
                 {planId(plan) ? "Run effectiveness check" : "Submit action plan first"}
@@ -289,6 +293,7 @@ export function AiCapaPage({ capaId }: Props) {
           <StageCard
             title="Closure"
             data={closure}
+            renderData={(d) => <ClosureView data={d} />}
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("closure")} disabled={!effectivenessId(effectiveness)}>
                 {effectivenessId(effectiveness) ? "Initiate closure" : "Run effectiveness check first"}
@@ -420,7 +425,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function StageCard({ title, data, emptyAction }: { title: string; data: unknown; emptyAction: ReactNode }) {
+function StageCard({ title, data, emptyAction, renderData }: { title: string; data: unknown; emptyAction: ReactNode; renderData?: (data: unknown) => ReactNode }) {
   const empty = data == null;
   return (
     <section className="card">
@@ -430,7 +435,7 @@ function StageCard({ title, data, emptyAction }: { title: string; data: unknown;
           <span className="badge badge-gray" role="status">Not started</span>
         ) : (
           <span className="badge badge-green" role="status">
-            <CheckCircle2 className="w-3 h-3" aria-hidden="true" /> {String(getField(data, "status") ?? "Submitted")}
+            <CheckCircle2 className="w-3 h-3" aria-hidden="true" /> Recorded
           </span>
         )}
       </div>
@@ -442,6 +447,8 @@ function StageCard({ title, data, emptyAction }: { title: string; data: unknown;
             </p>
             {emptyAction}
           </div>
+        ) : renderData ? (
+          renderData(data)
         ) : (
           <pre
             className="text-[11px] rounded-lg p-3 overflow-auto max-h-[240px]"
@@ -452,6 +459,324 @@ function StageCard({ title, data, emptyAction }: { title: string; data: unknown;
         )}
       </div>
     </section>
+  );
+}
+
+/* ── Stage data views ─────────────────────────────────────────── */
+
+function firstRecord(data: unknown, ...arrayKeys: string[]): Record<string, unknown> | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  for (const k of arrayKeys) {
+    const v = o[k];
+    if (Array.isArray(v) && v.length > 0 && v[0] && typeof v[0] === "object") {
+      return v[0] as Record<string, unknown>;
+    }
+  }
+  // Some endpoints return the record directly at the top level.
+  return o;
+}
+
+function asString(v: unknown): string {
+  if (v == null) return "—";
+  if (typeof v === "string") return v;
+  return String(v);
+}
+
+function asArray(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+
+function FieldGrid({ children }: { children: ReactNode }) {
+  return <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{children}</div>;
+}
+
+function Field({ label, value, full, valueColor }: { label: string; value: ReactNode; full?: boolean; valueColor?: string }) {
+  return (
+    <div className={`rounded-lg px-3 py-2 ${full ? "md:col-span-2" : ""}`} style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
+      <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>{label}</p>
+      <div className="text-[12px] whitespace-pre-wrap" style={{ color: valueColor ?? "var(--text-primary)" }}>{value}</div>
+    </div>
+  );
+}
+
+function Pill({ tone, children }: { tone: "green" | "amber" | "red" | "blue" | "gray"; children: ReactNode }) {
+  const cls =
+    tone === "green" ? "badge badge-green" :
+    tone === "amber" ? "badge badge-amber" :
+    tone === "red" ? "badge badge-red" :
+    tone === "blue" ? "badge badge-blue" :
+    "badge badge-gray";
+  return <span className={cls}>{children}</span>;
+}
+
+function ratingTone(rating: string): "green" | "amber" | "red" | "gray" {
+  const r = rating.toUpperCase();
+  if (r === "STRONG") return "green";
+  if (r === "MODERATE") return "amber";
+  if (r === "WEAK") return "red";
+  return "gray";
+}
+
+function riskTone(risk: string): "green" | "amber" | "red" | "gray" {
+  const r = risk.toUpperCase();
+  if (r === "LOW") return "green";
+  if (r === "MEDIUM") return "amber";
+  if (r === "HIGH") return "red";
+  return "gray";
+}
+
+function statusTone(status: string): "green" | "amber" | "red" | "blue" | "gray" {
+  const s = status.toLowerCase();
+  if (/(complet|approv|effective|closed|pass|on track)/.test(s)) return "green";
+  if (/(in progress|moderate|pending|submitted)/.test(s)) return "blue";
+  if (/(delay|overdue|warning)/.test(s)) return "amber";
+  if (/(fail|reject|block|weak)/.test(s)) return "red";
+  return "gray";
+}
+
+function RcaView({ data }: { data: unknown }) {
+  const r = firstRecord(data, "rcas", "rca");
+  if (!r) return null;
+  const whys = ["why_1", "why_2", "why_3", "why_4", "why_5"]
+    .map((k) => asString(r[k]))
+    .filter((v) => v && v !== "—");
+  const rating = asString(r.quality_rating);
+  const risk = asString(r.recurrence_risk);
+  const score = r.rca_quality_score;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Pill tone="blue">{asString(r.rca_method)}</Pill>
+        {rating !== "—" && <Pill tone={ratingTone(rating)}>Quality: {rating}{typeof score === "number" ? ` · ${score}/100` : ""}</Pill>}
+        {risk !== "—" && <Pill tone={riskTone(risk)}>Recurrence: {risk}</Pill>}
+        <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>RCA ID: <span className="font-mono">{asString(r.rca_id)}</span></span>
+      </div>
+      <FieldGrid>
+        <Field label="Root cause" value={asString(r.root_cause)} full />
+        {asString(r.contributing_factors) !== "—" && (
+          <Field label="Contributing factors" value={asString(r.contributing_factors)} full />
+        )}
+        {asString(r.evidence) !== "—" && (
+          <Field label="Evidence" value={asString(r.evidence)} full />
+        )}
+      </FieldGrid>
+      {whys.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>5-Why Chain</p>
+          <ol className="space-y-1.5">
+            {whys.map((w, i) => (
+              <li key={i} className="flex gap-2 text-[12px]" style={{ color: "var(--text-primary)" }}>
+                <span className="font-semibold shrink-0" style={{ color: "var(--brand)" }}>Why {i + 1}.</span>
+                <span>{w}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {asString(r.created_at) !== "—" && (
+        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Submitted {formatDate(r.created_at)}</p>
+      )}
+    </div>
+  );
+}
+
+function ActionPlanView({ data }: { data: unknown }) {
+  const r = firstRecord(data, "action_plans", "plans");
+  if (!r) return null;
+  const actions = asArray(r.actions);
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Plan ID: <span className="font-mono">{asString(r.action_plan_id)}</span></span>
+        {asString(r.status) !== "—" && <Pill tone={statusTone(asString(r.status))}>{asString(r.status)}</Pill>}
+      </div>
+      {actions.length > 0 ? (
+        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--bg-border)" }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Action</th>
+                <th scope="col">Responsible</th>
+                <th scope="col">Due date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {actions.map((a, i) => {
+                const o = (a && typeof a === "object" ? a : {}) as Record<string, unknown>;
+                return (
+                  <tr key={i}>
+                    <td>{asString(o.action_description)}</td>
+                    <td>{asString(o.responsible_person)}</td>
+                    <td>{formatDate(o.due_date)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>No actions recorded.</p>
+      )}
+      {asString(r.created_at) !== "—" && (
+        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Submitted {formatDate(r.created_at)}</p>
+      )}
+    </div>
+  );
+}
+
+function MonitoringView({ data }: { data: unknown }) {
+  const r = firstRecord(data, "monitorings", "monitoring");
+  if (!r) return null;
+  const updates = asArray(r.action_updates);
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Monitoring ID: <span className="font-mono">{asString(r.monitoring_id)}</span></span>
+        {asString(r.overall_status) !== "—" && <Pill tone={statusTone(asString(r.overall_status))}>{asString(r.overall_status)}</Pill>}
+      </div>
+      {updates.length > 0 ? (
+        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--bg-border)" }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Action</th>
+                <th scope="col">Status</th>
+                <th scope="col">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {updates.map((u, i) => {
+                const o = (u && typeof u === "object" ? u : {}) as Record<string, unknown>;
+                const s = asString(o.status);
+                return (
+                  <tr key={i}>
+                    <td>{asString(o.action_description)}</td>
+                    <td>{s !== "—" ? <Pill tone={statusTone(s)}>{s}</Pill> : "—"}</td>
+                    <td>{asString(o.progress_note)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>No progress updates recorded.</p>
+      )}
+      {asString(r.created_at) !== "—" && (
+        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Submitted {formatDate(r.created_at)}</p>
+      )}
+    </div>
+  );
+}
+
+function EffectivenessView({ data }: { data: unknown }) {
+  const r = firstRecord(data, "effectiveness_checks", "effectiveness");
+  if (!r) return null;
+  const evidence = asArray(r.evidence_items);
+  const trend = asArray(r.trend_data);
+  const verdict = asString(r.verdict ?? r.status);
+  const newIssues = r.new_issues_reported === true;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Effectiveness ID: <span className="font-mono">{asString(r.effectiveness_id)}</span></span>
+        {verdict !== "—" && <Pill tone={statusTone(verdict)}>{verdict}</Pill>}
+        <Pill tone={newIssues ? "amber" : "green"}>{newIssues ? "New issues reported" : "No new issues"}</Pill>
+        {r.days_since_capa != null && (
+          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{String(r.days_since_capa)} days since CAPA</span>
+        )}
+      </div>
+      {newIssues && asString(r.new_issue_details) !== "—" && (
+        <FieldGrid><Field label="New issue details" value={asString(r.new_issue_details)} full /></FieldGrid>
+      )}
+      {evidence.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Evidence</p>
+          <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--bg-border)" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Action</th>
+                  <th scope="col">Completed</th>
+                  <th scope="col">Evidence</th>
+                  <th scope="col">Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {evidence.map((ev, i) => {
+                  const o = (ev && typeof ev === "object" ? ev : {}) as Record<string, unknown>;
+                  return (
+                    <tr key={i}>
+                      <td>{asString(o.action_description)}</td>
+                      <td>{o.completed ? <Pill tone="green">Yes</Pill> : <Pill tone="gray">No</Pill>}</td>
+                      <td>{o.evidence_attached ? <Pill tone="green">Attached</Pill> : <Pill tone="amber">Missing</Pill>}</td>
+                      <td>{asString(o.evidence_note)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {trend.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Trend metrics</p>
+          <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--bg-border)" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Metric</th>
+                  <th scope="col">Before</th>
+                  <th scope="col">After</th>
+                  <th scope="col">Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trend.map((t, i) => {
+                  const o = (t && typeof t === "object" ? t : {}) as Record<string, unknown>;
+                  return (
+                    <tr key={i}>
+                      <td>{asString(o.metric_name)}</td>
+                      <td>{asString(o.before_capa)}</td>
+                      <td>{asString(o.after_capa)}</td>
+                      <td>{asString(o.unit)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {asString(r.created_at) !== "—" && (
+        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Submitted {formatDate(r.created_at)}</p>
+      )}
+    </div>
+  );
+}
+
+function ClosureView({ data }: { data: unknown }) {
+  const r = firstRecord(data, "closures", "closure");
+  if (!r) return null;
+  const status = asString(r.status);
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Closure ID: <span className="font-mono">{asString(r.closure_id)}</span></span>
+        {status !== "—" && <Pill tone={statusTone(status)}>{status}</Pill>}
+      </div>
+      <FieldGrid>
+        <Field label="Approved by" value={asString(r.approved_by)} />
+        <Field label="Designation" value={asString(r.designation)} />
+        <Field label="Electronic signature" value={<span className="font-mono">{asString(r.electronic_signature)}</span>} />
+        <Field label="Closed at" value={formatDate(r.closed_at ?? r.created_at)} />
+        <Field label="Related CAPAs reviewed" value={r.related_capas_reviewed ? "Yes" : "No"} />
+        <Field label="Document changes approved" value={r.document_changes_approved ? "Yes" : "No"} />
+        <Field label="Closure rationale" value={asString(r.closure_rationale)} full />
+      </FieldGrid>
+    </div>
   );
 }
 
