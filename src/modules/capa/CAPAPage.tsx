@@ -537,12 +537,17 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
           });
           setAiSavedPopup(
             persistedToDb
-              ? `AI CAPA ${serverCapa?.reference ?? res.capa_id} created and added to the tracker.`
+              ? `AI CAPA ${serverCapa?.reference ?? res.capa_id} created and added to the tracker. Open the row to start RCA in the AI lifecycle.`
               : `AI CAPA ${res.capa_id} created (warning: local persist failed; refresh will clear from tracker).`,
           );
-          // Drop the user into the lifecycle dashboard so they can run RCA →
-          // Action plan → Monitoring → Effectiveness → Closure (AI backend).
-          router.push(`/ai-capa/${encodeURIComponent(res.capa_id)}`);
+          // We used to auto-redirect to /ai-capa/<id> here. That meant the
+          // user got bounced off the CAPA Tracker the moment they clicked
+          // "Save to library" — before the success popup could display and
+          // before they had a chance to verify the row landed. Now the user
+          // stays on /capa, sees the new row in the tracker, sees the
+          // popup, and opens the AI lifecycle on their own terms by clicking
+          // the row (which routes to /ai-capa/<aiBackendId> via the row's
+          // detail handler).
         }}
       />
 
