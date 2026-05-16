@@ -18,6 +18,8 @@ import {
   Layers,
   FlaskConical,
   SlidersHorizontal,
+  Sparkles,
+  Wrench,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -51,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "gap-assessment", label: "Gap Assessment", icon: Search },
       { path: "deviation", label: "Deviation Management", icon: AlertTriangle },
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
+      { path: "ai-capa", label: "AI CAPAs", icon: Sparkles },
       // CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
       // code/schema retained.
       // To re-enable: uncomment this line and the LinkedChangeControlsSection
@@ -75,7 +78,10 @@ const NAV_GROUPS: NavGroup[] = [
     id: "admin",
     label: "System & Config",
     icon: SlidersHorizontal,
-    items: [{ path: "settings", label: "Settings", icon: Settings }],
+    items: [
+      { path: "settings", label: "Settings", icon: Settings },
+      { path: "ai-tools", label: "AI Tools", icon: Wrench },
+    ],
   },
 ];
 
@@ -129,6 +135,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       ...g,
       items: g.items.filter((item) => {
         if (item.path === "readiness" || item.path === "deviation") return true;
+        // AI CAPAs mirrors CAPA Tracker permissions — if a user can see
+        // /capa they should be able to see the AI-managed lifecycle list.
+        if (item.path === "ai-capa") return allowedPaths.includes("capa");
+        // AI Tools is a diagnostic surface (health pings, audit lookup,
+        // stage-status fetches). Customer admin / super admin / IT can see
+        // it; everyone else is gated out.
+        if (item.path === "ai-tools")
+          return (
+            role === "it_cdo" ||
+            role === "customer_admin" ||
+            role === "super_admin"
+          );
         if (item.path === "audit-trail")
           return (
             role === "qa_head" ||
