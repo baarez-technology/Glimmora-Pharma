@@ -12,6 +12,8 @@ import {
   LogIn,
   Building2,
   ChevronDown,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import clsx from "clsx";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -117,6 +119,7 @@ export function LoginPage() {
   const themeMode = useAppSelector((s) => s.theme.mode);
   const tenants = useAppSelector((s) => s.auth.tenants);
   const [showCreds, setShowCreds] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [loadingTenant, setLoadingTenant] = useState(false);
   const [loadingName, setLoadingName] = useState("");
   const [mounted, setMounted] = useState(false);
@@ -515,7 +518,7 @@ export function LoginPage() {
               <Lock className="w-3.5 h-3.5 text-[#a39e96] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
               <input
                 id="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 placeholder="Enter your passcode"
                 required
@@ -524,8 +527,20 @@ export function LoginPage() {
                 aria-describedby={errors.password ? "password-error" : undefined}
                 suppressHydrationWarning
                 {...register("password")}
-                className="w-full bg-white border border-[#e8e4dd] rounded-lg pl-9.5 pr-3 py-2.5 text-[13px] text-[#302d29] placeholder:text-[#a39e96] outline-none focus:border-[#8b6914] focus:ring-[3px] focus:ring-[rgba(139,105,20,0.12)] transition-all duration-150"
+                className="w-full bg-white border border-[#e8e4dd] rounded-lg pl-9.5 pr-9 py-2.5 text-[13px] text-[#302d29] placeholder:text-[#a39e96] outline-none focus:border-[#8b6914] focus:ring-[3px] focus:ring-[rgba(139,105,20,0.12)] transition-all duration-150"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide passcode" : "Show passcode"}
+                aria-pressed={showPassword}
+                tabIndex={-1}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-[#f5f1ea] text-[#a39e96] hover:text-[#302d29] transition-colors"
+              >
+                {showPassword
+                  ? <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
+                  : <Eye className="w-3.5 h-3.5" aria-hidden="true" />}
+              </button>
             </div>
             {errors.password && (
               <p id="password-error" role="alert" className="text-[11px] text-[#dc2626] mt-1">{errors.password.message}</p>
