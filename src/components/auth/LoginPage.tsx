@@ -16,10 +16,9 @@ import {
 import clsx from "clsx";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import { setCredentials, setAiCredentials, setActiveSite, setSelectedSite, setTenants, updateTenantUser, type AuthUser, type Tenant, type TenantSiteConfig } from "@/store/auth.slice";
+import { setCredentials, setActiveSite, setSelectedSite, setTenants, type AuthUser, type Tenant, type TenantSiteConfig } from "@/store/auth.slice";
 import { loginApi } from "@/lib/tenantApi";
 import { login as nextAuthLogin, fetchCurrentUser } from "@/lib/authClient";
-import { aiLogin, aiSignup, AiAuthError } from "@/lib/aiAuth";
 import { flushPersist } from "@/store/persistence";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -228,89 +227,6 @@ export function LoginPage() {
     router.push("/");
   };
 
-  /**
-   * Refreshes the user's AI backend access_token after a successful app login.
-   * The token rotates on every login (per backend spec) so we always re-fetch
-   * and write it back into the matching tenant user record.
-   *
-   * Best-effort: if the AI backend is unreachable or rejects, the app login
-   * still succeeds — modules that need the token will prompt for re-auth.
-   */
-  const persistAiToken = (
-    user: AuthUser,
-    tenant: Tenant | undefined,
-    accessToken: string,
-    customerId: string | undefined,
-  ) => {
-    dispatch(setAiCredentials({ accessToken, customerId }));
-    if (tenant) {
-      dispatch(
-        updateTenantUser({
-          tenantId: tenant.id,
-          userId: user.id,
-          patch: { aiAccessToken: accessToken },
-        }),
-      );
-    }
-  };
-
-  const refreshAiToken = async (
-    user: AuthUser,
-    tenant: Tenant | undefined,
-    rawUsername: string,
-    rawPassword: string,
-  ) => {
-    // The AI backend's `username` may be the raw input or the email's
-    // local part — try both silently.
-    const candidates = [rawUsername.trim()];
-    const local = rawUsername.includes("@") ? rawUsername.split("@")[0].trim() : "";
-    if (local && !candidates.includes(local)) candidates.push(local);
-
-    // ── 1) Try logging in with each candidate. ─────────────────
-    for (const candidate of candidates) {
-      try {
-        const res = await aiLogin(candidate, rawPassword, /* silent */ true);
-        persistAiToken(user, tenant, res.access_token, res.customer_id);
-        return;
-      } catch {
-        // Try next candidate; postJson already logged at warn.
-      }
-    }
-
-    // ── 2) Self-heal: auto-signup with the credentials just typed.
-    //      Seed accounts (qa@, custadmin@, …) and any user not yet on the
-    //      AI backend get registered transparently the first time they
-    //      sign in. customer_id reuses the tenant's customer admin id when
-    //      one exists, otherwise falls back to the tenant id (or, for
-    //      customer_admin / super_admin, to the user's own id).
-    const tenantUsers = tenant?.config?.users ?? [];
-    const adminAiId = tenantUsers.find((u) => u.role === "customer_admin" && u.aiUserId)?.aiUserId;
-    const isAdmin = user.role === "super_admin" || user.role === "customer_admin";
-    const customerId = adminAiId ?? (isAdmin ? user.id : tenant?.id ?? user.id);
-    const username = candidates[0] || user.email || user.id;
-    const email = user.email && user.email.includes("@") ? user.email : `${username}@local.invalid`;
-
-    try {
-      const res = await aiSignup({
-        user_id: user.id,
-        username,
-        email,
-        password: rawPassword,
-        customer_id: customerId,
-        role: user.role,
-      });
-      persistAiToken(user, tenant, res.access_token, res.customer_id);
-      console.info(`[login] AI backend auto-signed-up '${username}' for tenant ${customerId}`);
-      return;
-    } catch (err) {
-      const reason = err instanceof AiAuthError ? err.message : "unknown";
-      console.warn(
-        `[login] AI backend login + auto-signup both failed: ${reason}.` +
-          " Chatbot / AI CAPA features will be unavailable until this account is registered.",
-      );
-    }
-  };
-
   const onSubmit = async (data: FormValues) => {
     const key = data.email.toLowerCase().trim();
 
@@ -348,13 +264,6 @@ export function LoginPage() {
             orgId: me.orgId,
           };
           dispatch(setCredentials({ token: "nextauth-token-" + Date.now(), user }));
-          // Fire-and-forget: AI token refresh runs in the background. Without
-          // this, the AI Assistant chatbot shows "AI session is missing".
-          const userTenant = tenants.find((t) => t.id === user.tenantId);
-          void refreshAiToken(user, userTenant, data.email.trim(), data.password)
-            .catch((err) => {
-              console.warn("[login] AI token refresh failed in background:", err);
-            });
           try {
             if (typeof window !== "undefined" && window.location.search) {
               window.history.replaceState({}, "", window.location.pathname);
@@ -387,15 +296,6 @@ export function LoginPage() {
       dispatch(setCredentials({ token: "mock-token-" + Date.now(), user: mockAccount.user }));
       toast.success(`Welcome back, ${mockAccount.user.name || "team"}!`);
       const userTenant = tenants.find((t) => t.id === mockAccount.user.tenantId);
-      // Fire-and-forget: AI token refresh runs in the background so login
-      // navigation isn't blocked by the AI backend's response time (which on
-      // Render free-tier cold starts can exceed 30s for a 2× aiLogin + 1×
-      // aiSignup chain). When the token lands, it's persisted into Redux and
-      // any subsequent AI-feature use picks it up.
-      void refreshAiToken(mockAccount.user, userTenant, data.email.trim(), data.password)
-        .catch((err) => {
-          console.warn("[login] AI token refresh failed in background:", err);
-        });
 
       if (mockAccount.user.role === "super_admin") {
         setLoadingName("Platform Admin");
@@ -429,11 +329,6 @@ export function LoginPage() {
         dispatch(setTenants([apiResult.tenant]));
         dispatch(setCredentials({ token: "api-token-" + Date.now(), user }));
         toast.success(`Welcome back, ${user.name || "team"}!`);
-        // Fire-and-forget — see comment at the first call site for rationale.
-        void refreshAiToken(user, apiResult.tenant, data.email.trim(), data.password)
-          .catch((err) => {
-            console.warn("[login] AI token refresh failed in background:", err);
-          });
 
         if (user.role === "super_admin") {
           setLoadingName("Platform Admin");
@@ -488,11 +383,6 @@ export function LoginPage() {
         };
         dispatch(setCredentials({ token: "mock-token-" + Date.now(), user }));
         toast.success(`Welcome back, ${user.name || "team"}!`);
-        // Fire-and-forget — see comment at the first call site for rationale.
-        void refreshAiToken(user, tenant, data.email.trim(), data.password)
-          .catch((err) => {
-            console.warn("[login] AI token refresh failed in background:", err);
-          });
 
         if (user.role === "super_admin") {
           setLoadingName("Platform Admin");

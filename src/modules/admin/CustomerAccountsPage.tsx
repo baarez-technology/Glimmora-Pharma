@@ -30,7 +30,6 @@ import {
 } from "@/store/auth.slice";
 import { fetchTenants, createTenantApi, updateTenantApi, deleteTenantApi } from "@/lib/tenantApi";
 import { toggleTenantMFA } from "@/actions/tenants";
-import { aiSignup, generateCustomerId, AiAuthError } from "@/lib/aiAuth";
 import { friendlyAiError } from "@/lib/friendlyError";
 import { isTenantEffectivelyActive, getInactiveReason } from "@/lib/tenantStatus";
 import { Button } from "@/components/ui/Button";
@@ -907,18 +906,9 @@ function AccountDrawer({
 
 /**
  * Maps a save-time failure to a user-facing message for the toast.
- * Covers AiAuthError shapes (status-coded) and falls back to the raw
- * Error.message for tenant API / generic failures.
+ * Falls back to friendlyAiError for tenant API / generic failures.
  */
 function mapCustomerError(err: unknown): string {
-  if (err instanceof AiAuthError) {
-    if (err.status === 409) return "A customer with this email or username already exists.";
-    if (err.status === 422) return "Some fields are invalid. Check the form and try again.";
-    if (err.status === 502 || err.status === 503) return "AI service is unavailable. Customer was saved without AI features.";
-  }
-  // friendlyAiError handles the long technical dumps (OpenAI dict-style
-  // payloads, FastAPI validation arrays, network errors) and falls back
-  // to a clean sentence when the raw message is structural noise.
   return friendlyAiError(err, "Failed to save customer. Please try again.");
 }
 
@@ -1012,36 +1002,6 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
 
   const handleSave = async (data: AccountFormData) => {
     if (editingTenant) {
-      // If the original create's AI signup failed, the customer admin won't
-      // have aiUserId / aiAccessToken set. Retry signup here so the edit
-      // recovers the missing token. Skip the retry once aiUserId is present
-      // — that's our "already signed up" sentinel and we never re-sign-up.
-      const existingAdmin = editingTenant.config.users.find(
-        (u) => u.role === "customer_admin" || u.role === "super_admin",
-      );
-      let retriedAiUserId: string | undefined;
-      let retriedAiAccessToken: string | undefined;
-      if (existingAdmin && !existingAdmin.aiUserId) {
-        // Reuse the admin's existing id as both customer_id and user_id —
-        // that id was already generated as a CUST_xxx during the failed create.
-        const customerId = existingAdmin.id;
-        try {
-          const res = await aiSignup({
-            user_id: customerId,
-            username: data.username,
-            email: data.email,
-            password: data.newPassword || existingAdmin.password || "",
-            customer_id: customerId,
-            role: "customer_admin",
-          });
-          retriedAiUserId = customerId;
-          retriedAiAccessToken = res.access_token;
-        } catch (err) {
-          const reason = err instanceof AiAuthError ? err.message : "unknown";
-          console.error("[admin] AI signup retry on edit failed:", reason);
-        }
-      }
-
       // Update existing admin user in the tenant's user list
       const updatedUsers = editingTenant.config.users.map((u) =>
         u.role === "customer_admin" || u.role === "super_admin"
@@ -1053,8 +1013,6 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
               // Only overwrite password if a new one was entered
               ...(data.newPassword ? { password: data.newPassword } : {}),
               status: data.active ? "Active" as const : "Inactive" as const,
-              ...(retriedAiUserId ? { aiUserId: retriedAiUserId } : {}),
-              ...(retriedAiAccessToken ? { aiAccessToken: retriedAiAccessToken } : {}),
             }
           : u,
       );
@@ -1121,37 +1079,9 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       }
     } else {
       const tenantId = `tenant-${Date.now()}`;
-      // Customer admin: customer_id is auto-generated AND used as the user_id
-      // for that admin (per spec). Both fields share the same CUST_xxx value.
-      const customerId = generateCustomerId();
-      const adminUserId = customerId;
-
-      // Sign up the customer admin against the AI backend so they get an
-      // access token and can call protected endpoints. Stash the token + id
-      // on the user record. If signup fails (network, duplicate, etc.) we
-      // still create the local account but log the reason — the admin can
-      // re-trigger by editing later (we'll need to expose that).
-      let aiUserId: string | undefined;
-      let aiAccessToken: string | undefined;
-      let aiSignupOk = false;
-      let aiSignupError: unknown = null;
-      try {
-        const res = await aiSignup({
-          user_id: adminUserId,
-          username: data.username,
-          email: data.email,
-          password: data.newPassword,
-          customer_id: customerId,
-          role: "customer_admin",
-        });
-        aiUserId = adminUserId;
-        aiAccessToken = res.access_token;
-        aiSignupOk = true;
-      } catch (err) {
-        aiSignupError = err;
-        console.error("[admin] AI signup failed for customer admin — saving locally only:", err);
-        setSyncError(`Customer saved, but AI features need a retry. ${mapCustomerError(err)} Edit the customer to retry.`);
-      }
+      // Customer admin user id: reuse the tenant id so the admin record has a
+      // stable, predictable handle without any external AI-backend signup.
+      const adminUserId = tenantId;
 
       const newTenant: Tenant = {
         id: tenantId,
@@ -1189,8 +1119,6 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
               status: "Active",
               assignedSites: [],
               allSites: true,
-              aiUserId,
-              aiAccessToken,
             },
           ],
         },
@@ -1208,17 +1136,10 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         setSyncError("Saved locally but failed to sync to the database.");
       }
 
-      // Outcome toast — distinguishes the three real-world cases:
-      //   1) Tenant DB write failed → critical: the user must retry.
-      //   2) Tenant DB ok but AI signup failed → soft: customer exists but
-      //      AI chatbot/CAPA features won't work until edit-retry.
-      //   3) Both ok → green path.
       if (!tenantApiOk) {
         toast.error(`Failed to save "${data.customerName}": ${mapCustomerError(tenantApiError)}`);
-      } else if (!aiSignupOk) {
-        toast.success(`Customer "${data.customerName}" created. AI features will activate shortly. (${mapCustomerError(aiSignupError)})`);
       } else {
-        toast.success(`Customer "${data.customerName}" created with AI access.`);
+        toast.success(`Customer "${data.customerName}" created.`);
       }
 
       // Auto-open subscription modal if no plan was added in the drawer
