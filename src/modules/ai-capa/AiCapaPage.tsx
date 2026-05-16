@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, RefreshCw, Plus, Trash2, AlertTriangle, CheckCircle2, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, RefreshCw, Plus, Trash2, AlertTriangle, CheckCircle2, Send, Sparkles, RotateCcw } from "lucide-react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -252,6 +252,8 @@ export function AiCapaPage({ capaId }: Props) {
             title="Root Cause Analysis (RCA)"
             data={rca}
             renderData={(d) => <RcaView data={d} />}
+            onRedo={() => setOpenModal("rca")}
+            redoLabel="Redo RCA"
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("rca")}>Submit RCA</Button>
             }
@@ -261,6 +263,8 @@ export function AiCapaPage({ capaId }: Props) {
             title="Action Plan"
             data={plan}
             renderData={(d) => <ActionPlanView data={d} />}
+            onRedo={rcaId(rca) ? () => setOpenModal("plan") : undefined}
+            redoLabel="Redo plan"
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("plan")} disabled={!rcaId(rca)}>
                 {rcaId(rca) ? "Submit action plan" : "Submit RCA first"}
@@ -272,6 +276,8 @@ export function AiCapaPage({ capaId }: Props) {
             title="Implementation Monitoring"
             data={monitoring}
             renderData={(d) => <MonitoringView data={d} />}
+            onRedo={planId(plan) ? () => setOpenModal("monitoring") : undefined}
+            redoLabel="Redo check"
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("monitoring")} disabled={!planId(plan)}>
                 {planId(plan) ? "Submit monitoring check" : "Submit action plan first"}
@@ -283,6 +289,8 @@ export function AiCapaPage({ capaId }: Props) {
             title="Effectiveness Check"
             data={effectiveness}
             renderData={(d) => <EffectivenessView data={d} />}
+            onRedo={planId(plan) ? () => setOpenModal("effectiveness") : undefined}
+            redoLabel="Redo check"
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("effectiveness")} disabled={!planId(plan)}>
                 {planId(plan) ? "Run effectiveness check" : "Submit action plan first"}
@@ -294,6 +302,8 @@ export function AiCapaPage({ capaId }: Props) {
             title="Closure"
             data={closure}
             renderData={(d) => <ClosureView data={d} />}
+            onRedo={effectivenessId(effectiveness) ? () => setOpenModal("closure") : undefined}
+            redoLabel="Redo closure"
             emptyAction={
               <Button variant="primary" icon={Plus} onClick={() => setOpenModal("closure")} disabled={!effectivenessId(effectiveness)}>
                 {effectivenessId(effectiveness) ? "Initiate closure" : "Run effectiveness check first"}
@@ -425,19 +435,24 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function StageCard({ title, data, emptyAction, renderData }: { title: string; data: unknown; emptyAction: ReactNode; renderData?: (data: unknown) => ReactNode }) {
+function StageCard({ title, data, emptyAction, renderData, onRedo, redoLabel = "Redo" }: { title: string; data: unknown; emptyAction: ReactNode; renderData?: (data: unknown) => ReactNode; onRedo?: () => void; redoLabel?: string }) {
   const empty = data == null;
   return (
     <section className="card">
       <div className="card-header flex items-center justify-between">
         <h2 className="card-title">{title}</h2>
-        {empty ? (
-          <span className="badge badge-gray" role="status">Not started</span>
-        ) : (
-          <span className="badge badge-green" role="status">
-            <CheckCircle2 className="w-3 h-3" aria-hidden="true" /> Recorded
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {!empty && onRedo && (
+            <Button variant="ghost" size="xs" icon={RotateCcw} onClick={onRedo}>{redoLabel}</Button>
+          )}
+          {empty ? (
+            <span className="badge badge-gray" role="status">Not started</span>
+          ) : (
+            <span className="badge badge-green" role="status">
+              <CheckCircle2 className="w-3 h-3" aria-hidden="true" /> Recorded
+            </span>
+          )}
+        </div>
       </div>
       <div className="card-body">
         {empty ? (
