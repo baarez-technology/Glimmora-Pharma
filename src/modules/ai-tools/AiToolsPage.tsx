@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Search, Send, Sparkles, Activity, Database, ShieldCheck, Users, Wrench, CheckCircle2, XCircle, AlertTriangle, Info, FileText } from "lucide-react";
+import { Search, Send, Sparkles, Activity, Database, ShieldCheck, Wrench, CheckCircle2, XCircle, AlertTriangle, Info, FileText } from "lucide-react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { Button } from "@/components/ui/Button";
 import {
@@ -11,7 +11,6 @@ import {
   effectivenessStatus,
   closureStatus,
   auditRecord,
-  usersList,
   aiHealth,
   aiVoiceHealth,
   selectAiToken,
@@ -131,12 +130,6 @@ export function AiToolsPage() {
           title="AI Voice health"
           onSubmit={() => aiVoiceHealth()}
           renderResult={(r) => <HealthSummary data={r} label="AI Voice" showVoices />}
-        />
-        <PingCard
-          icon={<Users className="w-4 h-4" aria-hidden="true" />}
-          title="Users endpoint"
-          onSubmit={() => usersList()}
-          renderResult={(r) => <HealthSummary data={r} label="Users service" />}
         />
       </Section>
     </main>
