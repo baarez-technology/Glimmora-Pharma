@@ -1,7 +1,8 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import Image from "next/image";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
   Search,
@@ -13,13 +14,11 @@ import {
   BarChart3,
   Settings,
   LogOut,
-  ShieldCheck,
   ChevronDown,
   Layers,
   FlaskConical,
   SlidersHorizontal,
-  Sparkles,
-  Wrench,
+  GraduationCap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -28,7 +27,6 @@ import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { useActiveSite } from "@/hooks/useActiveSite";
 import { logout } from "@/store/auth.slice";
 import { logout as nextAuthLogout } from "@/lib/authClient";
-import { useToast } from "@/components/ui/Toast";
 
 interface NavItem {
   path: string;
@@ -53,12 +51,6 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "gap-assessment", label: "Gap Assessment", icon: Search },
       { path: "deviation", label: "Deviation Management", icon: AlertTriangle },
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
-      { path: "ai-capa", label: "AI CAPAs", icon: Sparkles },
-      // CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
-      // code/schema retained.
-      // To re-enable: uncomment this line and the LinkedChangeControlsSection
-      // import in CAPADetailModal.
-      // { path: "change-control", label: "Change Control", icon: Settings },
       { path: "csv-csa", label: "CSV / CSA Validation", icon: Monitor },
       { path: "fda-483", label: "FDA 483 & Regulatory", icon: Building2 },
       { path: "evidence", label: "Evidence & Documents", icon: FileText },
@@ -69,7 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Readiness & Governance",
     icon: FlaskConical,
     items: [
-      { path: "readiness", label: "Inspection Readiness", icon: ShieldCheck },
+      { path: "readiness", label: "Training & Awareness", icon: GraduationCap },
       { path: "governance", label: "Governance & KPIs", icon: BarChart3 },
       { path: "audit-trail", label: "Audit Trail", icon: ClipboardList },
     ],
@@ -78,10 +70,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: "admin",
     label: "System & Config",
     icon: SlidersHorizontal,
-    items: [
-      { path: "settings", label: "Settings", icon: Settings },
-      { path: "ai-tools", label: "AI Tools", icon: Wrench },
-    ],
+    items: [{ path: "settings", label: "Settings", icon: Settings }],
   },
 ];
 
@@ -96,25 +85,22 @@ function getGroupForPath(pathname: string): string {
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
-  const toast = useToast();
   const pathname = usePathname();
   const activeSite = useActiveSite();
   const { allowedPaths, role } = useRole();
   const { setupNeeded, completedCount, totalSteps } = useSetupStatus();
 
   const [openGroups, setOpenGroups] = useState<Set<string>>(
-    () => new Set([getGroupForPath(pathname ?? "")]),
+    () => new Set([getGroupForPath(pathname)]),
   );
 
-  // Auto-expand the group containing the active page on route change.
-  // Sync-on-prop-change pattern; the conditional setState is intentional.
+  // Auto-expand the group containing the active page on route change
   useEffect(() => {
-    const active = getGroupForPath(pathname ?? "");
+    const active = getGroupForPath(pathname);
     setOpenGroups((prev) => {
       if (prev.has(active)) return prev;
       return new Set([...prev, active]);
     });
-     
   }, [pathname]);
 
   const toggleGroup = (id: string) => {
@@ -126,51 +112,31 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     });
   };
 
-  // Memoised so role-gated filtering doesn't allocate a fresh array of
-  // groups (and inner item arrays) on every Sidebar render. NAV_GROUPS is
-  // module-scoped so it isn't a dep; only `role` and `allowedPaths` from
-  // useRole() can change the result.
-  const visibleGroups = useMemo(() => (
-    NAV_GROUPS.map((g) => ({
-      ...g,
-      items: g.items.filter((item) => {
-        if (item.path === "readiness" || item.path === "deviation") return true;
-        // AI CAPAs mirrors CAPA Tracker permissions — if a user can see
-        // /capa they should be able to see the AI-managed lifecycle list.
-        if (item.path === "ai-capa") return allowedPaths.includes("capa");
-        // AI Tools is a diagnostic surface (health pings, audit lookup,
-        // stage-status fetches). Customer admin / super admin / IT can see
-        // it; everyone else is gated out.
-        if (item.path === "ai-tools")
-          return (
-            role === "it_cdo" ||
-            role === "customer_admin" ||
-            role === "super_admin"
-          );
-        if (item.path === "audit-trail")
-          return (
-            role === "qa_head" ||
-            role === "customer_admin" ||
-            role === "super_admin"
-          );
-        return allowedPaths.includes(item.path);
-      }),
-    })).filter((g) => g.items.length > 0)
-  ), [role, allowedPaths]);
+  const visibleGroups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((item) => {
+      if (item.path === "readiness" || item.path === "deviation") return true;
+      if (item.path === "audit-trail")
+        return (
+          role === "qa_head" ||
+          role === "customer_admin" ||
+          role === "super_admin"
+        );
+      return allowedPaths.includes(item.path);
+    }),
+  })).filter((g) => g.items.length > 0);
 
   const handleLogout = async () => {
     // AUTH-03: Clear next-auth session cookie first (server-side), then
     // reset Redux state, then navigate. Errors are non-fatal — we still
     // want to clear local state and navigate if the network call fails.
-    toast.info("Signing out...");
     try {
       await nextAuthLogout();
     } catch (err) {
       console.warn("[logout] next-auth signOut failed", err);
     }
     dispatch(logout());
-    toast.success("Logged out successfully");
-    setTimeout(() => router.push("/login"), 500);
+    router.push("/login");
   };
 
   return (
@@ -186,55 +152,32 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          gap: 10,
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: 6,
           padding: "16px 16px 14px",
           borderBottom: "1px solid var(--bg-border)",
         }}
       >
+        <Image
+          src="/logo.png"
+          alt="Pharma Glimmora"
+          width={180}
+          height={47}
+          priority
+          className="h-auto w-full max-w-[180px]"
+        />
         <div
-          aria-hidden="true"
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 32,
-            height: 32,
-            borderRadius: 8,
-            background: "var(--brand-muted)",
-            border: "1px solid var(--brand-border)",
-            flexShrink: 0,
+            color: "var(--text-muted)",
+            fontSize: 11,
+            maxWidth: "100%",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
-          <ShieldCheck
-            size={16}
-            style={{ color: "var(--brand)" }}
-            aria-hidden="true"
-          />
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              color: "var(--brand)",
-              fontWeight: 700,
-              fontSize: 14,
-              lineHeight: 1.2,
-            }}
-          >
-            Pharma Glimmora
-          </div>
-          <div
-            style={{
-              color: "var(--text-muted)",
-              fontSize: 11,
-              marginTop: 2,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {activeSite?.name ?? "All sites"}
-          </div>
+          {activeSite?.name ?? "All sites"}
         </div>
       </div>
 

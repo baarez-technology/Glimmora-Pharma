@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   Shield,
   Mail,
@@ -421,9 +422,14 @@ export function LoginPage() {
         {/* Logo — hidden during loading */}
         {!loadingTenant && (
           <div className="flex flex-col items-start mb-8">
-            <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-5 bg-[#f0a500]">
-              <Shield className="w-7 h-7 text-white" aria-hidden="true" />
-            </div>
+            <Image
+              src="/logo.png"
+              alt="Pharma Glimmora"
+              width={220}
+              height={57}
+              priority
+              className="h-auto w-[220px] mb-5"
+            />
             <h1 className="text-[28px] font-extrabold text-[#302d29] tracking-tight mb-1">
               Welcome !
             </h1>
