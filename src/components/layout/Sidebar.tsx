@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Search,
@@ -91,12 +91,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { setupNeeded, completedCount, totalSteps } = useSetupStatus();
 
   const [openGroups, setOpenGroups] = useState<Set<string>>(
-    () => new Set([getGroupForPath(pathname)]),
+    () => new Set([getGroupForPath(pathname ?? "")]),
   );
 
   // Auto-expand the group containing the active page on route change
   useEffect(() => {
-    const active = getGroupForPath(pathname);
+    const active = getGroupForPath(pathname ?? "");
     setOpenGroups((prev) => {
       if (prev.has(active)) return prev;
       return new Set([...prev, active]);
