@@ -4,6 +4,8 @@ import {
 import clsx from "clsx";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
+import type { FindingSeverity } from "@/store/findings.slice";
 import type { UserConfig } from "@/store/settings.slice";
 
 interface EvidenceRow {
@@ -13,7 +15,7 @@ interface EvidenceRow {
   name: string;
   evidenceLink: string;
   status: "Complete" | "Partial" | "Missing";
-  severity: string;
+  severity: FindingSeverity;
   findingStatus: string;
   owner: string;
   linkedCapa?: { id: string; status: string } | undefined;
@@ -107,7 +109,7 @@ export function GapEvidenceTab({
                                   </th>
                                   <td><Badge variant="gray">{row.docType}</Badge></td>
                                   <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 220, color: "var(--text-primary)" }}>{row.name}</span></td>
-                                  <td><Badge variant={row.severity === "Critical" ? "red" : row.severity === "High" ? "amber" : "green"}>{row.severity}</Badge></td>
+                                  <td><Badge variant={getSeverityVariant(row.severity, "generic")}>{normalizeSeverityForDisplay(row.severity, "generic") ?? row.severity}</Badge></td>
                                   <td>
                                     {row.evidenceLink ? (
                                       <div className="flex items-center gap-1.5"><FileCheck className="w-3.5 h-3.5 text-[#10b981]" aria-hidden="true" /><span className="text-[11px] text-[#0ea5e9]">{row.evidenceLink}</span></div>

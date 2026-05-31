@@ -81,9 +81,8 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
           // /api/auth/me returned 401. If we'd previously had a session
           // and the user didn't just click Logout, this is a session-
           // expired transition — surface it instead of leaving the user
-          // stranded on /admin with no feedback. The same query param
-          // pattern axios.ts uses on its own 401 path so LoginPage shows
-          // a consistent message regardless of which signal triggered.
+          // stranded on /admin with no feedback. ?session=expired is
+          // what LoginPage reads to show the toast.
           if (hadSessionRef.current && !intentionalLogoutRef.current) {
             router.push("/login?session=expired");
           }
@@ -121,10 +120,10 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
 
   const handleLogout = async () => {
     intentionalLogoutRef.current = true;
-    toast.info("Signing out...");
+    toast.info("Signing out…");
     try { await nextAuthLogout(); } catch { /* ignore */ }
     dispatch(logout());
-    toast.success("Logged out successfully");
+    toast.success("Signed out.");
     // Slight delay so the success toast renders on /admin before the
     // route transition. ToastProvider is at the root so the toast itself
     // would persist across navigation, but the visual landing on /login

@@ -40,6 +40,7 @@ import { EvidenceLinkModal } from "./modals/EvidenceLinkModal";
 function adaptFinding(p: PrismaFinding): Finding {
   return {
     id: p.id,
+    reference: p.reference ?? undefined,
     tenantId: p.tenantId,
     siteId: p.siteId ?? "",
     area: p.area,
@@ -249,7 +250,7 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
         {!compact && <Dropdown placeholder="All frameworks" value={frameworkFilter} onChange={setFrameworkFilter} width="w-40" options={fwOptions} />}
         <Dropdown placeholder="All severities" value={severityFilter} onChange={setSeverityFilter} width="w-36" options={SEVERITY_OPTIONS} />
         <Dropdown placeholder="All statuses" value={statusFilter} onChange={setStatusFilter} width="w-36" options={STATUS_OPTIONS} />
-        {isAnyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear</Button>}
+        {isAnyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
       </>
     );
   }

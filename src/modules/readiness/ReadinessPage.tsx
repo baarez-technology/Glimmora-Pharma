@@ -549,7 +549,7 @@ export function ReadinessPage({ inspections: prismaInspections, playbooks }: Rea
           {/* Lane filter */}
           <div className="flex items-center gap-2 mb-4">
             <Dropdown placeholder="All lanes" value={laneFilter} onChange={setLaneFilter} width="w-44" options={[{ value: "", label: "All lanes" }, ...LANE_OPTIONS]} />
-            {laneFilter && <Button variant="ghost" size="sm" onClick={() => setLaneFilter("")}>Clear</Button>}
+            {laneFilter && <Button variant="ghost" size="sm" onClick={() => setLaneFilter("")}>Clear filters</Button>}
           </div>
 
           {/* Swimlane */}

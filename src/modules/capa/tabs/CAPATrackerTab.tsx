@@ -10,13 +10,13 @@ import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
-import { CAPA_RISK_VARIANT, CAPA_STATUS_VARIANT } from "@/lib/badgeVariants";
+import { CAPA_STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { CAPADetailModal } from "../modals/CAPADetailModal";
 
 /* ── Helpers ── */
 const SOURCE_LABEL: Record<string, string> = { "483": "FDA 483 Observation", "Gap Assessment": "Gap Assessment Finding", Deviation: "Deviation Report", "Internal Audit": "Internal Audit", Complaint: "Complaint", OOS: "OOS", "Change Control": "Change Control" };
 function sourceLabel(s: string) { return SOURCE_LABEL[s] ?? s; }
-function riskBadge(r: CAPARisk) { return <Badge variant={CAPA_RISK_VARIANT[r]}>{r}</Badge>; }
+function riskBadge(r: CAPARisk) { return <Badge variant={getSeverityVariant(r, "generic")}>{normalizeSeverityForDisplay(r, "generic") ?? r}</Badge>; }
 function capaStatusBadge(s: CAPAStatus) { return <Badge variant={CAPA_STATUS_VARIANT[s]}>{STATUS_LABEL[s]}</Badge>; }
 function ownerName(uid: string, users: UserConfig[]) { return users.find((u) => u.id === uid)?.name ?? uid; }
 
@@ -99,13 +99,13 @@ export function CAPATrackerTab({
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 max-w-[260px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-(--text-muted)" aria-hidden="true" />
-          <input type="search" className="input pl-8 text-[12px]" placeholder="Search CAPAs..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search CAPAs" />
+          <input type="search" className="input pl-8 text-[12px]" placeholder="Search CAPAs…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search CAPAs" />
         </div>
         <Dropdown placeholder="All sites" value={siteFilter} onChange={setSiteFilter} width="w-40" options={[{ value: "", label: "All sites" }, ...sites.map((s) => ({ value: s.id, label: s.name }))]} />
         <Dropdown placeholder="All statuses" value={statusFilter} onChange={setStatusFilter} width="w-44" options={[{ value: "", label: "All statuses" }, { value: "open", label: STATUS_LABEL.open }, { value: "in_progress", label: STATUS_LABEL.in_progress }, { value: "pending_qa_review", label: STATUS_LABEL.pending_qa_review }, { value: "closed", label: STATUS_LABEL.closed }]} />
-        <Dropdown placeholder="All risks" value={riskFilter} onChange={setRiskFilter} width="w-32" options={[{ value: "", label: "All risks" }, { value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Low", label: "Low" }]} />
+        <Dropdown placeholder="All risks" value={riskFilter} onChange={setRiskFilter} width="w-32" options={[{ value: "", label: "All risks" }, { value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Medium", label: "Medium" }, { value: "Low", label: "Low" }]} />
         <Dropdown placeholder="All sources" value={sourceFilter} onChange={setSourceFilter} width="w-40" options={[{ value: "", label: "All sources" }, { value: "483", label: "483" }, { value: "Internal Audit", label: "Internal Audit" }, { value: "Deviation", label: "Deviation" }, { value: "Complaint", label: "Complaint" }, { value: "OOS", label: "OOS" }, { value: "Change Control", label: "Change Control" }, { value: "Gap Assessment", label: "Gap Assessment" }]} />
-        {anyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear</Button>}
+        {anyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
         {!isViewOnly && onAiOpen && <Button variant="secondary" size="sm" icon={Sparkles} onClick={onAiOpen}>AI CAPA</Button>}
         {!isViewOnly && <Button variant="primary" size="sm" icon={Plus} onClick={onAddOpen}>New CAPA</Button>}
       </div>

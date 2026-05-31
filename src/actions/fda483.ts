@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -12,19 +12,51 @@ import {
 import { readSigningProvenance } from "@/actions/capas/_shared";
 import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
+import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
+import { GENERIC_SEVERITY } from "@/lib/severity";
+import { sanitizeServerError } from "@/lib/errors";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
 const SignSubmitFDA483Schema = z.object({
-  // Re-authentication password (Part 11 §11.200(a)(1)(ii)).
+  // Re-authentication password (Part 11 Â§11.200(a)(1)(ii)).
   password: z.string().min(1, "Password is required to sign"),
-  // From the SignSubmit modal dropdown — "approve" / "certify" / "authorize".
+  // From the SignSubmit modal dropdown â€” "approve" / "certify" / "authorize".
   signatureMeaning: z.string().min(1, "Signature meaning is required"),
 });
 
+// Agency is derived from event type server-side (the form shows it read-only)
+// so the stored value can never drift from the type. Mirrors deriveAgency in
+// src/modules/fda-483/_shared.ts (kept inline to avoid importing a client
+// module into a "use server" file).
+const AGENCY_BY_EVENT_TYPE: Record<string, string> = {
+  "FDA 483": "FDA",
+  "Warning Letter": "FDA",
+  "EMA Inspection": "EMA",
+  "MHRA Inspection": "MHRA",
+  "WHO Inspection": "WHO",
+};
+function deriveAgencyServer(eventType: string): string {
+  return AGENCY_BY_EVENT_TYPE[eventType] ?? "Other";
+}
+
 const CreateEventSchema = z.object({
+  referenceNumber: z.string().min(1),
+  eventType: z.string().min(1),
+  siteId: z.string().min(1),
+  inspectionDate: z.string().min(1),
+  inspectionEndDate: z.string().optional(),
+  responseDeadline: z.string().min(1),
+  internalOwnerId: z.string().min(1),
+  leadInvestigator: z.string().optional(),
+});
+
+// Separate partial-update shape (the legacy 6-field event edit). Kept
+// distinct from CreateEventSchema so the new create-only fields don't leak
+// into updateFDA483Event's spread.
+const UpdateEventSchema = z.object({
   referenceNumber: z.string().min(1),
   eventType: z.string().min(1),
   agency: z.string().min(1),
@@ -39,7 +71,7 @@ const CreateObservationSchema = z.object({
   text: z.string().min(10),
   area: z.string().optional(),
   regulation: z.string().optional(),
-  severity: z.enum(["Critical", "High", "Low"]),
+  severity: z.enum(GENERIC_SEVERITY),
 });
 
 const CreateCommitmentSchema = z.object({
@@ -47,6 +79,10 @@ const CreateCommitmentSchema = z.object({
   text: z.string().min(5),
   dueDate: z.string().optional(),
   owner: z.string().optional(),
+  // Optional source linkage — an observation OR a CAPA (mutually exclusive),
+  // or neither (event-level). Validated server-side.
+  observationId: z.string().optional(),
+  capaId: z.string().optional(),
 });
 
 export async function createFDA483Event(
@@ -58,14 +94,26 @@ export async function createFDA483Event(
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
   try {
+    const d = parsed.data;
+    // Resolve the internal owner's name for the audit trail (best-effort).
+    const owner = await prisma.user.findUnique({
+      where: { id: d.internalOwnerId },
+      select: { name: true },
+    });
     const event = await prisma.fDA483Event.create({
       data: {
-        ...parsed.data,
         tenantId: session.user.tenantId,
+        referenceNumber: d.referenceNumber,
+        eventType: d.eventType,
+        agency: deriveAgencyServer(d.eventType),
+        siteId: d.siteId,
+        inspectionDate: new Date(d.inspectionDate),
+        inspectionEndDate: d.inspectionEndDate ? new Date(d.inspectionEndDate) : null,
+        responseDeadline: new Date(d.responseDeadline),
+        internalOwnerId: d.internalOwnerId,
+        leadInvestigator: d.leadInvestigator ?? null,
         status: "Open",
         createdBy: session.user.name,
-        inspectionDate: new Date(parsed.data.inspectionDate),
-        responseDeadline: new Date(parsed.data.responseDeadline),
       },
     });
     await prisma.auditLog.create({
@@ -76,7 +124,8 @@ export async function createFDA483Event(
         module: "FDA 483",
         action: "FDA483_EVENT_CREATED",
         recordId: event.id,
-        recordTitle: parsed.data.referenceNumber,
+        recordTitle: d.referenceNumber,
+        newValue: owner?.name ? `Internal owner: ${owner.name}` : undefined,
       },
     });
     revalidatePath("/fda-483");
@@ -89,7 +138,7 @@ export async function createFDA483Event(
 
 export async function updateFDA483Event(
   id: string,
-  input: Partial<z.input<typeof CreateEventSchema>>,
+  input: Partial<z.input<typeof UpdateEventSchema>>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
   try {
@@ -119,67 +168,6 @@ export async function updateFDA483Event(
   }
 }
 
-export async function updateFDA483Status(id: string, status: string): Promise<ActionResult> {
-  const session = await requireAuth();
-  try {
-    const event = await prisma.fDA483Event.update({
-      where: { id, tenantId: session.user.tenantId },
-      data: { status },
-    });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
-        module: "FDA 483",
-        action: "FDA483_STATUS_CHANGED",
-        recordId: id,
-        newValue: status,
-      },
-    });
-    revalidatePath("/fda-483");
-    return { success: true, data: event };
-  } catch (err) {
-    console.error("[action] updateFDA483Status failed:", err);
-    return { success: false, error: "Failed to update status" };
-  }
-}
-
-export async function submitFDA483Response(id: string, responseDraft: string): Promise<ActionResult> {
-  const session = await requireAuth();
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
-    return { success: false, error: "Only QA Head can submit FDA 483 response" };
-  }
-  try {
-    const event = await prisma.fDA483Event.update({
-      where: { id, tenantId: session.user.tenantId },
-      data: {
-        status: "Response Submitted",
-        responseDraft,
-        submittedAt: new Date(),
-        submittedBy: session.user.name,
-      },
-    });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
-        module: "FDA 483",
-        action: "FDA483_RESPONSE_SUBMITTED",
-        recordId: id,
-        newValue: "Response Submitted",
-      },
-    });
-    revalidatePath("/fda-483");
-    revalidatePath("/");
-    return { success: true, data: event };
-  } catch (err) {
-    console.error("[action] submitFDA483Response failed:", err);
-    return { success: false, error: "Failed to submit response" };
-  }
-}
-
 export async function addObservation(
   input: z.input<typeof CreateObservationSchema>,
 ): Promise<ActionResult> {
@@ -188,19 +176,68 @@ export async function addObservation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  // IDOR guard — verify the caller's tenant owns the parent event before
+  // IDOR guard â€” verify the caller's tenant owns the parent event before
   // inserting the child observation. Derives the audit-row tenantId from
   // the verified parent (correct for super_admin cross-tenant writes too).
   const parent = await assertTenantOwnsParent<{
     id: string;
     tenantId: string;
     referenceNumber: string;
-  }>(session, "fda483Event", parsed.data.eventId, { referenceNumber: true });
+    siteId: string | null;
+  }>(session, "fda483Event", parsed.data.eventId, {
+    referenceNumber: true,
+    siteId: true,
+  });
   if (!parent) return { success: false, error: "FORBIDDEN" };
-  try {
-    const obs = await prisma.fDA483Observation.create({
-      data: { ...parsed.data, status: "Open" },
+
+  // SME final rung â€” site-scoped reference. FDA483Observation has no
+  // siteId of its own; the site is resolved via the parent FDA483Event's
+  // siteId. Falls back to the legacy 2-segment format when the parent
+  // event has no site or the site has no code populated.
+  let siteCodeForRef: string | null = null;
+  if (parent.siteId) {
+    const site = await prisma.site.findUnique({
+      where: { id: parent.siteId },
+      select: { code: true },
     });
+    siteCodeForRef = site?.code ?? null;
+  }
+  const referencePrefix = buildReferencePrefix("483", siteCodeForRef);
+
+  const MAX_REF_RETRIES = 5;
+  let obs: Awaited<ReturnType<typeof prisma.fDA483Observation.create>> | null = null;
+  let lastRefErr: unknown = null;
+  for (let attempt = 0; attempt < MAX_REF_RETRIES; attempt++) {
+    try {
+      obs = await prisma.$transaction(async (tx) => {
+        const reference = await generateReference(
+          referencePrefix,
+          new Date(),
+          async (prefix, year) => {
+            const row = await tx.fDA483Observation.findFirst({
+              where: { reference: { startsWith: `${prefix}-${year}-` } },
+              orderBy: { reference: "desc" },
+              select: { reference: true },
+            });
+            return row?.reference ?? null;
+          },
+        );
+        return tx.fDA483Observation.create({
+          data: { ...parsed.data, reference, status: "Open" },
+        });
+      });
+      break;
+    } catch (err) {
+      lastRefErr = err;
+      if (!isReferenceConflict(err)) throw err;
+    }
+  }
+  if (!obs) {
+    console.error("[action] addObservation exhausted reference retries:", lastRefErr);
+    return { success: false, error: sanitizeServerError(lastRefErr, "Failed to allocate observation reference") };
+  }
+
+  try {
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
@@ -209,16 +246,33 @@ export async function addObservation(
         module: "FDA 483",
         action: "OBSERVATION_ADDED",
         recordId: parsed.data.eventId,
-        recordTitle: parent.referenceNumber,
+        recordTitle: obs.reference ?? parent.referenceNumber,
         newValue: `Observation #${parsed.data.number}`,
       },
     });
     revalidatePath("/fda-483");
     return { success: true, data: obs };
   } catch (err) {
-    console.error("[action] addObservation failed:", err);
+    console.error("[action] addObservation post-create steps failed:", err);
     return { success: false, error: "Failed to add observation" };
   }
+}
+
+/**
+ * Resolve a session user id to a valid User FK, or null.
+ *
+ * super_admin / customer_admin accounts authenticate against the Tenant
+ * table (see authorize() in the NextAuth route), so `session.user.id` is a
+ * Tenant id for them — NOT a row in User. Writing it to a `*ById` User
+ * foreign key (createdById / completedById / uploadedById) violates the
+ * constraint. Resolve to the id only when it really is a User; otherwise the
+ * (nullable) FK column is left null — matching the rest of the FDA 483
+ * module, which records the actor via the FK-free `userName` audit field.
+ */
+async function resolveUserFk(userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  return u ? userId : null;
 }
 
 export async function addCommitment(
@@ -229,39 +283,111 @@ export async function addCommitment(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  // IDOR guard — verify the caller's tenant owns the parent event.
+  // IDOR guard â€” verify the caller's tenant owns the parent event.
   const parent = await assertTenantOwnsParent<{
     id: string;
     tenantId: string;
     referenceNumber: string;
-  }>(session, "fda483Event", parsed.data.eventId, { referenceNumber: true });
+    siteId: string | null;
+  }>(session, "fda483Event", parsed.data.eventId, { referenceNumber: true, siteId: true });
   if (!parent) return { success: false, error: "FORBIDDEN" };
-  try {
-    const commitment = await prisma.fDA483Commitment.create({
-      data: {
-        eventId: parsed.data.eventId,
-        text: parsed.data.text,
-        owner: parsed.data.owner ?? null,
-        dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
-        status: "Pending",
-      },
+
+  // Linkage validation — observation XOR capa, and each must belong to this
+  // event (the CAPA via one of the event's observations).
+  const { observationId, capaId } = parsed.data;
+  if (observationId && capaId) {
+    return { success: false, error: "A commitment can link to an observation OR a CAPA, not both." };
+  }
+  if (observationId) {
+    const obs = await prisma.fDA483Observation.findFirst({
+      where: { id: observationId, eventId: parsed.data.eventId },
+      select: { id: true },
     });
+    if (!obs) return { success: false, error: "Linked observation is not part of this event." };
+  }
+  if (capaId) {
+    const linked = await prisma.fDA483Observation.findFirst({
+      where: { eventId: parsed.data.eventId, capaId },
+      select: { id: true },
+    });
+    if (!linked) return { success: false, error: "Linked CAPA is not associated with this event." };
+  }
+
+  // Reference allocation — COMM-<siteCode>-<year>-<NNN>, mirroring the
+  // deviation/observation retry-on-conflict pattern.
+  let siteCodeForRef: string | null = null;
+  if (parent.siteId) {
+    const site = await prisma.site.findUnique({ where: { id: parent.siteId }, select: { code: true } });
+    siteCodeForRef = site?.code ?? null;
+  }
+  const referencePrefix = buildReferencePrefix("COMM", siteCodeForRef);
+
+  // session.user.id may be a Tenant-row id (super_admin / customer_admin) —
+  // resolve to a real User FK or null so createdById never violates its FK.
+  const createdById = await resolveUserFk(session.user.id);
+
+  const MAX_REF_RETRIES = 5;
+  let commitment: Awaited<ReturnType<typeof prisma.fDA483Commitment.create>> | null = null;
+  let lastRefErr: unknown = null;
+  for (let attempt = 0; attempt < MAX_REF_RETRIES; attempt++) {
+    try {
+      commitment = await prisma.$transaction(async (tx) => {
+        const reference = await generateReference(
+          referencePrefix,
+          new Date(),
+          async (prefix, year) => {
+            const row = await tx.fDA483Commitment.findFirst({
+              where: { reference: { startsWith: `${prefix}-${year}-` } },
+              orderBy: { reference: "desc" },
+              select: { reference: true },
+            });
+            return row?.reference ?? null;
+          },
+        );
+        return tx.fDA483Commitment.create({
+          data: {
+            reference,
+            eventId: parsed.data.eventId,
+            text: parsed.data.text,
+            owner: parsed.data.owner ?? null,
+            dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
+            observationId: observationId ?? null,
+            capaId: capaId ?? null,
+            status: "Pending",
+            createdById,
+          },
+        });
+      });
+      break;
+    } catch (err) {
+      lastRefErr = err;
+      if (!isReferenceConflict(err)) throw err;
+    }
+  }
+  if (!commitment) {
+    console.error("[action] addCommitment exhausted reference retries:", lastRefErr);
+    return { success: false, error: sanitizeServerError(lastRefErr, "Failed to allocate commitment reference") };
+  }
+
+  try {
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
+        userId: session.user.id,
         userName: session.user.name,
         userRole: session.user.role,
         module: "FDA 483",
         action: "COMMITMENT_ADDED",
-        recordId: parsed.data.eventId,
-        recordTitle: parent.referenceNumber,
+        recordId: commitment.id,
+        recordTitle: commitment.reference ?? parent.referenceNumber,
+        newValue: commitment.reference,
       },
     });
     revalidatePath("/fda-483");
     return { success: true, data: commitment };
   } catch (err) {
-    console.error("[action] addCommitment failed:", err);
-    return { success: false, error: "Failed to add commitment" };
+    console.error("[action] addCommitment audit failed:", err);
+    return { success: true, data: commitment };
   }
 }
 
@@ -289,9 +415,9 @@ export async function deleteFDA483Event(id: string): Promise<ActionResult> {
   }
 }
 
-/* ══════════════════════════════════════
- * RESPONSE DRAFTS — narrative + AGI
- * ══════════════════════════════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ * RESPONSE DRAFTS â€” narrative + AGI
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 export async function saveResponseDraft(
   eventId: string,
@@ -337,7 +463,7 @@ export async function saveAGIDraft(
       where: { id: eventId, tenantId: session.user.tenantId },
       data: { agiDraft },
     });
-    // Audit log for AGI draft save (audit finding 10.4 — coverage gap closed).
+    // Audit log for AGI draft save (audit finding 10.4 â€” coverage gap closed).
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -358,11 +484,11 @@ export async function saveAGIDraft(
   }
 }
 
-/* ══════════════════════════════════════
- * SIGN & SUBMIT — captures signature meaning
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ * SIGN & SUBMIT â€” captures signature meaning
  * Schema fields: status, responseDraft, submittedAt,
  * submittedBy, signatureMeaning, closedAt.
- * ══════════════════════════════════════ */
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 export async function signSubmitFDA483Response(
   eventId: string,
@@ -388,7 +514,7 @@ export async function signSubmitFDA483Response(
   });
   if (!existing) return { success: false, error: "FDA 483 event not found" };
 
-  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing.
+  // Â§11.200(a)(1)(ii) â€” re-authenticate at the moment of signing.
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
     parsed.data.password,
@@ -429,7 +555,7 @@ export async function signSubmitFDA483Response(
       submittedAt,
     });
     const contentHash = computeContentHash(canonicalContent);
-    const contentSummary = `FDA 483 ${existing.referenceNumber} response submitted by ${session.user.name} (${session.user.role}) — meaning: ${parsed.data.signatureMeaning}`;
+    const contentSummary = `FDA 483 ${existing.referenceNumber} response submitted by ${session.user.name} (${session.user.role}) â€” meaning: ${parsed.data.signatureMeaning}`;
     const provenance = await readSigningProvenance();
 
     const { event, signedRecord } = await prisma.$transaction(async (tx) => {
@@ -503,13 +629,13 @@ export async function signSubmitFDA483Response(
   }
 }
 
-/* ══════════════════════════════════════
- * OBSERVATIONS — update / delete + CAPA link
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ * OBSERVATIONS â€” update / delete + CAPA link
  * Schema fields: text, area, regulation, severity,
  * rcaMethod, rootCause, capaId, responseText, status.
- * (No `linkedCAPAId` or `rcaData` columns — spec
+ * (No `linkedCAPAId` or `rcaData` columns â€” spec
  * incorrectly named these.)
- * ══════════════════════════════════════ */
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 const UpdateObservationSchema = z.object({
   text: z.string().optional(),
@@ -532,31 +658,100 @@ export async function updateObservation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
-  if (session.user.role !== "super_admin") {
-    const owned = await prisma.fDA483Observation.findFirst({
-      where: { id, event: { tenantId: session.user.tenantId } },
-      select: { id: true },
-    });
-    if (!owned) return { success: false, error: "FORBIDDEN" };
-  }
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Fetch the existing observation (tenant-scoped unless super_admin) —
+  // serves as the IDOR guard AND supplies the pre-update rootCause /
+  // rcaMethod / capaId for the auto-invalidation comparison below.
+  const existing = await prisma.fDA483Observation.findFirst({
+    where:
+      session.user.role === "super_admin"
+        ? { id }
+        : { id, event: { tenantId: session.user.tenantId } },
+    select: { id: true, rootCause: true, rcaMethod: true, capaId: true },
+  });
+  if (!existing) return { success: false, error: "FORBIDDEN" };
+
+  // Part 11 data integrity: when an edit changes the RCA substance
+  // (rootCause or rcaMethod) of an observation that already has a linked
+  // CAPA, the CAPA's standing RCA-review verdict no longer reflects the
+  // analysis and must be invalidated. Mirrors the updateCAPA auto-
+  // invalidation in capas/lifecycle.ts using the field-set from
+  // capas/rca-review.ts.
+  const rcaChanged =
+    (parsed.data.rootCause !== undefined &&
+      parsed.data.rootCause !== existing.rootCause) ||
+    (parsed.data.rcaMethod !== undefined &&
+      parsed.data.rcaMethod !== existing.rcaMethod);
+  const invalidateCapaId =
+    rcaChanged && existing.capaId ? existing.capaId : null;
+
   try {
-    const obs = await prisma.fDA483Observation.update({
-      where: { id },
-      data: parsed.data,
-    });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
-        module: "FDA 483",
-        action: "OBSERVATION_UPDATED",
-        recordId: id,
-        newValue: parsed.data.status ?? parsed.data.rcaMethod ?? "updated",
-      },
+    const obs = await prisma.$transaction(async (tx) => {
+      const updated = await tx.fDA483Observation.update({
+        where: { id },
+        data: parsed.data,
+      });
+
+      if (invalidateCapaId) {
+        // Only invalidate a CAPA that carries a standing RCA verdict
+        // (approved or rejected); skip when it was never reviewed (null).
+        const capa = await tx.cAPA.findUnique({
+          where: { id: invalidateCapaId },
+          select: { id: true, reference: true, description: true, rcaApproved: true },
+        });
+        if (capa && capa.rcaApproved !== null) {
+          await tx.cAPA.update({
+            where: { id: capa.id },
+            data: {
+              rcaApproved: false,
+              rcaReviewedBy: null,
+              rcaReviewedById: null,
+              rcaReviewedAt: null,
+              rcaReviewNotes: null,
+              // Mirror clearRCAReview's full field-set — a stale override
+              // must not survive a source-RCA change either.
+              rcaOverrideBy: null,
+              rcaOverrideById: null,
+              rcaOverrideAt: null,
+              rcaOverrideReason: null,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              tenantId: session.user.tenantId,
+              userId: session.user.id,
+              userName: session.user.name,
+              userRole: session.user.role,
+              module: "CAPA",
+              action: "CAPA_RCA_REVIEW_INVALIDATED_BY_OBS_RCA_CHANGE",
+              recordId: capa.id,
+              recordTitle: (capa.reference ?? capa.description).slice(0, 80),
+              oldValue: capa.rcaApproved ? "approved" : "rejected",
+              newValue: JSON.stringify({
+                reason: "Source observation RCA changed",
+                observationId: id,
+              }),
+            },
+          });
+        }
+      }
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "FDA 483",
+          action: "OBSERVATION_UPDATED",
+          recordId: id,
+          newValue: parsed.data.status ?? parsed.data.rcaMethod ?? "updated",
+        },
+      });
+
+      return updated;
     });
     revalidatePath("/fda-483");
+    revalidatePath("/capa");
     return { success: true, data: obs };
   } catch (err) {
     console.error("[action] updateObservation failed:", err);
@@ -570,7 +765,7 @@ export async function linkCAPAToEvent(
   capaId: string,
 ): Promise<ActionResult> {
   const session = await requireAuth();
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Observation.findFirst({
       where: { id: observationId, event: { tenantId: session.user.tenantId } },
@@ -605,7 +800,7 @@ export async function linkCAPAToEvent(
 
 export async function deleteObservation(id: string): Promise<ActionResult> {
   const session = await requireAuth();
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Observation.findFirst({
       where: { id, event: { tenantId: session.user.tenantId } },
@@ -633,15 +828,18 @@ export async function deleteObservation(id: string): Promise<ActionResult> {
   }
 }
 
-/* ══════════════════════════════════════
- * COMMITMENTS — update / delete
- * ══════════════════════════════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ * COMMITMENTS â€” update / delete
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 const UpdateCommitmentSchema = z.object({
   text: z.string().optional(),
   dueDate: z.string().optional(),
   owner: z.string().optional(),
-  status: z.enum(["Pending", "In Progress", "Complete", "Overdue"]).optional(),
+  // "Complete" is accepted by the schema but rejected in the handler (use the
+  // dedicated completeCommitment flow). "Cancelled" closes a commitment
+  // without completion.
+  status: z.enum(["Pending", "In Progress", "Complete", "Cancelled", "Overdue"]).optional(),
 });
 
 export async function updateCommitment(
@@ -653,7 +851,12 @@ export async function updateCommitment(
   if (!parsed.success) {
     return { success: false, error: "Validation failed" };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Completion has a dedicated flow (captures completer + evidence); the
+  // generic update must not flip status straight to "Complete".
+  if (parsed.data.status === "Complete") {
+    return { success: false, error: "Use Mark Complete to complete a commitment." };
+  }
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Commitment.findFirst({
       where: { id, event: { tenantId: session.user.tenantId } },
@@ -690,7 +893,7 @@ export async function updateCommitment(
 
 export async function deleteCommitment(id: string): Promise<ActionResult> {
   const session = await requireAuth();
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Commitment.findFirst({
       where: { id, event: { tenantId: session.user.tenantId } },
@@ -718,15 +921,152 @@ export async function deleteCommitment(id: string): Promise<ActionResult> {
   }
 }
 
-/* ══════════════════════════════════════
+const CompleteCommitmentSchema = z.object({
+  completionNotes: z.string().max(2000).optional(),
+  // Evidence attachments (optional) — shape mirrors the DocumentUpload
+  // primitive's LinkedDocument (name/url + optional type/size).
+  evidence: z
+    .array(
+      z.object({
+        fileName: z.string().min(1),
+        fileUrl: z.string().min(1),
+        fileType: z.string().optional(),
+        fileSize: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/** Tenant-scope guard shared by complete/reopen — returns the row (with the
+ *  fields those actions need) or null when the caller's tenant doesn't own it. */
+async function findOwnedCommitment(
+  id: string,
+  session: Awaited<ReturnType<typeof requireAuth>>,
+) {
+  return prisma.fDA483Commitment.findFirst({
+    where:
+      session.user.role === "super_admin"
+        ? { id }
+        : { id, event: { tenantId: session.user.tenantId } },
+    select: { id: true, reference: true, status: true, completedAt: true, completedById: true },
+  });
+}
+
+export async function completeCommitment(
+  id: string,
+  input: z.input<typeof CompleteCommitmentSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = CompleteCommitmentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const owned = await findOwnedCommitment(id, session);
+  if (!owned) return { success: false, error: "FORBIDDEN" };
+  // Tenant-row logins (super_admin / customer_admin) aren't User rows —
+  // resolve to a valid User FK or null for completedById / uploadedById.
+  const userFk = await resolveUserFk(session.user.id);
+  try {
+    const commitment = await prisma.$transaction(async (tx) => {
+      const updated = await tx.fDA483Commitment.update({
+        where: { id },
+        data: {
+          status: "Complete",
+          completedAt: new Date(),
+          completedById: userFk,
+          completionNotes: parsed.data.completionNotes ?? null,
+        },
+      });
+      if (parsed.data.evidence?.length) {
+        await tx.fDA483CommitmentDocument.createMany({
+          data: parsed.data.evidence.map((e) => ({
+            commitmentId: id,
+            fileName: e.fileName,
+            fileUrl: e.fileUrl,
+            fileType: e.fileType ?? null,
+            fileSize: e.fileSize ?? null,
+            uploadedById: userFk,
+          })),
+        });
+      }
+      return updated;
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "FDA 483",
+        action: "COMMITMENT_COMPLETED",
+        recordId: id,
+        recordTitle: owned.reference ?? undefined,
+        newValue: JSON.stringify({ evidenceCount: parsed.data.evidence?.length ?? 0 }),
+      },
+    });
+    revalidatePath("/fda-483");
+    return { success: true, data: commitment };
+  } catch (err) {
+    console.error("[action] completeCommitment failed:", err);
+    return { success: false, error: "Failed to complete commitment" };
+  }
+}
+
+const ReopenCommitmentSchema = z.object({
+  reason: z.string().min(3, "A reason is required to reopen"),
+});
+
+export async function reopenCommitment(
+  id: string,
+  input: z.input<typeof ReopenCommitmentSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = ReopenCommitmentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const owned = await findOwnedCommitment(id, session);
+  if (!owned) return { success: false, error: "FORBIDDEN" };
+  if (owned.status !== "Complete") {
+    return { success: false, error: "Only a completed commitment can be reopened." };
+  }
+  try {
+    const commitment = await prisma.fDA483Commitment.update({
+      where: { id },
+      data: { status: "Pending", completedAt: null, completedById: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "FDA 483",
+        action: "COMMITMENT_REOPENED",
+        recordId: id,
+        recordTitle: owned.reference ?? undefined,
+        // Preserve the prior completion provenance in the audit trail.
+        oldValue: JSON.stringify({ completedById: owned.completedById, completedAt: owned.completedAt }),
+        newValue: parsed.data.reason,
+      },
+    });
+    revalidatePath("/fda-483");
+    return { success: true, data: commitment };
+  } catch (err) {
+    console.error("[action] reopenCommitment failed:", err);
+    return { success: false, error: "Failed to reopen commitment" };
+  }
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
  * RESPONSE DOCUMENTS
- * (FDA483Document model — requires migration)
+ * (FDA483Document model â€” requires migration)
  *
  * Spec called the URL field `fileUrl`; for in-app uploads via the
- * shared <DocumentUpload> component, this is a base64 data URL —
+ * shared <DocumentUpload> component, this is a base64 data URL â€”
  * for external links it's a real URL. Either way the column stores
  * a string the UI can hand straight to <a href={fileUrl}>.
- * ══════════════════════════════════════ */
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 const AddResponseDocSchema = z.object({
   eventId: z.string().min(1),
@@ -745,6 +1085,35 @@ export async function addResponseDocument(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  // IDOR guard - verify the caller's tenant owns the parent event before
+  // inserting the document (canonical pattern: same assertTenantOwnsParent
+  // helper addObservation uses). Returns null for a missing event OR one
+  // owned by another tenant; the error is deliberately vague so we don't
+  // leak cross-tenant existence.
+  const parent = await assertTenantOwnsParent<{ id: string; tenantId: string }>(
+    session,
+    "fda483Event",
+    parsed.data.eventId,
+  );
+  if (!parent) {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "FDA 483",
+          action: "RESPONSE_DOCUMENT_ADD_BLOCKED_TENANT_MISMATCH",
+          recordId: parsed.data.eventId,
+          recordTitle: parsed.data.fileName.slice(0, 80),
+        },
+      });
+    } catch (err) {
+      console.error("[action] failed to write RESPONSE_DOCUMENT_ADD_BLOCKED audit:", err);
+    }
+    return { success: false, error: "Event not found." };
+  }
   try {
     const doc = await prisma.fDA483Document.create({
       data: {
@@ -759,7 +1128,7 @@ export async function addResponseDocument(
     });
     await prisma.auditLog.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId: parent.tenantId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "FDA 483",
@@ -781,7 +1150,7 @@ export async function removeResponseDocument(
   eventId: string,
 ): Promise<ActionResult> {
   const session = await requireAuth();
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Document.findFirst({
       where: { id, event: { tenantId: session.user.tenantId } },
@@ -809,7 +1178,7 @@ export async function removeResponseDocument(
   }
 }
 
-/* ══════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
  * RAISE CAPA FROM OBSERVATION
  *
  * Combined transaction:
@@ -822,14 +1191,14 @@ export async function removeResponseDocument(
  *     (NOT `site`, NOT `diGateRequired`)
  *   - Observation column: `capaId` (NOT `linkedCAPAId`)
  *   - Status defaults are PascalCase ("Open", "CAPA Linked")
- * ══════════════════════════════════════ */
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 const RaiseCAPASchema = z.object({
   eventId: z.string().min(1),
   observationId: z.string().min(1),
   observationNumber: z.number().int().optional(),
   observationText: z.string().min(1),
-  observationSeverity: z.enum(["Critical", "High", "Low"]),
+  observationSeverity: z.enum(GENERIC_SEVERITY),
   referenceNumber: z.string().optional(),
   siteId: z.string().optional(),
   owner: z.string().min(1),
@@ -852,7 +1221,7 @@ export async function raiseCAPAFromObservation(
     ? `${d.referenceNumber} Obs #${d.observationNumber}: ${d.observationText}`
     : d.observationText.slice(0, 200);
 
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Observation.findFirst({
       where: { id: d.observationId, event: { tenantId: session.user.tenantId } },
@@ -863,7 +1232,7 @@ export async function raiseCAPAFromObservation(
 
   try {
     // 1) Create the CAPA. The slice previously stamped a custom ID like
-    //    "CAPA-1234" — we let cuid() handle it for consistency with the
+    //    "CAPA-1234" â€” we let cuid() handle it for consistency with the
     //    rest of the schema.
     const capa = await prisma.cAPA.create({
       data: {
@@ -874,7 +1243,7 @@ export async function raiseCAPAFromObservation(
         owner: d.owner,
         siteId: d.siteId ?? null,
         dueDate: new Date(d.dueDate),
-        status: "Open",
+        status: "open",
         rca: d.rootCause ?? null,
         rcaMethod: d.rcaMethod ?? null,
         // DI gate auto-required for IT / CSV Lead origins.

@@ -127,10 +127,18 @@ export function ApprovalsSection({
     ? safeApprovals.some((a) => a.approverId === currentUser.id)
     : false;
   const slotsRemaining = progress.missing.length > 0;
+  // Stage 5 (partial) — Part 11 §11.10(d) separation of duties.
+  // Client mirror of the approveCAPA server guard: creator cannot be
+  // their own approver. Display-name comparison (createdBy is a string,
+  // not a userId) — same brittleness caveat as the server side.
+  const userIsCreator = !!(
+    currentUser && capa.createdBy && capa.createdBy === currentUser.name
+  );
   const canApprove =
     isPending &&
     canApproveCAPA(role, capa.risk) &&
     !userAlreadyApproved &&
+    !userIsCreator &&
     slotsRemaining;
 
   // Status-badge logic (per spec). "Ready for closure" only when satisfied
@@ -406,6 +414,19 @@ export function ApprovalsSection({
 
       {isPending &&
         !userAlreadyApproved &&
+        userIsCreator &&
+        canApproveCAPA(role, capa.risk) && (
+          <p
+            className="text-[11px] italic mt-2"
+            style={{ color: "var(--text-muted)" }}
+          >
+            You created this CAPA — a different approver is required (separation of duties).
+          </p>
+        )}
+
+      {isPending &&
+        !userAlreadyApproved &&
+        !userIsCreator &&
         !canApproveCAPA(role, capa.risk) && (
           <p
             className="text-[11px] italic mt-2"

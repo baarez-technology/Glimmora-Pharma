@@ -46,6 +46,27 @@ export interface CAPA {
   alignmentOverrideById?: string;
   alignmentOverrideAt?: string;
   alignmentOverrideReason?: string;
+  // SME Section 1, Stage 3 (FULL) — RCA review fields. rcaApproved is
+  // tri-state: undefined/null = not yet reviewed, true = approved,
+  // false = rejected. Override fields populated only when a second
+  // reviewer overrides a prior rejection.
+  rcaApproved?: boolean | null;
+  rcaReviewedBy?: string;
+  rcaReviewedById?: string;
+  rcaReviewedAt?: string;
+  rcaReviewNotes?: string;
+  rcaOverrideBy?: string;
+  rcaOverrideById?: string;
+  rcaOverrideAt?: string;
+  rcaOverrideReason?: string;
+  // SME Section 1, Stage 5 (FULL) — Independent QA Verification fields.
+  // Populated by verifyCAPA; cleared by revokeCAPAVerification AND by
+  // any approval revocation that drops the CAPA back to pending_qa_review.
+  verifiedBy?: string;
+  verifiedById?: string;
+  verifiedAt?: string;
+  verificationNotes?: string;
+  verificationSignatureId?: string;
   // Substage 6.4 — Linked CC dependency override metadata. Populated only
   // when a Medium/Low CAPA was sealed while linked CCs were still
   // incomplete (the soft-gate path). Null on the normal flow so an
@@ -56,7 +77,59 @@ export interface CAPA {
   ccBlockOverrideAt?: string;
   closedAt?: string;
   closedBy?: string;
+  // Display name of the creator. Used client-side to mirror the server-side
+  // SoD guard (a user cannot approve a CAPA they created). Name-equality
+  // only — schema lacks createdById today.
+  createdBy?: string;
   createdAt: string;
+  // SME Section 1, Stage 2 (FULL) — bidirectional CAPA↔Deviation link.
+  // Populated when the row was hydrated via getCAPA / getCAPAs (which
+  // include the new deviation relation). Renders the "Linked deviation"
+  // panel on the CAPA detail modal directly from this prop — no
+  // separate fetch round-trip needed.
+  deviation?: {
+    id: string;
+    title: string;
+    severity: string;
+    status: string;
+    createdAt: string;
+  } | null;
+  // SME Section 1, Stage 4 (FULL) — structured action plan items.
+  // Replaces correctiveActions as the source of truth; the
+  // correctiveActions string remains on the CAPA as a denormalised
+  // cache rebuilt by syncCorrectiveActions on every write.
+  actionItems?: CAPAActionItem[];
+  // SME Section 1, Stage 6 (FULL) — effectiveness review outcome.
+  // effectivenessDate (legacy column) doubles as the +90d due date;
+  // see schema comment. Verdict is "effective" | "ineffective" |
+  // "partial" once a review is recorded.
+  effectivenessReviewedAt?: string;
+  effectivenessVerdict?: "effective" | "ineffective" | "partial";
+  effectivenessReviewedBy?: string;
+  effectivenessReviewedById?: string;
+  effectivenessReviewNotes?: string;
+  effectivenessSignatureId?: string;
+}
+
+export type CAPAActionItemStatus = "pending" | "in_progress" | "complete" | "skipped";
+
+export interface CAPAActionItem {
+  id: string;
+  capaId: string;
+  sequence: number;
+  description: string;
+  owner: string;
+  ownerId?: string | null;
+  dueDate: string;
+  status: CAPAActionItemStatus;
+  completedBy?: string | null;
+  completedById?: string | null;
+  completedAt?: string | null;
+  completionNotes?: string | null;
+  createdAt: string;
+  createdBy: string;
+  createdById?: string | null;
+  updatedAt: string;
 }
 
 interface CAPAState {

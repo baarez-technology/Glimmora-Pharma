@@ -19,72 +19,17 @@ import {
 import clsx from "clsx";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import { setCredentials, setActiveSite, setSelectedSite, setTenants, type AuthUser, type Tenant, type TenantSiteConfig } from "@/store/auth.slice";
-import { loginApi } from "@/lib/tenantApi";
+import { setCredentials, setActiveSite, setSelectedSite, type AuthUser, type Tenant, type TenantSiteConfig } from "@/store/auth.slice";
 import { login as nextAuthLogin, fetchCurrentUser } from "@/lib/authClient";
 import { flushPersist } from "@/store/persistence";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
-
-/**
- * Maps a NextAuth `result.error` string (or any free-form auth error) to a
- * user-facing message. Used as a fallback when no specific branch in
- * onSubmit() has already produced a tailored message.
- */
-function mapAuthError(error: string | undefined | null): string {
-  if (!error) return "Sign-in failed. Please try again or contact support.";
-  switch (error) {
-    case "CredentialsSignin":
-      return "Email or password is incorrect.";
-    case "AccessDenied":
-      return "Your account is inactive. Contact your administrator.";
-    case "Verification":
-      return "Verification link expired or invalid.";
-    case "OAuthAccountNotLinked":
-      return "This email is already linked to another sign-in method.";
-    default: {
-      const lower = error.toLowerCase();
-      if (lower.includes("mfa") || lower.includes("otp")) return "Verification code required. Check your email.";
-      if (lower.includes("locked")) return "Account is locked. Try again later or contact admin.";
-      if (lower.includes("subscription")) return "Your subscription has expired. Contact your administrator.";
-      if (lower.includes("inactive")) return "Your account is inactive. Contact your administrator.";
-      return "Sign-in failed. Please try again or contact support.";
-    }
-  }
-}
 
 const schema = z.object({
   email: z.string().min(1, "Username or email is required"),
   password: z.string().min(1, "Password is required"),
 });
 type FormValues = z.infer<typeof schema>;
-
-const SUPER_ADMIN_SEED: { username: string; password: string; user: AuthUser } = {
-  username: "superadmin",
-  password: "1",
-  user: {
-    id: "u-platform-sa",
-    name: "Platform Super Admin",
-    email: "superadmin",
-    role: "super_admin",
-    gxpSignatory: true,
-    orgId: "org-platform",
-    tenantId: "tenant-glimmora",
-  },
-};
-
-const MOCK_ACCOUNTS: Record<string, { password: string; user: AuthUser }> = {
-  // Pharma Glimmora International — must match prisma/seed.ts exactly.
-  // Tenant table → admin@pharmaglimmora.com (customer_admin, password Admin@123).
-  // User table  → qa/ra/csv/qc/it/ops@pharmaglimmora.com (all Demo@123).
-  "admin@pharmaglimmora.com": { password: "Admin@123", user: { id: "u-001", name: "System Administrator", email: "admin@pharmaglimmora.com", role: "customer_admin", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "qa@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-002", name: "Dr. Priya Sharma", email: "qa@pharmaglimmora.com", role: "qa_head", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "ra@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-003", name: "Rahul Mehta", email: "ra@pharmaglimmora.com", role: "regulatory_affairs", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "csv@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-004", name: "Anita Patel", email: "csv@pharmaglimmora.com", role: "csv_val_lead", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "qc@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-005", name: "Dr. Nisha Rao", email: "qc@pharmaglimmora.com", role: "qc_lab_director", gxpSignatory: true, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "it@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-006", name: "Vikram Singh", email: "it@pharmaglimmora.com", role: "it_cdo", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
-  "ops@pharmaglimmora.com": { password: "Demo@123", user: { id: "u-007", name: "Suresh Kumar", email: "ops@pharmaglimmora.com", role: "operations_head", gxpSignatory: false, orgId: "org-1", tenantId: "tenant-glimmora" } },
-};
 
 // Every row below must correspond to a real seeded account in prisma/seed.ts.
 // Two tables back this: Tenant (super_admin, customer_admin) and User (site users).
@@ -118,7 +63,6 @@ export function LoginPage() {
   const router = useRouter();
   const toast = useToast();
   const themeMode = useAppSelector((s) => s.theme.mode);
-  const tenants = useAppSelector((s) => s.auth.tenants);
   const [showCreds, setShowCreds] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loadingTenant, setLoadingTenant] = useState(false);
@@ -127,11 +71,9 @@ export function LoginPage() {
   useEffect(() => { setMounted(true); }, []);
   const isDark = mounted && themeMode === "dark";
 
-  // Session-expired toast handoff. axios.ts (on a 401 from any API call)
-  // and AdminShell (on a 401 from /api/auth/me) both navigate to
-  // /login?session=expired so the user sees one consistent message
-  // regardless of which signal triggered the kick-out. We strip the
-  // param from the URL after surfacing the toast so a refresh doesn't
+  // Session-expired toast handoff. AdminShell navigates to
+  // /login?session=expired on a 401 from /api/auth/me; this effect
+  // surfaces the toast and strips the param so a refresh doesn't
   // re-show it.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -148,17 +90,6 @@ export function LoginPage() {
     }
     // Mount-only — runs once when the LoginPage first renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Bootstrap: ensure platform super_admin account exists
-  useEffect(() => {
-    const key = SUPER_ADMIN_SEED.username.toLowerCase();
-    if (!MOCK_ACCOUNTS[key]) {
-      MOCK_ACCOUNTS[key] = {
-        password: SUPER_ADMIN_SEED.password,
-        user: SUPER_ADMIN_SEED.user,
-      };
-    }
   }, []);
 
   const {
@@ -232,187 +163,91 @@ export function LoginPage() {
   };
 
   const onSubmit = async (data: FormValues) => {
-    const key = data.email.toLowerCase().trim();
-
-    // 0. Establish a real next-auth session (real JWT, HttpOnly cookie).
-    //    If next-auth succeeds, fetch the user profile from /api/auth/me and
-    //    redirect immediately — no need to fall through to the legacy paths.
+    // Single source of truth: NextAuth's authorize() callback verifies
+    // credentials against the Tenant / User tables (bcrypt) and applies
+    // subscription + MFA gates. No fallback chains — if NextAuth rejects,
+    // the user cannot sign in. Test access uses seeded accounts in
+    // prisma/seed.ts authenticating through this same path.
+    let result;
     try {
-      const result = await nextAuthLogin(data.email.trim(), data.password, /* silent */ true);
-      if (!result.ok) {
-        // Surface specific auth errors back to the form (subscription, etc.)
-        if (result.error && result.error.includes("SUBSCRIPTION_INACTIVE")) {
-          const msg = "Your subscription has expired or no active plan is configured. Please contact your administrator.";
-          setError("root", { message: msg });
-          toast.error(msg);
-          return;
-        }
-        if (result.error && result.error.includes("USER_INACTIVE")) {
-          const msg = "Your account is inactive. Please contact your administrator to reactivate it.";
-          setError("root", { message: msg });
-          toast.error(msg);
-          return;
-        }
-        console.warn("[login] next-auth rejected credentials:", result.error);
-      } else {
-        // NextAuth succeeded — fetch the canonical user profile and redirect.
-        const me = await fetchCurrentUser();
-        if (me) {
-          const user: AuthUser = {
-            id: me.id,
-            name: me.name,
-            email: me.email,
-            role: me.role as AuthUser["role"],
-            gxpSignatory: me.gxpSignatory,
-            tenantId: me.tenantId,
-            orgId: me.orgId,
-          };
-          dispatch(setCredentials({ token: "nextauth-token-" + Date.now(), user }));
-          try {
-            if (typeof window !== "undefined" && window.location.search) {
-              window.history.replaceState({}, "", window.location.pathname);
-            }
-          } catch { /* ignore */ }
-          toast.success(`Welcome back, ${me.name || "team"}!`);
-          if (user.role === "super_admin") {
-            setLoadingName("Platform Admin");
-            setLoadingTenant(true);
-            flushPersist(); window.location.assign("/admin");
-            return;
-          }
-          if (user.role === "customer_admin") {
-            setLoadingName("workspace");
-            setLoadingTenant(true);
-            flushPersist(); window.location.assign("/");
-            return;
-          }
-          await finishLogin(user, undefined, me.name);
-          return;
-        }
-      }
+      result = await nextAuthLogin(data.email.trim(), data.password, /* silent */ true);
     } catch (err) {
-      console.warn("[login] next-auth signIn failed", err);
-    }
-
-    // 1. Check static mock accounts first
-    const mockAccount = MOCK_ACCOUNTS[key];
-    if (mockAccount && mockAccount.password === data.password) {
-      dispatch(setCredentials({ token: "mock-token-" + Date.now(), user: mockAccount.user }));
-      toast.success(`Welcome back, ${mockAccount.user.name || "team"}!`);
-      const userTenant = tenants.find((t) => t.id === mockAccount.user.tenantId);
-
-      if (mockAccount.user.role === "super_admin") {
-        setLoadingName("Platform Admin");
-        setLoadingTenant(true);
-          // Full page navigation — guarantees URL is exactly /admin with no
-        // leftover query params, and rehydrates the SPA shell cleanly.
-        flushPersist(); window.location.assign("/admin");
-        return;
-      }
-
-      if (mockAccount.user.role === "customer_admin") {
-        const firstSite = userTenant?.config?.sites?.[0];
-        if (firstSite) dispatch(setActiveSite(firstSite.id));
-        dispatch(setSelectedSite(null));
-        setLoadingName(userTenant?.name ?? "workspace");
-        setLoadingTenant(true);
-          flushPersist(); window.location.assign("/");
-        return;
-      }
-
-      await finishLogin(mockAccount.user, userTenant, userTenant?.name ?? "workspace");
+      console.warn("[login] next-auth signIn threw", err);
+      const msg = "Sign-in failed. Please try again or contact support.";
+      setError("root", { message: msg });
+      toast.error(msg);
       return;
     }
 
-    // 2. Try the backend API (Neon) — handles cross-browser sync
-    try {
-      const apiResult = await loginApi(data.email.trim(), data.password, /* silent */ true);
-      if (apiResult) {
-        const user = apiResult.user as AuthUser;
-        // Refresh local tenant cache with the authoritative one from the server
-        dispatch(setTenants([apiResult.tenant]));
-        dispatch(setCredentials({ token: "api-token-" + Date.now(), user }));
-        toast.success(`Welcome back, ${user.name || "team"}!`);
-
-        if (user.role === "super_admin") {
-          setLoadingName("Platform Admin");
-          setLoadingTenant(true);
-              flushPersist(); window.location.assign("/admin");
-          return;
-        }
-
-        await finishLogin(user, apiResult.tenant, apiResult.tenant.name);
-        return;
-      }
-    } catch (err) {
-      const reason = (err as Error & { reason?: string })?.reason;
-      if (reason === "USER_INACTIVE") {
-        const msg = "Your account is inactive. Please contact your administrator to reactivate it.";
-        setError("root", { message: msg });
-        toast.error(msg);
-        return;
-      }
-      if (reason === "SUBSCRIPTION_INACTIVE") {
+    if (!result.ok) {
+      // Specific, actionable errors first.
+      if (result.error && result.error.includes("SUBSCRIPTION_INACTIVE")) {
         const msg = "Your subscription has expired or no active plan is configured. Please contact your administrator.";
         setError("root", { message: msg });
         toast.error(msg);
         return;
       }
-      console.warn("[login] API unreachable, falling back to local cache", err);
-    }
-
-    // 3. Fallback: check the local Redux cache (for offline / seed data)
-    for (const tenant of tenants) {
-      const tenantUser = tenant.config.users.find(
-        (u) =>
-          u.username?.toLowerCase() === key ||
-          u.email.toLowerCase() === key ||
-          u.name.toLowerCase() === key,
-      );
-      if (tenantUser && (!tenantUser.password || tenantUser.password === data.password)) {
-        if (tenantUser.status !== "Active") {
-          const msg = "Your account is inactive. Please contact your administrator to reactivate it.";
-          setError("root", { message: msg });
-          toast.error(msg);
-          return;
-        }
-        const user: AuthUser = {
-          id: tenantUser.id,
-          name: tenantUser.name,
-          email: tenantUser.email,
-          role: tenantUser.role as AuthUser["role"],
-          gxpSignatory: tenantUser.gxpSignatory,
-          orgId: tenant.id,
-          tenantId: tenant.id,
-        };
-        dispatch(setCredentials({ token: "mock-token-" + Date.now(), user }));
-        toast.success(`Welcome back, ${user.name || "team"}!`);
-
-        if (user.role === "super_admin") {
-          setLoadingName("Platform Admin");
-          setLoadingTenant(true);
-              flushPersist(); window.location.assign("/admin");
-          return;
-        }
-
-        if (user.role === "customer_admin") {
-          const firstSite = tenant.config?.sites?.[0];
-          if (firstSite) dispatch(setActiveSite(firstSite.id));
-          dispatch(setSelectedSite(null));
-          setLoadingName(tenant.name);
-          setLoadingTenant(true);
-              flushPersist(); window.location.assign("/");
-          return;
-        }
-
-        await finishLogin(user, tenant, tenant.name);
+      if (result.error && result.error.includes("USER_INACTIVE")) {
+        const msg = "Your account is inactive. Please contact your administrator to reactivate it.";
+        setError("root", { message: msg });
+        toast.error(msg);
         return;
       }
+      // Generic case: CredentialsSignin (wrong password) AND no-such-email
+      // share the same message to prevent account enumeration.
+      const msg = "Incorrect email or password";
+      setError("root", { message: msg });
+      toast.error(msg);
+      return;
     }
 
-    const fallbackMsg = mapAuthError("CredentialsSignin");
-    setError("root", { message: "Invalid username or password" });
-    toast.error(fallbackMsg);
+    // NextAuth accepted credentials — fetch the canonical user profile.
+    const me = await fetchCurrentUser();
+    if (!me) {
+      // Cookie/session race — extremely rare. Don't try to recover; tell
+      // the user and let them retry.
+      const msg = "Sign-in succeeded but the profile could not be loaded. Please try again.";
+      setError("root", { message: msg });
+      toast.error(msg);
+      return;
+    }
+
+    const user: AuthUser = {
+      id: me.id,
+      name: me.name,
+      email: me.email,
+      role: me.role as AuthUser["role"],
+      gxpSignatory: me.gxpSignatory,
+      tenantId: me.tenantId,
+      orgId: me.orgId,
+    };
+    dispatch(setCredentials({ token: "nextauth-token-" + Date.now(), user }));
+    try {
+      if (typeof window !== "undefined" && window.location.search) {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    } catch { /* ignore */ }
+    toast.success(`Signed in as ${me.name || "team"}.`);
+
+    // Defense-in-depth: router.push (SPA navigation) preserves React state
+    // across the navigation so that if middleware ever bounces this request
+    // back to /login, errors.root and the toast survive the round-trip
+    // instead of disappearing into a fresh page load.
+    if (user.role === "super_admin") {
+      setLoadingName("Platform Admin");
+      setLoadingTenant(true);
+      flushPersist();
+      router.push("/admin");
+      return;
+    }
+    if (user.role === "customer_admin") {
+      setLoadingName("workspace");
+      setLoadingTenant(true);
+      flushPersist();
+      router.push("/");
+      return;
+    }
+    await finishLogin(user, undefined, me.name);
   };
 
   return (
@@ -484,7 +319,7 @@ export function LoginPage() {
               light-themed regardless of the user's stored theme preference. */}
           <div>
             <label htmlFor="email" className="text-[11px] font-medium text-[#302d29] block mb-1.5">
-              Work email <span className="text-[#dc2626]" aria-hidden="true">*</span>
+              Email or username <span className="text-[#dc2626]" aria-hidden="true">*</span>
               <span className="sr-only">(required)</span>
             </label>
             {/* suppressHydrationWarning on form fields is intentional:
@@ -496,8 +331,8 @@ export function LoginPage() {
               <input
                 id="email"
                 type="text"
-                autoComplete="email"
-                placeholder="admin@pharmaglimmora.com"
+                autoComplete="username"
+                placeholder="admin@pharmaglimmora.com or superadmin"
                 required
                 aria-required="true"
                 aria-invalid={errors.email ? true : undefined}

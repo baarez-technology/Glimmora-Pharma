@@ -221,6 +221,12 @@ export async function unlockCAPAArtifacts(
  */
 export const LOCKED_CAPA_STATUSES: ReadonlySet<string> = new Set([
   "pending_qa_review",
+  // SME Section 1, Stage 5 (FULL) — added when the verification gate
+  // landed. Once approvals collected, evidence + RCA + alignment + new
+  // action-item edits should stay locked through verification too.
+  // status-only updates on action items (mark complete/skipped) are
+  // gated separately inside updateActionItem.
+  "pending_verification",
   "closed",
   "rejected",
 ]);

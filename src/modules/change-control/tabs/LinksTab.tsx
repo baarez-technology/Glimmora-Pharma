@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { CAPA_RISK_VARIANT } from "@/lib/badgeVariants";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import type { CCDetail } from "../_shared";
 
 /**
@@ -73,8 +73,8 @@ export function LinksTab({
                     >
                       {link.capa.reference ?? link.capa.id.slice(0, 8)}
                     </span>
-                    <Badge variant={CAPA_RISK_VARIANT[link.capa.risk as keyof typeof CAPA_RISK_VARIANT] ?? "gray"}>
-                      {link.capa.risk}
+                    <Badge variant={getSeverityVariant(link.capa.risk, "generic")}>
+                      {normalizeSeverityForDisplay(link.capa.risk, "generic") ?? link.capa.risk}
                     </Badge>
                     <Badge variant="gray">{link.capa.status}</Badge>
                     <Badge variant="blue">

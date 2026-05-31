@@ -20,11 +20,14 @@ export interface ModalProps {
    *  the plain `title` row can't express. */
   header?: ReactNode;
   children: ReactNode;
+  /** Optional sticky footer region (e.g. Cancel / Save). Rendered outside the
+   *  scrollable body so it stays visible while the body scrolls. */
+  footer?: ReactNode;
   className?: string;
   persistent?: boolean;
 }
 
-export function Modal({ open, onClose, title, header, children, className, persistent }: ModalProps) {
+export function Modal({ open, onClose, title, header, children, footer, className, persistent }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
@@ -62,7 +65,7 @@ export function Modal({ open, onClose, title, header, children, className, persi
         aria-labelledby="modal-title"
         onClick={(e) => e.stopPropagation()}
         className={clsx(
-          "relative w-full max-w-[680px] rounded-xl overflow-hidden border shadow-2xl",
+          "relative w-full max-w-[680px] max-h-[85vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl",
           "bg-(--bg-surface) border-(--bg-border)",
           "animate-[popupIn_0.15s_ease-out]",
           "focus:outline-none",
@@ -75,7 +78,7 @@ export function Modal({ open, onClose, title, header, children, className, persi
             {header}
           </>
         ) : (
-          <div className="flex items-center justify-between px-5 py-4 border-b border-(--bg-border)">
+          <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-(--bg-border)">
             <h2 id="modal-title" className="text-[14px] font-semibold text-(--text-primary)">{title}</h2>
             <button
               type="button"
@@ -87,7 +90,12 @@ export function Modal({ open, onClose, title, header, children, className, persi
             </button>
           </div>
         )}
-        <div className="p-5 max-h-[80vh] overflow-y-auto">{children}</div>
+        <div className="p-5 flex-1 min-h-0 overflow-y-auto">{children}</div>
+        {footer && (
+          <div className="shrink-0 px-5 py-3 border-t border-(--bg-border) bg-(--bg-surface)">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

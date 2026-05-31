@@ -255,9 +255,14 @@ export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePa
       : "Current";
 
     const pushUploaded = (
-      doc: { id: string; fileName: string; fileType: string; fileSize: string; uploadedBy: string; uploadedAt: string; version: string; status: string; description?: string; approvedBy?: string; dataUrl?: string },
+      doc: { id: string; fileName: string; fileType: string; fileSize: string; uploadedBy: string; uploadedAt?: string; version: string; status: string; description?: string; approvedBy?: string; dataUrl?: string },
       opts: { sourcePrefix: string; recordId: string; area: DocArea; complianceTags: string[]; tenantId: string; siteId: string; capaId?: string; eventId?: string; findingId?: string; systemId?: string; recordTitle?: string },
     ) => {
+      // doc.uploadedAt is server-authoritative (Prisma createdAt mapped in
+      // FDA483Page.tsx:162); undefined only during the optimistic-UI window
+      // inside DocumentUpload, which this server-rendered aggregator does
+      // not read. Fallback to "" preserves the type contract.
+      const uploadedAt = doc.uploadedAt ?? "";
       docs.push({
         id: `${opts.sourcePrefix}-${opts.recordId}-${doc.id}`,
         title: doc.fileName,
@@ -267,10 +272,10 @@ export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePa
         version: doc.version.replace(/^v/, ""),
         status: mapStatus(doc.status),
         author: doc.approvedBy ?? doc.uploadedBy,
-        effectiveDate: doc.uploadedAt,
+        effectiveDate: uploadedAt,
         tags: [doc.fileType.toUpperCase(), opts.recordId],
         complianceTags: opts.complianceTags,
-        createdAt: doc.uploadedAt,
+        createdAt: uploadedAt,
         tenantId: opts.tenantId,
         siteId: opts.siteId,
         capaId: opts.capaId,
@@ -571,7 +576,7 @@ export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePa
       {/* Header */}
       <header className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="page-title">Evidence &amp; Document Workspace</h1>
+          <h1 className="page-title">Evidence &amp; Documents</h1>
           <p className="page-subtitle mt-1">
             {allDocs.length === 0
               ? "No documents yet"

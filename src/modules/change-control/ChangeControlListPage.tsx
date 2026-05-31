@@ -18,7 +18,7 @@ import {
   CHANGE_CONTROL_STATUSES,
   CHANGE_TYPES,
 } from "@/lib/change-control-constants";
-import { CC_RISK_VARIANT, CC_STATUS_VARIANT } from "@/lib/badgeVariants";
+import { CC_STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { NewChangeControlModal } from "./NewChangeControlModal";
 import { ChangeControlDetailModal } from "./ChangeControlDetailModal";
 
@@ -145,7 +145,7 @@ export function ChangeControlListPage({ initial }: Props) {
           <input
             type="search"
             className="input w-full pl-10 text-[12px]"
-            placeholder="Search by reference, title, description..."
+            placeholder="Search change controls…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search change controls"
@@ -234,8 +234,8 @@ export function ChangeControlListPage({ initial }: Props) {
                     <Badge variant="gray">{cc.changeType}</Badge>
                   </td>
                   <td>
-                    <Badge variant={CC_RISK_VARIANT[cc.risk as keyof typeof CC_RISK_VARIANT] ?? "gray"}>
-                      {cc.risk}
+                    <Badge variant={getSeverityVariant(cc.risk, "generic")}>
+                      {normalizeSeverityForDisplay(cc.risk, "generic") ?? cc.risk}
                     </Badge>
                   </td>
                   <td>

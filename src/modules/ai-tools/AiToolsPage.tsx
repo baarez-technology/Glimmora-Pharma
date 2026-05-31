@@ -16,6 +16,7 @@ import {
   selectAiToken,
 } from "@/lib/aiBackend";
 import { friendlyAiError } from "@/lib/friendlyError";
+import { formatDateTime } from "@/lib/dates";
 
 /**
  * AI Backend Tools — direct lookups for every endpoint that doesn't have
@@ -298,8 +299,7 @@ function asArray(v: unknown): unknown[] {
 
 function formatDate(v: unknown): string {
   if (typeof v !== "string") return "—";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+  return formatDateTime(v);
 }
 
 function StatusBanner({ tone, icon, title, body }: { tone: "success" | "warning" | "danger" | "info"; icon: ReactNode; title: string; body?: string }) {

@@ -51,7 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "gap-assessment", label: "Gap Assessment", icon: Search },
       { path: "deviation", label: "Deviation Management", icon: AlertTriangle },
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
-      { path: "csv-csa", label: "CSV / CSA Validation", icon: Monitor },
+      { path: "csv-csa", label: "CSV/CSA Validation", icon: Monitor },
       { path: "fda-483", label: "FDA 483 & Regulatory", icon: Building2 },
       { path: "evidence", label: "Evidence & Documents", icon: FileText },
     ],

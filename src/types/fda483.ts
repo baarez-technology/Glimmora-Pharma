@@ -48,7 +48,19 @@ export type ObservationStatus =
 
 export type RCAMethod = "5 Why" | "Fishbone" | "Fault Tree" | "Barrier Analysis";
 
-export type CommitmentStatus = "Pending" | "In Progress" | "Complete" | "Overdue";
+// "Overdue" is a DERIVED display state (status === "Pending"/"In Progress"
+// AND dueDate < today), not a stored value — kept in the union for legacy
+// rows that may still carry it. Stored workflow values are Pending / In
+// Progress / Complete / Cancelled.
+export type CommitmentStatus = "Pending" | "In Progress" | "Complete" | "Cancelled" | "Overdue";
+
+export interface CommitmentDocument {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  fileType?: string;
+  fileSize?: string;
+}
 
 /* ── Domain shapes ── */
 
@@ -80,6 +92,23 @@ export interface Commitment {
   dueDate: string;
   owner: string;
   status: CommitmentStatus;
+  // ── First-class commitment fields ──
+  reference?: string;
+  /** Source linkage — at most one of these is set (else event-level). */
+  observationId?: string;
+  /** Resolved from the linked observation for display (number + reference). */
+  observationNumber?: number;
+  observationRef?: string;
+  capaId?: string;
+  /** Resolved from the linked CAPA for display. */
+  capaRef?: string;
+  completedAt?: string;
+  completedById?: string;
+  /** Resolved display name of the completer. */
+  completedByName?: string;
+  completionNotes?: string;
+  createdById?: string;
+  documents?: CommitmentDocument[];
 }
 
 export interface FDA483Event {
@@ -90,8 +119,14 @@ export interface FDA483Event {
   agency: string;
   siteId: string;
   inspectionDate: string;
+  /** Optional inspection end date (extended capture); absent on legacy rows. */
+  inspectionEndDate?: string;
   responseDeadline: string;
   status: EventStatus;
+  /** FDA inspector named on the form (extended capture); optional. */
+  leadInvestigator?: string;
+  /** Internal QA owner user id (extended capture); optional on legacy rows. */
+  internalOwnerId?: string;
   observations: Observation[];
   commitments: Commitment[];
   responseDraft: string;

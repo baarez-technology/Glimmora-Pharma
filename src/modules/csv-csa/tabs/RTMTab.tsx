@@ -162,10 +162,10 @@ export function RTMTab({ entries: entriesProp, systemsOverride }: RTMTabProps = 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-[300px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-          <input type="text" className="input pl-9 w-full text-[12px]" placeholder="Search requirements..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          <input type="text" className="input pl-9 w-full text-[12px]" placeholder="Search requirements…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </div>
         <Dropdown placeholder="All statuses" value={statusFilter} onChange={setStatusFilter} width="w-40" options={[{ value: "", label: "All statuses" }, { value: "complete", label: "Complete" }, { value: "partial", label: "Partial" }, { value: "broken", label: "Broken" }]} />
-        {(searchQuery || statusFilter) && <Button variant="ghost" size="sm" icon={X} onClick={() => { setSearchQuery(""); setStatusFilter(""); }}>Clear</Button>}
+        {(searchQuery || statusFilter) && <Button variant="ghost" size="sm" icon={X} onClick={() => { setSearchQuery(""); setStatusFilter(""); }}>Clear filters</Button>}
       </div>
 
       {/* Main grid */}

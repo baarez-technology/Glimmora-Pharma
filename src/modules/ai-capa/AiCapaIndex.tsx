@@ -13,6 +13,7 @@ import {
   selectAiCustomerId,
 } from "@/lib/aiBackend";
 import { friendlyAiError } from "@/lib/friendlyError";
+import { formatDate as fmtDate } from "@/lib/dates";
 
 /**
  * AI CAPA index — lists every CAPA the AI backend knows about for the
@@ -274,7 +275,5 @@ function Stat({ label, value, valueColor }: { label: string; value: number; valu
 }
 
 function formatDate(v: string): string {
-  if (!v) return "—";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString();
+  return fmtDate(v);
 }

@@ -68,7 +68,10 @@ export interface SubscriptionPlan {
   endDate: string;
   maxAccounts: number;
   status: "Active" | "Inactive";
-  createdAt: string;
+  // Server-authoritative (Subscription.createdAt @default(now())). Optional
+  // because optimistic client-side inserts don't carry it — the next
+  // getTenants() reload supplies the real value.
+  createdAt?: string;
 }
 
 export interface Tenant {
@@ -76,7 +79,10 @@ export interface Tenant {
   name: string;
   plan: "trial" | "professional" | "enterprise";
   adminEmail: string;
-  createdAt: string;
+  // Server-authoritative (Tenant.createdAt @default(now())). Optional
+  // because optimistic client-side inserts don't carry it — the next
+  // getTenants() reload supplies the real value.
+  createdAt?: string;
   active: boolean;
   mfaEnabled?: boolean;
   config: TenantConfig;

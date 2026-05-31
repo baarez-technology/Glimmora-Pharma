@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -6,23 +6,24 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import { getCAPAEffectivenessCriteria } from "@/lib/queries/capa-criteria";
+import { sanitizeServerError } from "@/lib/errors";
 
-// ── Result type ──
+// â”€â”€ Result type â”€â”€
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
-// ── Constants ──
+// â”€â”€ Constants â”€â”€
 
 const AUDIT_MODULE = "CAPA / Effectiveness";
 
 const LOCKED_CAPA_MESSAGE =
-  "Cannot add criteria — CAPA has progressed to QA review. Re-open the CAPA to modify.";
+  "Cannot add criteria â€” CAPA has progressed to QA review. Re-open the CAPA to modify.";
 const LOCKED_CRITERION_MESSAGE =
-  "Cannot modify a locked criterion — CAPA has progressed to QA review. Re-open the CAPA to modify.";
+  "Cannot modify a locked criterion â€” CAPA has progressed to QA review. Re-open the CAPA to modify.";
 
-// ── Schemas ──
+// â”€â”€ Schemas â”€â”€
 
 const CriterionSchema = z.object({
   description: z.string().min(5, "Description must be at least 5 characters"),
@@ -39,7 +40,7 @@ const CriterionSchema = z.object({
     .min(3, "Monitoring period must be at least 3 characters"),
 });
 
-// ── Actions ──
+// â”€â”€ Actions â”€â”€
 
 /**
  * Client-callable read wrapper for the criteria panel. Mirrors
@@ -117,16 +118,8 @@ export async function createCriterion(
     revalidatePath(`/capa/${capaId}`);
     return { success: true, data: criterion };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] createCriterion failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to create effectiveness criterion"
-          : `Failed to create effectiveness criterion: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] createCriterion failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to create effectiveness criterion") };
   }
 }
 
@@ -134,7 +127,7 @@ export async function createCriterion(
  * Update an existing criterion. Two-layer lock check: (a) the criterion's
  * own lockedAt (set by lockCriteriaForCAPA when the parent CAPA crosses
  * into a LOCKED_CAPA_STATUSES state); (b) the parent CAPA's status
- * (defence in depth — protects against the rare race where a criterion
+ * (defence in depth â€” protects against the rare race where a criterion
  * was created while the CAPA was in flight to a locked state).
  */
 export async function updateCriterion(
@@ -197,22 +190,14 @@ export async function updateCriterion(
     revalidatePath(`/capa/${existing.capa.id}`);
     return { success: true, data: criterion };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] updateCriterion failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to update effectiveness criterion"
-          : `Failed to update effectiveness criterion: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] updateCriterion failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to update effectiveness criterion") };
   }
 }
 
 /**
  * Hard-delete a criterion. The audit row's oldValue captures the full
- * pre-delete snapshot — no soft-delete column needed for inspection
+ * pre-delete snapshot â€” no soft-delete column needed for inspection
  * traceability since the deletion event itself is part of the immutable
  * audit log.
  */
@@ -262,15 +247,7 @@ export async function deleteCriterion(
     revalidatePath(`/capa/${existing.capa.id}`);
     return { success: true, data: null };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] deleteCriterion failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to delete effectiveness criterion"
-          : `Failed to delete effectiveness criterion: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] deleteCriterion failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to delete effectiveness criterion") };
   }
 }

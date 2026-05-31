@@ -1,0 +1,602 @@
+﻿"use server";
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/auth";
+import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
+import {
+  ACTION_ITEMS_AUDIT_MODULE,
+  ACTION_ITEMS_LOCKED_MESSAGE,
+  ACTION_ITEMS_TERMINAL_MESSAGE,
+  ACTION_ITEM_STATUSES,
+  type ActionItemStatus,
+  type ActionResult,
+} from "./_types";
+import { sanitizeServerError } from "@/lib/errors";
+
+/* â”€â”€ SME Section 1, Stage 4 (FULL) â€” Structured CAPA Action Plan items â”€â”€
+ *
+ * Replaces the free-text CAPA.correctiveActions blob with tracked rows
+ * carrying owner, due date, status, completion attribution. The legacy
+ * correctiveActions field stays as a denormalised cache (string-join of
+ * descriptions in sequence order); updateCAPA refuses direct writes so
+ * the only path to mutate the visible action list is through these
+ * actions.
+ *
+ * Lock states (CAPA-level â†’ action-item-level):
+ *   open / in_progress       â†’ full editor (add / edit / delete / reorder / status)
+ *   pending_qa_review        â†’ status-only updates (complete / skipped)
+ *   pending_verification     â†’ status-only updates (complete / skipped)
+ *   closed / rejected        â†’ read-only
+ *
+ * Auto-invalidate: editing a complete item's description, owner, or
+ * dueDate reverts it to pending and clears completion attribution â€”
+ * the completion attestation no longer applies to the changed content.
+ * Same pattern as the RCA review auto-invalidate from Stage 3.
+ */
+
+type TxClient = Prisma.TransactionClient | PrismaClient;
+
+// â”€â”€ Schemas â”€â”€
+
+const AddActionItemSchema = z.object({
+  description: z.string().min(3, "Description must be at least 3 characters").max(2000),
+  owner: z.string().min(1, "Owner is required"),
+  ownerId: z.string().optional(),
+  dueDate: z.string().min(1, "Due date is required"),
+  sequence: z.number().int().positive().optional(),
+});
+
+const UpdateActionItemSchema = z.object({
+  description: z.string().min(3).max(2000).optional(),
+  owner: z.string().min(1).optional(),
+  ownerId: z.string().nullable().optional(),
+  dueDate: z.string().min(1).optional(),
+  status: z.enum(ACTION_ITEM_STATUSES).optional(),
+  completionNotes: z.string().max(2000).optional(),
+});
+
+const DeleteActionItemSchema = z.object({
+  reason: z.string().min(5, "Reason must be at least 5 characters").max(2000),
+});
+
+const ReorderSchema = z.object({
+  orderedIds: z.array(z.string().min(1)).min(1, "orderedIds must be non-empty"),
+});
+
+// â”€â”€ Internal helpers â”€â”€
+
+/**
+ * Rebuild CAPA.correctiveActions as a newline-joined string of action
+ * item descriptions in sequence order. Keeps the legacy field in sync
+ * so any downstream reader (legacy reports, the existing UI fallback)
+ * still sees a consistent shape. Called inside the same tx as every
+ * action-item write.
+ */
+async function syncCorrectiveActions(
+  tx: TxClient,
+  capaId: string,
+  tenantId: string,
+): Promise<void> {
+  const items = await tx.cAPAActionItem.findMany({
+    where: { capaId, tenantId },
+    orderBy: { sequence: "asc" },
+    select: { description: true, status: true },
+  });
+  // Cache reflects live (non-skipped) items only â€” skipped items are
+  // dropped from the textual blob because they don't represent active
+  // commitments. The CAPAActionItem rows themselves are preserved for
+  // the audit trail.
+  const live = items
+    .filter((i) => i.status !== "skipped")
+    .map((i) => i.description)
+    .join("\n");
+  await tx.cAPA.update({
+    where: { id: capaId, tenantId },
+    data: { correctiveActions: live.length > 0 ? live : null },
+  });
+}
+
+async function getCAPAForActionItemOp(
+  capaId: string,
+  tenantId: string,
+): Promise<
+  | { ok: true; capa: { id: string; status: string; reference: string | null; description: string } }
+  | { ok: false; error: string }
+> {
+  const capa = await prisma.cAPA.findFirst({
+    where: { id: capaId, tenantId },
+    select: { id: true, status: true, reference: true, description: true },
+  });
+  if (!capa) return { ok: false, error: "CAPA not found" };
+  return { ok: true, capa };
+}
+
+function isTerminalStatus(status: string): boolean {
+  return status === "closed" || status === "rejected";
+}
+
+// â”€â”€ Actions â”€â”€
+
+/**
+ * Append a new action item to a CAPA. Blocked when the CAPA is in any
+ * LOCKED_CAPA_STATUSES state (structural edits not allowed once the
+ * CAPA has left active investigation).
+ */
+export async function addActionItem(
+  capaId: string,
+  input: z.input<typeof AddActionItemSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = AddActionItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const lookup = await getCAPAForActionItemOp(capaId, session.user.tenantId);
+  if (!lookup.ok) return { success: false, error: lookup.error };
+  const { capa } = lookup;
+
+  if (LOCKED_CAPA_STATUSES.has(capa.status)) {
+    return {
+      success: false,
+      error: isTerminalStatus(capa.status)
+        ? ACTION_ITEMS_TERMINAL_MESSAGE
+        : ACTION_ITEMS_LOCKED_MESSAGE,
+    };
+  }
+
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      // Determine sequence â€” caller may pin; otherwise append after the
+      // current highest.
+      let sequence = parsed.data.sequence;
+      if (sequence === undefined) {
+        const last = await tx.cAPAActionItem.findFirst({
+          where: { capaId, tenantId: session.user.tenantId },
+          orderBy: { sequence: "desc" },
+          select: { sequence: true },
+        });
+        sequence = (last?.sequence ?? 0) + 1;
+      }
+      const item = await tx.cAPAActionItem.create({
+        data: {
+          tenantId: session.user.tenantId,
+          capaId,
+          sequence,
+          description: parsed.data.description,
+          owner: parsed.data.owner,
+          ownerId: parsed.data.ownerId ?? null,
+          dueDate: new Date(parsed.data.dueDate),
+          status: "pending",
+          createdBy: session.user.name,
+          createdById: session.user.id,
+        },
+      });
+      await syncCorrectiveActions(tx, capaId, session.user.tenantId);
+      return item;
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: ACTION_ITEMS_AUDIT_MODULE,
+        action: "CAPA_ACTION_ITEM_ADDED",
+        recordId: capaId,
+        recordTitle: (capa.reference ?? capa.description).slice(0, 80),
+        newValue: JSON.stringify({
+          itemId: created.id,
+          sequence: created.sequence,
+          description: created.description.slice(0, 200),
+          owner: created.owner,
+          dueDate: created.dueDate.toISOString(),
+        }),
+      },
+    });
+
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${capaId}`);
+    return { success: true, data: created };
+  } catch (err) {
+    console.error("[action] addActionItem failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to add action item") };
+  }
+}
+
+/**
+ * Partial update on an action item. Lock behaviour:
+ *   - terminal CAPA (closed/rejected): all updates blocked
+ *   - locked-non-terminal CAPA (pending_qa_review / pending_verification):
+ *     ONLY status-only updates allowed (to "complete" or "skipped")
+ *   - other CAPA states: full update allowed
+ *
+ * Auto-invalidate: if a "complete" item's description / owner / dueDate
+ * change, status reverts to pending and completion fields clear â€” the
+ * completion attestation no longer covers the new content. Audit row
+ * CAPA_ACTION_ITEM_INVALIDATED_BY_EDIT captures the cascade.
+ *
+ * Completion + skip transitions both require completionNotes. The
+ * pending â†’ in_progress transition is the only one that doesn't.
+ */
+export async function updateActionItem(
+  itemId: string,
+  input: z.input<typeof UpdateActionItemSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = UpdateActionItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const existing = await prisma.cAPAActionItem.findFirst({
+    where: { id: itemId, tenantId: session.user.tenantId },
+    include: {
+      capa: { select: { id: true, status: true, reference: true, description: true } },
+    },
+  });
+  if (!existing) return { success: false, error: "Action item not found" };
+
+  // Determine what kind of update is being requested.
+  const isStatusOnlyUpdate =
+    parsed.data.status !== undefined &&
+    parsed.data.description === undefined &&
+    parsed.data.owner === undefined &&
+    parsed.data.ownerId === undefined &&
+    parsed.data.dueDate === undefined;
+  const targetIsCompleteOrSkipped =
+    parsed.data.status === "complete" || parsed.data.status === "skipped";
+
+  // Lock checks.
+  if (isTerminalStatus(existing.capa.status)) {
+    return { success: false, error: ACTION_ITEMS_TERMINAL_MESSAGE };
+  }
+  if (LOCKED_CAPA_STATUSES.has(existing.capa.status)) {
+    if (!isStatusOnlyUpdate || !targetIsCompleteOrSkipped) {
+      return {
+        success: false,
+        error: ACTION_ITEMS_LOCKED_MESSAGE,
+      };
+    }
+  }
+
+  // Completion / skip transition: completionNotes required.
+  if (targetIsCompleteOrSkipped) {
+    if (!parsed.data.completionNotes || parsed.data.completionNotes.trim().length < 5) {
+      return {
+        success: false,
+        error: "Completion notes are required (â‰¥ 5 chars) when marking complete or skipped.",
+      };
+    }
+  }
+
+  // Auto-invalidate detection â€” only fires when CAPA is unlocked AND a
+  // content field is changing AND the item is currently complete.
+  const descChanged =
+    parsed.data.description !== undefined &&
+    parsed.data.description !== existing.description;
+  const ownerChanged =
+    (parsed.data.owner !== undefined && parsed.data.owner !== existing.owner) ||
+    (parsed.data.ownerId !== undefined && parsed.data.ownerId !== existing.ownerId);
+  const dueDateChanged =
+    parsed.data.dueDate !== undefined &&
+    new Date(parsed.data.dueDate).toISOString() !== existing.dueDate.toISOString();
+  const shouldInvalidate =
+    existing.status === "complete" &&
+    (descChanged || ownerChanged || dueDateChanged) &&
+    parsed.data.status === undefined;
+
+  // Build the update payload incrementally.
+  const data: Prisma.CAPAActionItemUpdateInput = {};
+  if (parsed.data.description !== undefined) data.description = parsed.data.description;
+  if (parsed.data.owner !== undefined) data.owner = parsed.data.owner;
+  if (parsed.data.ownerId !== undefined) {
+    data.ownerUser = parsed.data.ownerId
+      ? { connect: { id: parsed.data.ownerId } }
+      : { disconnect: true };
+  }
+  if (parsed.data.dueDate !== undefined) data.dueDate = new Date(parsed.data.dueDate);
+
+  if (parsed.data.status !== undefined) {
+    data.status = parsed.data.status;
+    if (targetIsCompleteOrSkipped) {
+      data.completedBy = session.user.name;
+      data.completedByUser = { connect: { id: session.user.id } };
+      data.completedAt = new Date();
+      data.completionNotes = parsed.data.completionNotes!.trim();
+    } else {
+      // Moving back to pending / in_progress clears completion attribution.
+      data.completedBy = null;
+      data.completedByUser = { disconnect: true };
+      data.completedAt = null;
+      data.completionNotes = null;
+    }
+  } else if (shouldInvalidate) {
+    data.status = "pending";
+    data.completedBy = null;
+    data.completedByUser = { disconnect: true };
+    data.completedAt = null;
+    data.completionNotes = null;
+  }
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.cAPAActionItem.update({
+        where: { id: itemId },
+        data,
+      });
+      await syncCorrectiveActions(tx, existing.capaId, session.user.tenantId);
+      return u;
+    });
+
+    // Audit rows â€” main update + paired status-change + paired
+    // invalidation row when each fires.
+    const changedFields: string[] = [];
+    if (descChanged) changedFields.push("description");
+    if (ownerChanged) changedFields.push("owner");
+    if (dueDateChanged) changedFields.push("dueDate");
+    if (parsed.data.status !== undefined) changedFields.push("status");
+
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: ACTION_ITEMS_AUDIT_MODULE,
+        action: "CAPA_ACTION_ITEM_UPDATED",
+        recordId: existing.capa.id,
+        recordTitle: (existing.capa.reference ?? existing.capa.description).slice(0, 80),
+        oldValue: JSON.stringify({
+          itemId,
+          description: existing.description.slice(0, 200),
+          owner: existing.owner,
+          dueDate: existing.dueDate.toISOString(),
+          status: existing.status,
+        }),
+        newValue: JSON.stringify({ changedFields }),
+      },
+    });
+
+    if (parsed.data.status !== undefined && parsed.data.status !== existing.status) {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: ACTION_ITEMS_AUDIT_MODULE,
+          action: "CAPA_ACTION_ITEM_STATUS_CHANGED",
+          recordId: existing.capa.id,
+          recordTitle: (existing.capa.reference ?? existing.capa.description).slice(0, 80),
+          oldValue: existing.status,
+          newValue: JSON.stringify({
+            itemId,
+            from: existing.status,
+            to: parsed.data.status,
+            completedBy: targetIsCompleteOrSkipped ? session.user.name : null,
+            notes: parsed.data.completionNotes ?? null,
+          }),
+        },
+      });
+    }
+
+    if (shouldInvalidate) {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: ACTION_ITEMS_AUDIT_MODULE,
+          action: "CAPA_ACTION_ITEM_INVALIDATED_BY_EDIT",
+          recordId: existing.capa.id,
+          recordTitle: (existing.capa.reference ?? existing.capa.description).slice(0, 80),
+          newValue: JSON.stringify({ itemId, changedFields }),
+        },
+      });
+    }
+
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${existing.capa.id}`);
+    return { success: true, data: updated };
+  } catch (err) {
+    console.error("[action] updateActionItem failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to update action item") };
+  }
+}
+
+/**
+ * Hard-delete only allowed while no item on the CAPA has been completed
+ * (i.e. the CAPA is still in open or in_progress AND this item is not
+ * complete). Otherwise the item must be soft-deleted via
+ * status="skipped" with a documented reason so the audit chain stays
+ * intact.
+ */
+export async function deleteActionItem(
+  itemId: string,
+  input: z.input<typeof DeleteActionItemSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = DeleteActionItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const existing = await prisma.cAPAActionItem.findFirst({
+    where: { id: itemId, tenantId: session.user.tenantId },
+    include: {
+      capa: { select: { id: true, status: true, reference: true, description: true } },
+    },
+  });
+  if (!existing) return { success: false, error: "Action item not found" };
+
+  if (LOCKED_CAPA_STATUSES.has(existing.capa.status)) {
+    return {
+      success: false,
+      error: isTerminalStatus(existing.capa.status)
+        ? ACTION_ITEMS_TERMINAL_MESSAGE
+        : ACTION_ITEMS_LOCKED_MESSAGE,
+    };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.cAPAActionItem.delete({ where: { id: itemId } });
+      await syncCorrectiveActions(tx, existing.capaId, session.user.tenantId);
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: ACTION_ITEMS_AUDIT_MODULE,
+        action: "CAPA_ACTION_ITEM_DELETED",
+        recordId: existing.capa.id,
+        recordTitle: (existing.capa.reference ?? existing.capa.description).slice(0, 80),
+        oldValue: JSON.stringify({
+          itemId,
+          description: existing.description.slice(0, 200),
+          status: existing.status,
+        }),
+        newValue: JSON.stringify({ reason: parsed.data.reason }),
+      },
+    });
+
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${existing.capa.id}`);
+    return { success: true, data: { id: itemId } };
+  } catch (err) {
+    console.error("[action] deleteActionItem failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to delete action item") };
+  }
+}
+
+/**
+ * Bulk reorder. Accepts a complete or partial id list â€” items present
+ * are renumbered 1..N in the supplied order; items omitted keep their
+ * existing sequence (shifted to start at N+1). Blocked once CAPA is in
+ * LOCKED_CAPA_STATUSES.
+ */
+export async function reorderActionItems(
+  capaId: string,
+  input: z.input<typeof ReorderSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = ReorderSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const lookup = await getCAPAForActionItemOp(capaId, session.user.tenantId);
+  if (!lookup.ok) return { success: false, error: lookup.error };
+  const { capa } = lookup;
+
+  if (LOCKED_CAPA_STATUSES.has(capa.status)) {
+    return {
+      success: false,
+      error: isTerminalStatus(capa.status)
+        ? ACTION_ITEMS_TERMINAL_MESSAGE
+        : ACTION_ITEMS_LOCKED_MESSAGE,
+    };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Verify all ids belong to this CAPA + tenant before mutating.
+      const items = await tx.cAPAActionItem.findMany({
+        where: { capaId, tenantId: session.user.tenantId },
+        select: { id: true },
+      });
+      const tenantItemIds = new Set(items.map((i) => i.id));
+      for (const id of parsed.data.orderedIds) {
+        if (!tenantItemIds.has(id)) {
+          throw new Error(`Action item ${id} does not belong to this CAPA`);
+        }
+      }
+      // Renumber: ordered ids get 1..N. The two-pass dance avoids hitting
+      // the (capaId, sequence) implicit ordering during the update.
+      // Phase 1: temporarily set them to negative numbers so unique-like
+      // conflicts can't fire even if a future @@unique is added.
+      for (let i = 0; i < parsed.data.orderedIds.length; i++) {
+        await tx.cAPAActionItem.update({
+          where: { id: parsed.data.orderedIds[i] },
+          data: { sequence: -(i + 1) },
+        });
+      }
+      // Phase 2: flip to the positive target sequences.
+      for (let i = 0; i < parsed.data.orderedIds.length; i++) {
+        await tx.cAPAActionItem.update({
+          where: { id: parsed.data.orderedIds[i] },
+          data: { sequence: i + 1 },
+        });
+      }
+      await syncCorrectiveActions(tx, capaId, session.user.tenantId);
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: ACTION_ITEMS_AUDIT_MODULE,
+        action: "CAPA_ACTION_ITEM_REORDERED",
+        recordId: capaId,
+        recordTitle: (capa.reference ?? capa.description).slice(0, 80),
+        newValue: JSON.stringify({ newOrder: parsed.data.orderedIds }),
+      },
+    });
+
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${capaId}`);
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] reorderActionItems failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to reorder action items") };
+  }
+}
+
+/**
+ * Client-callable read for the ActionItemsSection UI. Mirrors the
+ * loadApprovalsForCAPA / loadCommentsForCAPA pattern. Tenant-scoped
+ * via the parent-CAPA existence check.
+ */
+export async function loadActionItemsForCAPA(
+  capaId: string,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const capa = await prisma.cAPA.findFirst({
+    where: { id: capaId, tenantId: session.user.tenantId },
+    select: { id: true },
+  });
+  if (!capa) return { success: false, error: "CAPA not found" };
+  const items = await prisma.cAPAActionItem.findMany({
+    where: { capaId, tenantId: session.user.tenantId },
+    orderBy: { sequence: "asc" },
+  });
+  return { success: true, data: items };
+}
+
+// Used in the actions/capas.ts barrel.
+export type ActionItemStatusType = ActionItemStatus;

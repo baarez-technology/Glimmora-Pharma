@@ -54,7 +54,7 @@ npm run db:seed             # populates seed users (see Test credentials)
 npm run dev                 # starts on http://localhost:3000
 ```
 
-First request bootstraps NextAuth's JWT session. Logged-out users are bounced to `/login` by `proxy.ts` (the centralized auth middleware).
+First request bootstraps NextAuth's JWT session. Logged-out users are bounced to `/login` by `middleware.ts` (the centralized auth middleware).
 
 ---
 
@@ -106,7 +106,7 @@ Glimmora-Pharma/
 │       ├── auth/[...nextauth].ts # NextAuth Credentials provider + MFA flow
 │       ├── auth/me.ts            # Session reader
 │       └── debug-env.ts          # Dev-only diagnostic (404 in prod)
-├── proxy.ts                      # Auth gating middleware (Next 16 "proxy")
+├── middleware.ts                 # Auth gating middleware (JWT gate + /admin role check)
 ├── prisma/
 │   ├── schema.prisma             # 23 models — Tenant, User, CAPA, FDA483Event, etc.
 │   ├── migrations/               # Migration history
@@ -142,7 +142,7 @@ Glimmora-Pharma/
 **Key conventions:**
 - `src/actions/` → writes (`"use server"`, returns `ActionResult`); always paired with an audit-log entry.
 - `src/lib/queries/` → reads (`cache()`-wrapped Prisma calls).
-- Each Server Component page calls `requireAuth()` to obtain the session and uses `session.user.tenantId` to scope queries. Defense in depth: `proxy.ts` already gates the route.
+- Each Server Component page calls `requireAuth()` to obtain the session and uses `session.user.tenantId` to scope queries. Defense in depth: `middleware.ts` already gates the route.
 - A subset of mutations enforces an additional **tenant scope check** before mutating by id (defense against IDOR; see Wave 1 in the migration history).
 
 ---
@@ -168,7 +168,7 @@ When a super_admin flips a tenant's MFA from off → on, `Tenant.sessionsValidAf
 
 ### Route gating
 
-- `proxy.ts` (the Next 16 middleware) reads the JWT via `getToken` and:
+- `middleware.ts` (the Next 16 middleware) reads the JWT via `getToken` and:
   - Redirects no-token requests to `/login?callbackUrl=<original>`.
   - Restricts `/admin/*` to `super_admin` or `customer_admin` (everyone else → `/`).
 - Pages still call `requireAuth()` for the session object (defense in depth and to obtain `tenantId` for scoped queries).

@@ -217,7 +217,7 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
       {/* Header */}
       <header className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="page-title">Executive Dashboard</h1>
+          <h1 className="page-title">Dashboard</h1>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <p className="page-subtitle">{currentTenant?.name || companyName || "Pharma Glimmora"} &middot; {dayjs().format("MMMM YYYY")}</p>
             {currentTenant?.plan && <Badge variant={currentTenant.plan === "enterprise" ? "green" : currentTenant.plan === "professional" ? "blue" : "gray"}>{currentTenant.plan}</Badge>}
@@ -227,7 +227,7 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
           <Dropdown value={timeFilter} onChange={setTimeFilter} width="w-36" options={[{ value: "7", label: "Last 7 days" }, { value: "30", label: "Last 30 days" }, { value: "60", label: "Last 60 days" }, { value: "90", label: "Last 90 days" }, { value: "all", label: "All time" }]} />
           {isAdmin && <Dropdown placeholder="All sites" value={siteFilter} onChange={setSiteFilter} width="w-36" options={[{ value: "", label: "All sites" }, ...visibleSites.map((s) => ({ value: s.id, label: s.name }))]} />}
           <Dropdown placeholder="All severities" value={sevFilter} onChange={setSevFilter} width="w-32" options={[{ value: "", label: "All severities" }, { value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Low", label: "Low" }]} />
-          {(siteFilter || sevFilter) && <Button variant="ghost" size="sm" onClick={() => { setSiteFilter(""); setSevFilter(""); }}>Clear</Button>}
+          {(siteFilter || sevFilter) && <Button variant="ghost" size="sm" onClick={() => { setSiteFilter(""); setSevFilter(""); }}>Clear filters</Button>}
         </div>
       </header>
 
@@ -360,7 +360,7 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
             {[
               { label: "Gap Assessment", path: "/gap-assessment", Icon: Search, badge: filteredFindings.filter((f) => f.status !== "Closed").length, color: "#ef4444" },
               { label: "CAPA Tracker", path: "/capa", Icon: ClipboardCheck, badge: openCAPAs.length, color: overdueCAPAs.length > 0 ? "#ef4444" : "#f59e0b", tip: `${openCAPAs.length} open CAPAs` },
-              { label: "CSV / CSA", path: "/csv-csa", Icon: Database, badge: csvHighRisk, color: "#f59e0b" },
+              { label: "CSV/CSA", path: "/csv-csa", Icon: Database, badge: csvHighRisk, color: "#f59e0b" },
               { label: "FDA 483", path: "/fda-483", Icon: FileWarning, badge: fda483Events.filter((e) => e.status !== "Closed").length, color: "#ef4444" },
             ].map((lk) => (
               <button key={lk.path} type="button" onClick={() => router.push(lk.path)} title={lk.tip} className="w-full flex items-center justify-between p-2 rounded-lg text-[12px] cursor-pointer border-none bg-transparent hover:bg-(--brand-muted) transition-colors text-left">

@@ -86,14 +86,52 @@ export async function signAndCloseCAPA(
       risk: true,
       reference: true,
       description: true,
+      status: true,
+      verifiedAt: true,
     },
   });
   if (!existing) return { success: false, error: "CAPA not found" };
+
+  // SME Section 1, Stage 5 (FULL) — closure requires an independent
+  // verification to have happened first. The CAPA must be in
+  // pending_verification AND verifiedAt must be populated. Audit any
+  // attempted closure that bypasses this so an inspector can see who
+  // tried to short-circuit the SoD invariant.
+  if (existing.status !== "pending_verification" || existing.verifiedAt === null) {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "CAPA / Verification",
+          action: "CAPA_CLOSE_BLOCKED_NOT_VERIFIED",
+          recordId: id,
+          recordTitle: existing.description.slice(0, 80),
+          newValue: JSON.stringify({
+            currentStatus: existing.status,
+            verifiedAt: existing.verifiedAt,
+          }),
+        },
+      });
+    } catch (err) {
+      console.error("[action] failed to write CAPA_CLOSE_BLOCKED_NOT_VERIFIED audit:", err);
+    }
+    return {
+      success: false,
+      error:
+        "Cannot close CAPA — independent verification is required first. An eligible verifier (distinct from creator and from every approver) must sign the verification step.",
+    };
+  }
   // CHANGE CONTROL HIDDEN — ccLinks query removed from the Promise.all
-  // since the 6.4 gate that consumed it is bypassed. The destructure is
-  // back to two items. To re-enable: restore the third query + the
-  // ccLinks identifier here, plus the gate block below.
-  const [approvals, comments] = await Promise.all([
+  // since the 6.4 gate that consumed it is bypassed. To re-enable:
+  // restore the third query + the ccLinks identifier here, plus the
+  // gate block below.
+  // SME Section 1, Stage 4 (FULL) — also fetch the structured action
+  // items for the incomplete-actions gate AND for binding into the
+  // closure SignedRecord's contentHash.
+  const [approvals, comments, actionItems] = await Promise.all([
     prisma.cAPAApproval.findMany({
       // revokedAt: null filters out approvals that were soft-revoked —
       // those slots are open again and don't count toward the gate.
@@ -107,6 +145,18 @@ export async function signAndCloseCAPA(
     prisma.cAPAComment.findMany({
       where: { capaId: id, tenantId: session.user.tenantId },
       select: { isConcern: true, resolvedAt: true, deletedAt: true },
+    }),
+    prisma.cAPAActionItem.findMany({
+      where: { capaId: id, tenantId: session.user.tenantId },
+      orderBy: { sequence: "asc" },
+      select: {
+        id: true,
+        sequence: true,
+        description: true,
+        status: true,
+        completedById: true,
+        completedAt: true,
+      },
     }),
     // prisma.cAPAChangeControlLink.findMany({
     //   where: { capaId: id, tenantId: session.user.tenantId },
@@ -123,6 +173,46 @@ export async function signAndCloseCAPA(
     //   },
     // }),
   ]);
+  // SME Section 1, Stage 4 (FULL) — incomplete-actions gate. Every
+  // structured action item must be in a terminal state (complete or
+  // skipped) before the CAPA can close. "pending" or "in_progress"
+  // items indicate unfinished commitments — closure would be premature.
+  // Empty action list is acceptable (legacy CAPAs created before the
+  // action-items migration may have none).
+  const incompleteActions = actionItems.filter(
+    (a) => a.status !== "complete" && a.status !== "skipped",
+  );
+  if (incompleteActions.length > 0) {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "CAPA / Action Items",
+          action: "CAPA_CLOSE_BLOCKED_INCOMPLETE_ACTIONS",
+          recordId: id,
+          recordTitle: existing.description.slice(0, 80),
+          newValue: JSON.stringify({
+            incompleteItemIds: incompleteActions.map((a) => a.id),
+            incompleteCount: incompleteActions.length,
+          }),
+        },
+      });
+    } catch (err) {
+      console.error("[action] failed to write CAPA_CLOSE_BLOCKED_INCOMPLETE_ACTIONS audit:", err);
+    }
+    const itemList = incompleteActions
+      .slice(0, 5)
+      .map((a) => `#${a.sequence}: ${a.description.slice(0, 40)}`)
+      .join("; ");
+    return {
+      success: false,
+      error: `Cannot close CAPA — ${incompleteActions.length} action item${incompleteActions.length === 1 ? "" : "s"} still pending or in progress. Complete or skip each item before closing. ${itemList}${incompleteActions.length > 5 ? "; …" : ""}`,
+    };
+  }
+
   const progress = evaluateApprovalProgress(
     existing.risk as ApprovalTier,
     approvals,
@@ -241,6 +331,24 @@ export async function signAndCloseCAPA(
       riskLevel: existing.risk,
       closedAt: now,
       closingComment,
+      // SME Section 1, Stage 4 (FULL) — bind the closure signature to
+      // the snapshot of every action item. Completion attribution
+      // (completedById + completedAt) is included so an inspector can
+      // reconstruct WHO completed WHICH action plus WHEN, all anchored
+      // by the closure contentHash.
+      actionItemsSummary: actionItems.map((a) => ({
+        id: a.id,
+        sequence: a.sequence,
+        description: a.description,
+        status: a.status,
+        completedById: a.completedById,
+        completedAt: a.completedAt ? a.completedAt.toISOString() : null,
+      })),
+      // SME Section 1, Stage 6 (FULL) — bind the 90-day commitment.
+      // effectivenessDue is the existing `effectivenessDate` column
+      // populated atomically with closure (legacy name, semantic
+      // "due-date for the effectiveness review").
+      effectivenessDueAt: effectivenessDue,
     });
     const contentHash = computeContentHash(canonicalContent);
     const contentSummary = `${existing.reference ?? existing.id} closed by ${session.user.name} (${session.user.role}) — risk: ${existing.risk}`;
@@ -291,7 +399,7 @@ export async function signAndCloseCAPA(
     if (capa.findingId) {
       await prisma.finding.update({
         where: { id: capa.findingId, tenantId: session.user.tenantId },
-        data: { status: "Closed" },
+        data: { status: "closed" },
       });
     }
 

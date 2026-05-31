@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { BCRYPT_COST } from "@/lib/passwords";
+import { sanitizeServerError } from "@/lib/errors";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -79,16 +80,8 @@ export async function createSite(
     if ((err as { code?: string }).code === "P2002") {
       return { success: false, error: "A site with this name already exists" };
     }
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] createSite failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to create site"
-          : `Failed to create site: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] createSite failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to create site") };
   }
 }
 
@@ -133,16 +126,8 @@ export async function updateSite(
     if ((err as { code?: string }).code === "P2002") {
       return { success: false, error: "A site with this name already exists" };
     }
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] updateSite failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to update site"
-          : `Failed to update site: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] updateSite failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to update site") };
   }
 }
 
@@ -151,7 +136,7 @@ export async function deleteSite(id: string): Promise<ActionResult> {
   if (!isAdmin(session.user.role)) {
     return { success: false, error: "Access denied" };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.site.findFirst({
       where: { id, tenantId: session.user.tenantId },
@@ -244,7 +229,7 @@ export async function updateUser(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   // High-value: blocks customer_admin of tenant A from mutating users in tenant B.
   if (session.user.role !== "super_admin") {
     const owned = await prisma.user.findFirst({
@@ -285,7 +270,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   if (!isAdmin(session.user.role)) {
     return { success: false, error: "Access denied" };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.user.findFirst({
       where: { id, tenantId: session.user.tenantId },

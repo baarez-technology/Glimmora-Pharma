@@ -36,6 +36,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
 import { Toggle } from "@/components/ui/Toggle";
 import { Badge } from "@/components/ui/Badge";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 
 const ROLES = [
   { value: "super_admin", label: "Super Admin" },
@@ -324,16 +325,8 @@ function UserForm({
                         {site.location} &middot; {site.gmpScope}
                       </p>
                     </div>
-                    <Badge
-                      variant={
-                        site.risk === "HIGH"
-                          ? "red"
-                          : site.risk === "MEDIUM"
-                            ? "amber"
-                            : "green"
-                      }
-                    >
-                      {site.risk}
+                    <Badge variant={getSeverityVariant(site.risk, "generic")}>
+                      {normalizeSeverityForDisplay(site.risk, "generic") ?? site.risk}
                     </Badge>
                   </label>
                 ))}

@@ -10,6 +10,13 @@ export const CAPA_STATUS_VALUES = [
   "open",
   "in_progress",
   "pending_qa_review",
+  // SME Section 1, Stage 5 (FULL) — Independent QA Verification.
+  // Inserted between pending_qa_review and closed: once all approvals
+  // land, approveCAPA auto-flips status to pending_verification. From
+  // here the verifier (distinct from creator and from every approver)
+  // mints a CAPA_VERIFICATION SignedRecord via verifyCAPA. Closure
+  // (signAndCloseCAPA) refuses to proceed unless verifiedAt is set.
+  "pending_verification",
   "closed",
   "rejected",
 ] as const;
@@ -20,6 +27,7 @@ export const STATUS_LABEL: Record<CAPAStatus, string> = {
   open: "Open",
   in_progress: "In Progress",
   pending_qa_review: "Pending QA Review",
+  pending_verification: "Pending Verification",
   closed: "Closed",
   rejected: "Rejected",
 };

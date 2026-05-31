@@ -5,8 +5,9 @@ import { chartDefaults } from "@/lib/chartColors";
 import type { DriftAlert, DriftSeverity, DriftStatus } from "@/types/agi";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/severity";
 
-function driftSevBadge(s: DriftSeverity) { return <Badge variant={s === "Critical" ? "red" : s === "Major" ? "amber" : "gray"}>{s}</Badge>; }
+function driftSevBadge(s: DriftSeverity) { return <Badge variant={getSeverityVariant(s, "fda")}>{normalizeSeverityForDisplay(s, "fda") ?? s}</Badge>; }
 function driftStatBadge(s: DriftStatus) { const m: Record<DriftStatus, "blue" | "amber" | "green"> = { Open: "blue", Investigating: "amber", Resolved: "green" }; return <Badge variant={m[s]}>{s}</Badge>; }
 
 export interface DriftMonitoringTabProps {

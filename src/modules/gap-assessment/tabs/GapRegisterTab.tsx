@@ -15,9 +15,11 @@ import type { CAPA } from "@/store/capa.slice";
 import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 
 /* ── Helpers ── */
 
@@ -28,8 +30,7 @@ const FRAMEWORK_LABELS: Record<string, string> = {
 };
 
 function severityBadge(s: FindingSeverity) {
-  const m: Record<FindingSeverity, string> = { Critical: "badge badge-red", High: "badge badge-amber", Low: "badge badge-green" };
-  return <span className={m[s]}>{s}</span>;
+  return <Badge variant={getSeverityVariant(s, "generic")}>{normalizeSeverityForDisplay(s, "generic") ?? s}</Badge>;
 }
 function statusBadge(s: FindingStatus) {
   const m: Record<string, string> = { Open: "badge badge-blue", "In Progress": "badge badge-amber", Closed: "badge badge-green" };
@@ -175,7 +176,7 @@ export function GapRegisterTab({
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 max-w-[260px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-(--text-muted)" aria-hidden="true" />
-          <input type="search" className="input pl-8 text-[12px]" placeholder="Search findings..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} aria-label="Search findings" />
+          <input type="search" className="input pl-8 text-[12px]" placeholder="Search findings…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} aria-label="Search findings" />
         </div>
         {renderFilters(true)}
         {!isViewOnly && <Button variant="primary" size="sm" icon={Plus} onClick={onAddOpen}>Report Gap</Button>}
@@ -219,7 +220,7 @@ export function GapRegisterTab({
                 <tr key={f.id} onClick={() => onSelectFinding(f)} className="cursor-pointer" aria-selected={selectedFinding?.id === f.id}
                   style={selectedFinding?.id === f.id ? { background: isDark ? "#0c2f5a" : "#eff6ff" } : {}}>
                   <th scope="row">
-                    <div className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{f.id}</div>
+                    <div className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{f.reference ?? f.id.slice(0, 8)}</div>
                   </th>
                   {showSiteColumn && <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{siteName(f.siteId)}</td>}
                   <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{f.area}</td>

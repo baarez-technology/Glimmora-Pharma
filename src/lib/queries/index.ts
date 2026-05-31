@@ -16,7 +16,7 @@ export {
   getChangeControlsWithDeleted,
 } from "./change-control";
 export { getDeviations, getDeviation } from "./deviations";
-export { getFDA483Events, getFDA483Event, getFDA483Stats } from "./fda483";
+export { getFDA483Events, getFDA483Event, getFDA483Stats, getFDA483EventAuditLogs } from "./fda483";
 export { getSystems, getSystem, getSystemsStats, getRTMStats } from "./systems";
 export { getRAIDItems, getDocuments, getDocumentStats, getCAPAEvidenceFiles, getAuditLogs, getAGIActivityLogs } from "./governance";
 export { getInspections, getInspection, getReadinessStats, getOverallReadiness, getPlaybooks, computeReadinessScore } from "./inspections";

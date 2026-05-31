@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import {
   FileText, Upload, Trash2, CheckCircle2, X, File,
-  FileSpreadsheet, Image, Download,
+  FileSpreadsheet, Image, Download, ExternalLink,
 } from "lucide-react";
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
@@ -28,7 +28,10 @@ export interface LinkedDocument {
   fileSize: string;
   uploadedBy: string;
   uploadedByRole: string;
-  uploadedAt: string;
+  // Server-authoritative (FDA483Document.createdAt @default(now()), mapped in
+  // FDA483Page.tsx:162). Optional because optimistic client-side inserts
+  // don't carry it — the next router.refresh() supplies the real value.
+  uploadedAt?: string;
   version: string;
   status: DocStatus;
   linkedTo: { module: string; recordId: string; recordTitle: string };
@@ -104,7 +107,12 @@ export interface DocumentUploadProps {
   recordTitle: string;
   module: string;
   existingDocs: LinkedDocument[];
-  onUpload: (doc: LinkedDocument) => void;
+  /** Persist the attached doc. May be async; if it throws (e.g. the
+   *  server action rejects, or Next.js trips the request body-size limit
+   *  before the action runs) the success popup is suppressed so the user
+   *  isn't shown a misleading "Document attached" confirmation. The caller
+   *  owns surfacing the error toast. */
+  onUpload: (doc: LinkedDocument) => void | Promise<void>;
   onDelete?: (docId: string) => void;
   onApprove?: (docId: string, approvedBy: string) => void;
   readOnly?: boolean;
@@ -163,7 +171,7 @@ export function DocumentUpload({
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function handleAttach() {
+  async function handleAttach() {
     if (!selectedFile || !user) return;
     const version = existingMatch && versionMode === "new_version"
       ? nextVersion(existingDocs, selectedFile.name)
@@ -181,7 +189,6 @@ export function DocumentUpload({
       fileSize: formatSize(selectedFile.size),
       uploadedBy: user.name,
       uploadedByRole: user.role,
-      uploadedAt: new Date().toISOString(),
       version,
       status: "current",
       linkedTo: { module, recordId, recordTitle },
@@ -189,7 +196,16 @@ export function DocumentUpload({
       dataUrl: selectedFile.dataUrl || undefined,
     };
 
-    onUpload(doc);
+    // Await the upload so we only audit + show the success popup once the
+    // write has actually landed. If onUpload throws (server-action failure
+    // or Next.js body-size limit), the parent surfaces the error toast and
+    // we abort the success path — no misleading "Document attached" popup.
+    try {
+      await onUpload(doc);
+    } catch {
+      return;
+    }
+
     auditLog({
       action: "DOCUMENT_ATTACHED",
       module,
@@ -252,7 +268,7 @@ export function DocumentUpload({
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] font-medium truncate" style={{ color: "var(--text-primary)" }}>{doc.fileName}</p>
                   <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    Uploaded by {doc.uploadedBy} · {dayjs.utc(doc.uploadedAt).tz(timezone).format("DD/MM/YYYY")} · {doc.version} · {doc.fileSize}
+                    Uploaded by {doc.uploadedBy} · {doc.uploadedAt ? dayjs.utc(doc.uploadedAt).tz(timezone).format("DD/MM/YYYY") : "—"} · {doc.version} · {doc.fileSize}
                   </p>
                   {doc.description && <p className="text-[10px] italic mt-0.5" style={{ color: "var(--text-secondary)" }}>{doc.description}</p>}
                   {doc.approvedBy && (
@@ -263,6 +279,17 @@ export function DocumentUpload({
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {statusBadge(doc.status)}
+                  <button
+                    type="button"
+                    onClick={() => { if (doc.dataUrl) window.open(doc.dataUrl, "_blank", "noopener,noreferrer"); }}
+                    disabled={!doc.dataUrl}
+                    title={doc.dataUrl ? `View ${doc.fileName}` : "File not available to view"}
+                    aria-label={`View ${doc.fileName}`}
+                    className="p-1 rounded cursor-pointer border-none bg-transparent hover:bg-[rgba(14,165,233,0.1)] disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ color: "var(--brand)" }}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => downloadLinkedDocument(doc)}

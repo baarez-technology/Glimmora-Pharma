@@ -32,6 +32,47 @@ type PrismaCAPA = {
   alignmentOverrideById: string | null;
   alignmentOverrideAt: Date | null;
   alignmentOverrideReason: string | null;
+  rcaApproved: boolean | null;
+  rcaReviewedBy: string | null;
+  rcaReviewedById: string | null;
+  rcaReviewedAt: Date | null;
+  rcaReviewNotes: string | null;
+  rcaOverrideBy: string | null;
+  rcaOverrideById: string | null;
+  rcaOverrideAt: Date | null;
+  rcaOverrideReason: string | null;
+  verifiedBy: string | null;
+  verifiedById: string | null;
+  verifiedAt: Date | null;
+  verificationNotes: string | null;
+  verificationSignatureId: string | null;
+  // SME Stage 6 (FULL) — effectiveness review outcome.
+  effectivenessReviewedAt: Date | null;
+  effectivenessVerdict: string | null;
+  effectivenessReviewedBy: string | null;
+  effectivenessReviewedById: string | null;
+  effectivenessReviewNotes: string | null;
+  effectivenessSignatureId: string | null;
+  // SME Stage 4 (FULL) — optional include; present only when the row
+  // was fetched via getCAPA / getCAPAs which add actionItems.
+  actionItems?: Array<{
+    id: string;
+    capaId: string;
+    sequence: number;
+    description: string;
+    owner: string;
+    ownerId: string | null;
+    dueDate: Date;
+    status: string;
+    completedBy: string | null;
+    completedById: string | null;
+    completedAt: Date | null;
+    completionNotes: string | null;
+    createdAt: Date;
+    createdBy: string;
+    createdById: string | null;
+    updatedAt: Date;
+  }>;
   ccBlockOverrideReason: string | null;
   ccBlockOverrideById: string | null;
   ccBlockOverrideByName: string | null;
@@ -41,6 +82,17 @@ type PrismaCAPA = {
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
+  // Optional include — present only when the row was fetched via getCAPA
+  // / getCAPAs (which add the deviation relation per SME Stage 2 FULL).
+  // Mapper passes it through unchanged (Dates → ISO strings) so the
+  // Redux store carries the same shape.
+  deviation?: {
+    id: string;
+    title: string;
+    severity: string;
+    status: string;
+    createdAt: Date;
+  } | null;
 };
 
 export const STATUS_MAP: Record<string, CAPAStatus> = {
@@ -100,6 +152,60 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
       ? row.alignmentOverrideAt.toISOString()
       : undefined,
     alignmentOverrideReason: row.alignmentOverrideReason ?? undefined,
+    // SME Stage 3 (FULL) — RCA review fields. Null is meaningful for
+    // rcaApproved ("explicitly cleared" vs "never reviewed" both render
+    // the same "not reviewed" UI today, but the audit trail
+    // distinguishes them via CAPA_RCA_REVIEW_CLEARED events).
+    rcaApproved: row.rcaApproved,
+    rcaReviewedBy: row.rcaReviewedBy ?? undefined,
+    rcaReviewedById: row.rcaReviewedById ?? undefined,
+    rcaReviewedAt: row.rcaReviewedAt ? row.rcaReviewedAt.toISOString() : undefined,
+    rcaReviewNotes: row.rcaReviewNotes ?? undefined,
+    rcaOverrideBy: row.rcaOverrideBy ?? undefined,
+    rcaOverrideById: row.rcaOverrideById ?? undefined,
+    rcaOverrideAt: row.rcaOverrideAt ? row.rcaOverrideAt.toISOString() : undefined,
+    rcaOverrideReason: row.rcaOverrideReason ?? undefined,
+    // SME Stage 5 (FULL) — verification fields.
+    verifiedBy: row.verifiedBy ?? undefined,
+    verifiedById: row.verifiedById ?? undefined,
+    verifiedAt: row.verifiedAt ? row.verifiedAt.toISOString() : undefined,
+    verificationNotes: row.verificationNotes ?? undefined,
+    verificationSignatureId: row.verificationSignatureId ?? undefined,
+    // SME Stage 6 (FULL) — effectiveness review fields.
+    effectivenessReviewedAt: row.effectivenessReviewedAt
+      ? row.effectivenessReviewedAt.toISOString()
+      : undefined,
+    effectivenessVerdict:
+      row.effectivenessVerdict === "effective" ||
+      row.effectivenessVerdict === "ineffective" ||
+      row.effectivenessVerdict === "partial"
+        ? row.effectivenessVerdict
+        : undefined,
+    effectivenessReviewedBy: row.effectivenessReviewedBy ?? undefined,
+    effectivenessReviewedById: row.effectivenessReviewedById ?? undefined,
+    effectivenessReviewNotes: row.effectivenessReviewNotes ?? undefined,
+    effectivenessSignatureId: row.effectivenessSignatureId ?? undefined,
+    // SME Stage 4 (FULL) — structured action plan items.
+    actionItems: row.actionItems
+      ? row.actionItems.map((a) => ({
+          id: a.id,
+          capaId: a.capaId,
+          sequence: a.sequence,
+          description: a.description,
+          owner: a.owner,
+          ownerId: a.ownerId,
+          dueDate: a.dueDate.toISOString(),
+          status: a.status as "pending" | "in_progress" | "complete" | "skipped",
+          completedBy: a.completedBy,
+          completedById: a.completedById,
+          completedAt: a.completedAt ? a.completedAt.toISOString() : null,
+          completionNotes: a.completionNotes,
+          createdAt: a.createdAt.toISOString(),
+          createdBy: a.createdBy,
+          createdById: a.createdById,
+          updatedAt: a.updatedAt.toISOString(),
+        }))
+      : undefined,
     ccBlockOverrideReason: row.ccBlockOverrideReason ?? undefined,
     ccBlockOverrideById: row.ccBlockOverrideById ?? undefined,
     ccBlockOverrideByName: row.ccBlockOverrideByName ?? undefined,
@@ -108,6 +214,18 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
       : undefined,
     closedAt: row.closedAt ? row.closedAt.toISOString() : undefined,
     closedBy: row.closedBy ?? undefined,
+    createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
+    // null = relation included, no linked deviation; undefined = relation
+    // was not included in this query path. UI treats both as "no panel".
+    deviation: row.deviation
+      ? {
+          id: row.deviation.id,
+          title: row.deviation.title,
+          severity: row.deviation.severity,
+          status: row.deviation.status,
+          createdAt: row.deviation.createdAt.toISOString(),
+        }
+      : undefined,
   };
 }

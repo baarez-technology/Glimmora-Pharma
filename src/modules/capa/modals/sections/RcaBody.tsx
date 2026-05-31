@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/Badge";
 import type { CAPA } from "@/store/capa.slice";
+import { RcaReviewSection } from "./RcaReviewSection";
 
 /**
  * RCA tab body. Read-only display of the root cause analysis text +
@@ -105,6 +106,9 @@ export function RcaBody({ capa }: { capa: CAPA }) {
           No root cause analysis documented yet. Use Edit to add one (5 Whys, Fishbone, Fault Tree).
         </p>
       )}
+      {/* SME Section 1, Stage 3 (FULL) — RCA QA review section. Renders
+          below the RCA content so reviewers can read first, then act. */}
+      <RcaReviewSection capa={capa} />
     </div>
   );
 }

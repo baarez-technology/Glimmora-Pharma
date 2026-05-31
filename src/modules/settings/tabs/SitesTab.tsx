@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 
 const siteSchema = z.object({
   name: z.string().min(2, "Site name is required"),
@@ -362,16 +363,8 @@ export function SitesTab({ readOnly = false }: { readOnly?: boolean }) {
               header: "Risk",
               width: "w-[12%]",
               render: (s) => (
-                <Badge
-                  variant={
-                    s.risk === "HIGH"
-                      ? "red"
-                      : s.risk === "MEDIUM"
-                        ? "amber"
-                        : "green"
-                  }
-                >
-                  {s.risk}
+                <Badge variant={getSeverityVariant(s.risk, "generic")}>
+                  {normalizeSeverityForDisplay(s.risk, "generic") ?? s.risk}
                 </Badge>
               ),
             },

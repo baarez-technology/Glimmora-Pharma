@@ -7,6 +7,7 @@ import type { Finding } from "@/store/findings.slice";
 import type { CAPA } from "@/store/capa.slice";
 import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Badge } from "@/components/ui/Badge";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { Button } from "@/components/ui/Button";
 
 /* ── Props ── */
@@ -178,7 +179,7 @@ export function DIAuditPanel({ system, findings, capas, role, onNavigateGap, onN
                 <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>{f.requirement}</span>
               </div>
               <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-                <Badge variant={f.severity === "Critical" ? "red" : f.severity === "High" ? "amber" : "green"}>{f.severity}</Badge>
+                <Badge variant={getSeverityVariant(f.severity, "generic")}>{normalizeSeverityForDisplay(f.severity, "generic") ?? f.severity}</Badge>
                 <Badge variant={f.status === "Closed" ? "green" : f.status === "In Progress" ? "amber" : "blue"}>{f.status}</Badge>
               </div>
             </div>

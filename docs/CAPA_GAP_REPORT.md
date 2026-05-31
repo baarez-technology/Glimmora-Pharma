@@ -37,7 +37,7 @@ Discovery-only analysis of Glimmora-Pharma against the spec
 | `app/` | Next.js App Router. Layout groups `(admin)` and `(app)`. One App-Router API route at [app/api/evidence/files/[id]/route.ts](../app/api/evidence/files/[id]/route.ts). |
 | `pages/api/` | Pages Router. NextAuth catch-all + `/api/auth/me` only. |
 | `prisma/` | `schema.prisma` (single source of truth), 6 migrations through 2026-05-02, idempotent `seed.ts`, dev SQLite committed. |
-| `proxy.ts` | Next middleware (named `proxy`, not `middleware`) — auth + role gate. |
+| `middleware.ts` | Next middleware — JWT auth gate + `/admin/*` role gate. |
 | `src/components/` | `ui/` primitives, `layout/` shell, `shared/` widgets, `auth/`, `errors/` |
 | `src/modules/` | One folder per domain: `admin`, `capa`, `csv-csa`, `deviation`, `evidence`, `fda-483`, `gap-assessment`, `governance`, `inspection`, `readiness`, `agi-console`, `settings`, `audit-trail`, `dashboard` |
 | `src/store/` | 11 Redux slices + `persistence.ts` (debounced localStorage) |
@@ -53,7 +53,7 @@ Discovery-only analysis of Glimmora-Pharma against the spec
 - **Authenticated user shell** — [app/(app)/layout.tsx](../app/(app)/layout.tsx) → async server component → `<AppShell>`
 - **Admin shell** — [app/(admin)/layout.tsx](../app/(admin)/layout.tsx) → `"use client"` → `<AdminShell>`
 - **Auth catch-all** — [pages/api/auth/[...nextauth].ts](../pages/api/auth/[...nextauth].ts)
-- **Middleware** — [proxy.ts](../proxy.ts) — JWT gate + `/admin/*` role gate
+- **Middleware** — [middleware.ts](../middleware.ts) — JWT gate + `/admin/*` role gate
 - **Workers / cron** — **NONE.** No scheduled jobs, no background workers, no queue. (Material gap — see Stage 7 / Stage 9 findings.)
 - **CLI** — `prisma/seed.ts` and `scripts/{probe-evidence,probe-sanitize,test-mailer}.ts` for one-off ops only.
 

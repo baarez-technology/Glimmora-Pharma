@@ -6,23 +6,36 @@ import clsx from "clsx";
 import {
   Plus,
   AlertCircle,
+  LayoutDashboard,
+  ClipboardList,
+  GitBranch,
+  FileText,
+  History,
+  ArrowLeft,
+  Clock,
 } from "lucide-react";
 import type {
   FDA483Event as PrismaFDA483Event,
   FDA483Observation as PrismaObservation,
   FDA483Commitment as PrismaCommitment,
   FDA483Document as PrismaFDA483Document,
+  CAPA as PrismaCAPA,
 } from "@prisma/client";
 import dayjs from "@/lib/dayjs";
+import { getResponseDraft } from "@/lib/ai";
 import { useAppSelector } from "@/hooks/useAppSelector";
+import { useAppDispatch } from "@/hooks/useAppDispatch";
+import { setCAPAs } from "@/store/capa.slice";
+import { mapCAPAFromPrisma } from "@/lib/mappers/capaMapper";
 import { useRole } from "@/hooks/useRole";
 import { usePermissions } from "@/hooks/usePermissions";
-import { StatusGuide } from "@/components/shared";
+import { PageHeader, StatusGuide, TabBar, type Tab } from "@/components/shared";
 import { FDA483_EVENT_STATUSES } from "@/constants/statusTaxonomy";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
-import type { FDA483Event, EventStatus, Observation } from "@/types/fda483";
+import type { FDA483Event, EventStatus, Observation, Commitment } from "@/types/fda483";
+import { daysUntil, eventStatusBadge, getEffectiveEventStatus } from "./_shared";
 import {
   createFDA483Event,
   addObservation as addObservationServer,
@@ -34,30 +47,35 @@ import {
   raiseCAPAFromObservation,
 } from "@/actions/fda483";
 import { Button } from "@/components/ui/Button";
-import { Popup } from "@/components/ui/Popup";
+import { Badge } from "@/components/ui/Badge";
+import { useToast } from "@/components/ui/Toast";
 import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { NoSitesPopup } from "@/components/shared";
 
 import { EventsTab } from "./tabs/EventsTab";
-import { ObservationsTab } from "./tabs/ObservationsTab";
-import { ResponseTab } from "./tabs/ResponseTab";
-import { RCATab } from "./tabs/RCATab";
+import { OverviewTab } from "./tabs/OverviewTab";
+import { ObservationsListTab } from "./tabs/ObservationsListTab";
+import { InvestigationTab } from "./tabs/InvestigationTab";
+import { ResponseDetailTab } from "./tabs/ResponseDetailTab";
+import { AuditTab } from "./tabs/AuditTab";
+import { useEventDetailUrlState, type DetailTab } from "./useEventDetailUrlState";
 import { AddEventModal, type EventFormData } from "./modals/AddEventModal";
 import { AddObservationModal, type ObsFormData } from "./modals/AddObservationModal";
 import { AddCommitmentModal, type CommitFormData } from "./modals/AddCommitmentModal";
+import { CommitmentDetailModal } from "./modals/CommitmentDetailModal";
 import { SignSubmitModal } from "./modals/SignSubmitModal";
 
 /* ── Helpers ── */
 
-function daysLeft(d: string) {
-  return dayjs.utc(d).diff(dayjs(), "day");
+// daysLeft + getEffectiveStatus extracted to ./_shared.ts (daysUntil +
+// getEffectiveEventStatus). Local wrappers preserve the pre-refactor
+// call shape so existing render logic doesn't need rewriting.
+function daysLeft(d: string): number {
+  return daysUntil(d) ?? 0;
 }
 
 function getEffectiveStatus(e: FDA483Event): EventStatus {
-  if (e.status === "Closed") return "Closed";
-  if (e.status === "Response Submitted") return "Response Submitted";
-  if (daysLeft(e.responseDeadline) <= 15) return "Response Due";
-  return e.status;
+  return getEffectiveEventStatus(e.status, e.responseDeadline);
 }
 
 export function computeReadiness(e: FDA483Event): number {
@@ -74,13 +92,17 @@ export function computeReadiness(e: FDA483Event): number {
   return score;
 }
 
-type Step = 1 | 2 | 3 | 4;
-
 /* ── Server Component props ── */
 
 type PrismaEventWithRelations = PrismaFDA483Event & {
   observations: PrismaObservation[];
-  commitments: PrismaCommitment[];
+  // Commitments come with their source/relation includes (see getFDA483Event).
+  commitments: (PrismaCommitment & {
+    observation: { id: string; number: number; reference: string | null } | null;
+    capa: { id: string; reference: string | null } | null;
+    completedByUser: { id: string; name: string } | null;
+    documents: { id: string; fileName: string; fileUrl: string; fileType: string | null; fileSize: string | null }[];
+  })[];
   documents: PrismaFDA483Document[];
 };
 
@@ -94,9 +116,34 @@ export interface FDA483PageStats {
   totalObservations: number;
 }
 
+/**
+ * Server-fetched audit-log row scoped to the currently-open event.
+ * Mirrors the columns AuditTab + OverviewTab.recentAudit consume so the
+ * parent can pass the same array to both without re-shaping.
+ */
+export interface FDA483PageAuditRow {
+  id: string;
+  createdAt: string; // ISO
+  userName: string;
+  userRole?: string | null;
+  action: string;
+  recordTitle?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+}
+
 export interface FDA483PageProps {
   events: PrismaEventWithRelations[];
   stats: FDA483PageStats;
+  /** Audit log rows for the URL-active event, sorted DESC. Empty when
+   *  no event is open. The server component fetches these via
+   *  getFDA483EventAuditLogs and limits to 50 rows. */
+  activeEventAuditRows?: FDA483PageAuditRow[];
+  /** Server-fetched CAPAs (Prisma rows) — seeded into the CAPA slice on
+   *  mount so the Investigation tab can resolve each observation's linked
+   *  CAPA (reference + status/owner/due) without depending on the user
+   *  having first visited the CAPA module. */
+  capas?: PrismaCAPA[];
 }
 
 /**
@@ -117,8 +164,13 @@ function adaptEvent(p: PrismaEventWithRelations): FDA483Event {
     agency: p.agency,
     siteId: p.siteId,
     inspectionDate: p.inspectionDate.toISOString(),
+    inspectionEndDate: p.inspectionEndDate
+      ? p.inspectionEndDate.toISOString()
+      : undefined,
     responseDeadline: p.responseDeadline.toISOString(),
     status: p.status as EventStatus,
+    leadInvestigator: p.leadInvestigator ?? undefined,
+    internalOwnerId: p.internalOwnerId ?? undefined,
     observations: p.observations.map((o) => ({
       id: o.id,
       number: o.number,
@@ -139,7 +191,25 @@ function adaptEvent(p: PrismaEventWithRelations): FDA483Event {
       text: c.text,
       dueDate: c.dueDate ? c.dueDate.toISOString() : "",
       owner: c.owner ?? "",
-      status: (c.status ?? "Pending") as "Pending" | "In Progress" | "Complete" | "Overdue",
+      status: (c.status ?? "Pending") as Commitment["status"],
+      reference: c.reference ?? undefined,
+      observationId: c.observationId ?? undefined,
+      observationNumber: c.observation?.number,
+      observationRef: c.observation?.reference ?? undefined,
+      capaId: c.capaId ?? undefined,
+      capaRef: c.capa?.reference ?? undefined,
+      completedAt: c.completedAt ? c.completedAt.toISOString() : undefined,
+      completedById: c.completedById ?? undefined,
+      completedByName: c.completedByUser?.name,
+      completionNotes: c.completionNotes ?? undefined,
+      createdById: c.createdById ?? undefined,
+      documents: c.documents.map((d) => ({
+        id: d.id,
+        fileName: d.fileName,
+        fileUrl: d.fileUrl,
+        fileType: d.fileType ?? undefined,
+        fileSize: d.fileSize ?? undefined,
+      })),
     })),
     responseDraft: p.responseDraft ?? "",
     agiDraft: p.agiDraft ?? "",
@@ -169,12 +239,145 @@ function adaptEvent(p: PrismaEventWithRelations): FDA483Event {
   };
 }
 
+/* ── Detail tab strip ── */
+
+const DETAIL_TABS: Tab[] = [
+  { id: "overview", label: "Overview", Icon: LayoutDashboard },
+  { id: "observations", label: "Observations", Icon: ClipboardList },
+  { id: "investigation", label: "Investigation", Icon: GitBranch },
+  { id: "response", label: "Response", Icon: FileText },
+  { id: "audit", label: "Audit Trail", Icon: History },
+];
+
 /* ══════════════════════════════════════ */
 
-export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PageProps) {
+/**
+ * Compact event-identity card shown above the tab bar on the detail view, so
+ * the active event is visible across all tabs. Purely informational — no
+ * action affordances. Derived entirely from the already-loaded liveEvent.
+ */
+function EventHeader({
+  event,
+  sites,
+  timezone,
+  dateFormat,
+  ownerName,
+}: {
+  event: FDA483Event;
+  sites: { id: string; name: string }[];
+  timezone: string;
+  dateFormat: string;
+  /** Resolves the internal-owner user id to a display name ("Unknown" on miss). */
+  ownerName: (id: string) => string;
+}) {
+  const stat = eventStatusBadge(event.status);
+  const siteName =
+    sites.find((s) => s.id === event.siteId)?.name ?? event.siteId;
+  const isTerminal =
+    event.status === "Response Submitted" || event.status === "Closed";
+  const days = daysUntil(event.responseDeadline);
+
+  // Days chip — same tone thresholds as the list-view deadline alert /
+  // Overview DeadlineIndicator. Hidden entirely once the event is terminal.
+  let chip: { label: string; color: string; bg: string } | null = null;
+  if (!isTerminal && days !== null) {
+    if (days < 0) {
+      chip = {
+        label: `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`,
+        color: "var(--danger)",
+        bg: "var(--danger-bg)",
+      };
+    } else if (days <= 5) {
+      chip = {
+        label: `${days} day${days === 1 ? "" : "s"} remaining`,
+        color: "var(--danger)",
+        bg: "var(--danger-bg)",
+      };
+    } else if (days <= 15) {
+      chip = {
+        label: `${days} days remaining`,
+        color: "var(--warning)",
+        bg: "var(--warning-bg)",
+      };
+    } else {
+      chip = {
+        label: `${days} days remaining`,
+        color: "var(--text-secondary)",
+        bg: "var(--bg-elevated)",
+      };
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-body flex flex-col gap-1">
+        {/* Line 1 — reference (anchor) + status + days chip */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className="font-mono text-[15px] font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {event.referenceNumber}
+          </span>
+          <Badge variant={stat.variant}>{stat.label}</Badge>
+          {chip && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium"
+              style={{ background: chip.bg, color: chip.color }}
+            >
+              <Clock className="w-3 h-3" aria-hidden="true" />
+              {chip.label}
+            </span>
+          )}
+        </div>
+        {/* Line 2 — type · site · inspection date(s) (context, muted) */}
+        <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+          {event.type} · {siteName} ·{" "}
+          {event.inspectionEndDate
+            ? `${dayjs.utc(event.inspectionDate).tz(timezone).format(dateFormat)} → ${dayjs.utc(event.inspectionEndDate).tz(timezone).format(dateFormat)}`
+            : `Inspection ${dayjs.utc(event.inspectionDate).tz(timezone).format(dateFormat)}`}
+        </p>
+        {/* Line 3 — inspector / internal owner (only when at least one set) */}
+        {(() => {
+          const parts: string[] = [];
+          if (event.leadInvestigator?.trim()) {
+            parts.push(`Inspector: ${event.leadInvestigator.trim()}`);
+          }
+          if (event.internalOwnerId) {
+            parts.push(`Owner: ${ownerName(event.internalOwnerId)}`);
+          }
+          if (parts.length === 0) return null;
+          return (
+            <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+              {parts.join(" · ")}
+            </p>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+export function FDA483Page({
+  events: prismaEvents,
+  stats: _stats,
+  activeEventAuditRows = [],
+  capas: serverCAPAs,
+}: FDA483PageProps) {
   // _stats prop accepted for forward-compat (future KPI surface);
   // existing layout derives counts from the events list itself.
   const router = useRouter();
+  const toast = useToast();
+  const dispatch = useAppDispatch();
+  // Seed the CAPA slice from server-fetched rows so linked-CAPA lookups in
+  // the Investigation tab resolve (reference + status/owner/due). Without
+  // this the slice is only hydrated by the CAPA module, leaving a direct
+  // FDA 483 visit to fall back to the raw cuid.
+  useEffect(() => {
+    if (serverCAPAs) {
+      dispatch(setCAPAs(serverCAPAs.map(mapCAPAFromPrisma)));
+    }
+  }, [serverCAPAs, dispatch]);
   const { capas } = useTenantData();
   const events = useMemo(() => prismaEvents.map(adaptEvent), [prismaEvents]);
   const { org, sites, users } = useTenantConfig();
@@ -194,9 +397,10 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
     return users.find((u) => u.id === id)?.name ?? id;
   }
 
-  /* ── State ── */
-  const [selectedEvent, setSelectedEvent] = useState<FDA483Event | null>(null);
-  const [currentStep, setCurrentStep] = useState<Step>(1);
+  /* ── URL-driven detail navigation (replaces selectedEvent + currentStep) ── */
+  const urlState = useEventDetailUrlState();
+
+  /* ── Filter + modal state (detail view UI buffers) ── */
   const [typeFilter, setTypeFilter] = useState("");
   const [agencyFilter, setAgencyFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -205,21 +409,13 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
   const [addObsOpen, setAddObsOpen] = useState(false);
   const [editingObs, setEditingObs] = useState<Observation | null>(null);
   const [addCommitOpen, setAddCommitOpen] = useState(false);
-  const [eventAddedPopup, setEventAddedPopup] = useState(false);
-  const [obsAddedPopup, setObsAddedPopup] = useState(false);
+  // Edit / complete a single commitment (CommitmentDetailModal).
+  const [commitDetail, setCommitDetail] = useState<{ mode: "edit" | "complete"; commitment: Commitment } | null>(null);
   const [responseText, setResponseText] = useState("");
   const [editingResponse, setEditingResponse] = useState(false);
   const [signOpen, setSignOpen] = useState(false);
   const [signMeaning, setSignMeaning] = useState("");
   const [signPassword, setSignPassword] = useState("");
-  const [signedPopup, setSignedPopup] = useState(false);
-  // Failure surface — mirrors the CAPAPage / DeviationPage pattern. Every
-  // server action in this page is already server-first, but on reject the
-  // page was only console.error'ing — user clicked "Save" / "Submit" /
-  // "Raise CAPA" and saw nothing happen. Now routes through the error
-  // popup with the server's own message.
-  const [errorMsg, setErrorMsg] = useState("");
-  const [errorPopup, setErrorPopup] = useState(false);
   // Inline state for the Sign & Submit flow — SignSubmitModal stays open
   // on a server reject (wrong password, missing approvals, etc.) and
   // renders signError next to the Sign button. Critical for Part 11:
@@ -227,10 +423,8 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
   // with no signal, looking identical to the "still loading" state.
   const [signError, setSignError] = useState<string | null>(null);
   const [signBusy, setSignBusy] = useState(false);
-  const [responseSavedPopup, setResponseSavedPopup] = useState(false);
-  const [rcaSavedPopup, setRcaSavedPopup] = useState(false);
-  const [capaRaisedPopup, setCapaRaisedPopup] = useState(false);
-  const [selectedObsId, setSelectedObsId] = useState("");
+  // RCA workspace buffers — currently parent-owned; the InvestigationTab
+  // R2 body can migrate these into the child later (per RECON note).
   const [whyAnswers, setWhyAnswers] = useState(["", "", "", "", ""]);
   const [fishboneAnswers, setFishboneAnswers] = useState<
     Record<string, string>
@@ -239,31 +433,23 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
   const [freeformRCA, setFreeformRCA] = useState("");
   const [noSitesOpen, setNoSitesOpen] = useState(false);
 
-  /* ── Derived from Redux so selectedEvent stays fresh ── */
-  const liveEvent = selectedEvent
-    ? (events.find((e) => e.id === selectedEvent.id) ?? null)
+  /* ── Derived from URL state ── */
+  const liveEvent = urlState.eventId
+    ? (events.find((e) => e.id === urlState.eventId) ?? null)
     : null;
   const selectedObs =
-    liveEvent?.observations.find((o) => o.id === selectedObsId) ?? null;
+    liveEvent && urlState.obsIndex !== null
+      ? (liveEvent.observations[urlState.obsIndex] ?? null)
+      : null;
+  const selectedObsId = selectedObs?.id ?? "";
 
   useEffect(() => {
     if (liveEvent) {
       setResponseText(liveEvent.responseDraft ?? "");
       setEditingResponse(false);
-      setSelectedObsId(liveEvent.observations[0]?.id ?? "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEvent?.id]);
-
-  // Auto-select the first observation whenever the selected one disappears
-  // (e.g. user just added the first observation, or deleted the selected one).
-  useEffect(() => {
-    if (!liveEvent) return;
-    const exists = liveEvent.observations.some((o) => o.id === selectedObsId);
-    if (!exists && liveEvent.observations.length > 0) {
-      setSelectedObsId(liveEvent.observations[0].id);
-    }
-  }, [liveEvent, selectedObsId]);
+  }, [urlState.eventId]);
 
   useEffect(() => {
     if (selectedObs?.rcaMethod === "5 Why" && selectedObs.rootCause) {
@@ -313,22 +499,25 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
     const result = await createFDA483Event({
       referenceNumber: data.referenceNumber,
       eventType: data.type,
-      agency: data.agency,
       siteId: data.siteId,
       inspectionDate: data.inspectionDate
         ? dayjs(data.inspectionDate).utc().toISOString()
         : "",
+      inspectionEndDate: data.inspectionEndDate
+        ? dayjs(data.inspectionEndDate).utc().toISOString()
+        : undefined,
       responseDeadline: data.responseDeadline
         ? dayjs(data.responseDeadline).utc().toISOString()
         : "",
+      internalOwnerId: data.internalOwnerId,
+      leadInvestigator: data.leadInvestigator || undefined,
     });
     if (!result.success) {
-      setErrorMsg(result.error || "Failed to log event. Please try again.");
-      setErrorPopup(true);
+      toast.error(`Could not complete action: ${result.error || "Failed to log event. Please try again."}`);
       return;
     }
     setAddEventOpen(false);
-    setEventAddedPopup(true);
+    toast.success("Event logged.");
     router.refresh();
   }
 
@@ -350,13 +539,12 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
           severity: data.severity,
         });
     if (!result.success) {
-      setErrorMsg(result.error || "Failed to save observation. Please try again.");
-      setErrorPopup(true);
+      toast.error(`Could not complete action: ${result.error || "Failed to save observation. Please try again."}`);
       return;
     }
     setAddObsOpen(false);
     setEditingObs(null);
-    setObsAddedPopup(true);
+    toast.success("Observation saved.");
     router.refresh();
   }
 
@@ -367,23 +555,29 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
       text: data.text,
       dueDate: data.dueDate ? dayjs(data.dueDate).utc().toISOString() : undefined,
       owner: data.owner,
+      observationId: data.observationId,
+      capaId: data.capaId,
     });
     if (!result.success) {
-      setErrorMsg(result.error || "Failed to add commitment. Please try again.");
-      setErrorPopup(true);
+      toast.error(`Could not complete action: ${result.error || "Failed to add commitment. Please try again."}`);
       return;
     }
     router.refresh();
     setAddCommitOpen(false);
   }
 
+  // Linkage options for the Add Commitment modal — this event's observations
+  // and the CAPAs those observations link to.
+  const commitObsOptions = (liveEvent?.observations ?? []).map((o) => ({ id: o.id, number: o.number, text: o.text }));
+  const commitCapaIds = new Set(
+    (liveEvent?.observations ?? []).map((o) => o.capaId).filter((x): x is string => !!x),
+  );
+  const commitCapaOptions = capas
+    .filter((c) => commitCapaIds.has(c.id))
+    .map((c) => ({ id: c.id, reference: c.reference, description: c.description }));
+
   function selectEvent(e: FDA483Event | null) {
-    setSelectedEvent(e);
-    if (!e) setCurrentStep(1);
-  }
-  function resetWorkflow() {
-    setSelectedEvent(null);
-    setCurrentStep(1);
+    urlState.setEvent(e?.id ?? null);
   }
   function clearFilters() {
     setTypeFilter("");
@@ -400,32 +594,41 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
       aria-label="FDA 483 and warning letter support"
       className="w-full space-y-5"
     >
-      {/* Header */}
-      <header className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="page-title">FDA 483 &amp; Regulatory Events</h1>
-          <p className="page-subtitle mt-1">
-            {events.length === 0
-              ? "No regulatory events logged yet"
-              : `${events.length} events \u00b7 ${openCount} open \u00b7 ${dueCount} response due`}
-          </p>
+      {/* Header — module title, list-level counts and the status-guide
+       *  legend belong ONLY on the list view; they're meaningless once a
+       *  single event is open. Shared PageHeader + StatusGuide sibling,
+       *  matching GapPage / DeviationPage (the canonical pattern). */}
+      {!liveEvent && (
+        <>
+          <PageHeader
+            title="FDA 483 &amp; Regulatory"
+            subtitle={
+              events.length === 0
+                ? "No regulatory events logged yet"
+                : `${events.length} events · ${openCount} open · ${dueCount} response due`
+            }
+            actions={
+              canCreateEvents ? (
+                <Button
+                  variant="primary"
+                  icon={Plus}
+                  onClick={() => { if (!hasSites) { setNoSitesOpen(true); return; } setAddEventOpen(true); }}
+                >
+                  Register Event
+                </Button>
+              ) : isCustomerAdmin ? (
+                <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>FDA events require QA Head to log and submit</p>
+              ) : undefined
+            }
+          />
           <StatusGuide module="FDA 483 Events" statuses={FDA483_EVENT_STATUSES} />
-        </div>
-        {canCreateEvents ? (
-          <Button
-            variant="primary"
-            icon={Plus}
-            onClick={() => { if (!hasSites) { setNoSitesOpen(true); return; } setAddEventOpen(true); }}
-          >
-            Register Event
-          </Button>
-        ) : isCustomerAdmin ? (
-          <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>FDA events require QA Head to log and submit</p>
-        ) : null}
-      </header>
+        </>
+      )}
 
-      {/* Deadline alert */}
-      {urgentEvents.length > 0 && (
+      {/* Deadline alert — LIST view only. On the detail view (liveEvent set)
+          a cross-event deadline banner is interruptive noise; the per-event
+          days-remaining chip in the header already conveys urgency. (Bug 4) */}
+      {!liveEvent && urgentEvents.length > 0 && (
         <div
           className={clsx(
             "flex items-start gap-3 p-4 rounded-xl border",
@@ -453,13 +656,13 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
                   (e) =>
                     `${e.referenceNumber}: ${daysLeft(e.responseDeadline)} day(s) remaining`,
                 )
-                .join(" \u00b7 ")}
+                .join(" · ")}
             </p>
           </div>
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => { setStatusFilter("Response Due"); setCurrentStep(1); }}
+            onClick={() => { setStatusFilter("Response Due"); urlState.setEvent(null); }}
           >
             View
           </Button>
@@ -467,20 +670,18 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
       )}
 
 
-      {/* ═══════════ Breadcrumb — only in event detail view ═══════════ */}
-      {currentStep > 1 && liveEvent && (
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[12px]">
-          <button
-            type="button"
-            onClick={resetWorkflow}
-            className="bg-transparent border-none cursor-pointer p-0 hover:underline"
-            style={{ color: "var(--brand)" }}
+      {/* ═══════════ Back button — only in event detail view (fix 6) ═══════════ */}
+      {liveEvent && (
+        <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={ArrowLeft}
+            onClick={() => urlState.setEvent(null)}
           >
-            FDA 483 &amp; Regulatory Events
-          </button>
-          <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>&rsaquo;</span>
-          <span className="font-mono font-semibold" style={{ color: "var(--text-primary)" }}>{liveEvent.referenceNumber}</span>
-        </nav>
+            Back to events
+          </Button>
+        </div>
       )}
 
 
@@ -508,7 +709,7 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
               onStatusFilterChange={setStatusFilter}
               onSiteFilterChange={setSiteFilter}
               onClearFilters={clearFilters}
-              onOpenEvent={(e) => { selectEvent(e); setCurrentStep(2); }}
+              onOpenEvent={(e) => { selectEvent(e); }}
               onAddEvent={() => setAddEventOpen(true)}
               computeReadiness={computeReadiness}
             />
@@ -527,201 +728,271 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
           </>
         )}
 
-        {/* EVENT DETAIL — single combined view */}
+        {/* EVENT DETAIL — tabbed view */}
         {liveEvent && (
-          <div className="space-y-6">
-            {/* Section 1 & 3 & 4 — Observations / Commitments / CAPA set (inside ObservationsTab) */}
-            <ObservationsTab
-              liveEvent={liveEvent}
-              capas={capas}
+          <div className="space-y-4">
+            {/* Event-identity card — sibling of TabBar + tabpanel, so it stays
+             *  visible across every tab. */}
+            <EventHeader
+              event={liveEvent}
               sites={sites}
               timezone={timezone}
-              dateFormat={dateFormat} role={role}
-              ownerName={ownerName}
-              onGoToEvents={resetWorkflow}
-              onAddObservation={() => { setEditingObs(null); setAddObsOpen(true); }}
-              onEditObservation={(obs) => { setEditingObs(obs); setAddObsOpen(true); }}
-              onAddCommitment={() => setAddCommitOpen(true)}
+              dateFormat={dateFormat}
+              ownerName={(id) =>
+                users.find((u) => u.id === id)?.name ?? "Unknown"
+              }
+            />
+            <TabBar
+              tabs={DETAIL_TABS}
+              activeTab={urlState.tab}
+              onChange={(id) => urlState.setTab(id as DetailTab)}
+              ariaLabel="FDA 483 event sections"
             />
 
-            {/* Section 2 — Root Cause Analysis */}
-            <RCATab
-                      liveEvent={liveEvent}
-                      selectedObs={selectedObs}
-                      selectedObsId={selectedObsId}
-                      role={role}
-                      whyAnswers={whyAnswers}
-                      fishboneAnswers={fishboneAnswers}
-                      fishboneRoot={fishboneRoot}
-                      freeformRCA={freeformRCA}
-                      onGoToEvents={resetWorkflow}
-                      onGoToObservations={() => setCurrentStep(2)}
-                      onSelectedObsIdChange={setSelectedObsId}
-                      onWhyAnswersChange={setWhyAnswers}
-                      onFishboneAnswersChange={setFishboneAnswers}
-                      onFishboneRootChange={setFishboneRoot}
-                      onFreeformRCAChange={setFreeformRCA}
-                      onSelectRCAMethod={async (method) => {
-                        if (!selectedObs) return;
-                        const result = await updateObservationServer(selectedObs.id, { rcaMethod: method });
-                        if (!result.success) {
-                          setErrorMsg(result.error || "Failed to set RCA method. Please try again.");
-                          setErrorPopup(true);
-                          return;
-                        }
-                        router.refresh();
-                      }}
-                      onSave5Why={async () => {
-                        if (!selectedObs) return;
-                        if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
-                        const text = whyAnswers.filter((w) => w.trim()).map((w, i) => `Why ${i + 1}: ${w}`).join("\n");
-                        const result = await updateObservationServer(selectedObs.id, {
-                          rootCause: text,
-                          rcaMethod: "5 Why",
-                          status: "Response Drafted",
-                        });
-                        if (!result.success) {
-                          setErrorMsg(result.error || "Failed to save 5-Why RCA. Please try again.");
-                          setErrorPopup(true);
-                          return;
-                        }
-                        setRcaSavedPopup(true);
-                        router.refresh();
-                      }}
-                      onSaveFishbone={async () => {
-                        if (!selectedObs) return;
-                        if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
-                        const text = Object.entries(fishboneAnswers).filter(([, v]) => v.trim()).map(([k, v]) => `${k}: ${v}`).join("\n") + `\n\nRoot cause: ${fishboneRoot}`;
-                        const result = await updateObservationServer(selectedObs.id, {
-                          rootCause: text,
-                          rcaMethod: "Fishbone",
-                          status: "Response Drafted",
-                        });
-                        if (!result.success) {
-                          setErrorMsg(result.error || "Failed to save Fishbone RCA. Please try again.");
-                          setErrorPopup(true);
-                          return;
-                        }
-                        setRcaSavedPopup(true);
-                        router.refresh();
-                      }}
-                      onSaveFreeform={async () => {
-                        if (!selectedObs) return;
-                        if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
-                        const result = await updateObservationServer(selectedObs.id, {
-                          rootCause: freeformRCA.trim(),
-                          status: "Response Drafted",
-                        });
-                        if (!result.success) {
-                          setErrorMsg(result.error || "Failed to save RCA. Please try again.");
-                          setErrorPopup(true);
-                          return;
-                        }
-                        setRcaSavedPopup(true);
-                        router.refresh();
-                      }}
-                      onRaiseCAPA={async () => {
-                        if (!selectedObs) return;
-                        const result = await raiseCAPAFromObservation({
-                          eventId: liveEvent.id,
-                          observationId: selectedObs.id,
-                          observationNumber: selectedObs.number,
-                          observationText: selectedObs.text,
-                          observationSeverity: selectedObs.severity,
-                          referenceNumber: liveEvent.referenceNumber,
-                          siteId: liveEvent.siteId,
-                          owner: user?.id ?? user?.name ?? "system",
-                          dueDate: liveEvent.responseDeadline,
-                          rootCause: selectedObs.rootCause,
-                          rcaMethod: selectedObs.rcaMethod,
-                        });
-                        if (!result.success) {
-                          setErrorMsg(result.error || "Failed to raise CAPA from this observation. Please try again.");
-                          setErrorPopup(true);
-                          return;
-                        }
-                        setCapaRaisedPopup(true);
-                        router.refresh();
-                      }}
-                    />
+            <div
+              role="tabpanel"
+              id={`panel-${urlState.tab}`}
+              aria-labelledby={`tab-${urlState.tab}`}
+              tabIndex={0}
+            >
+              {urlState.tab === "overview" && (
+                <OverviewTab
+                  liveEvent={liveEvent}
+                  capas={capas}
+                  timezone={timezone}
+                  dateFormat={dateFormat}
+                  ownerName={ownerName}
+                  onNavigate={(t) => urlState.navigate({ tab: t.tab, obsIndex: t.obsIndex ?? null })}
+                  onAddCommitment={() => setAddCommitOpen(true)}
+                  onEditCommitment={(c) => setCommitDetail({ mode: "edit", commitment: c })}
+                  onCompleteCommitment={(c) => setCommitDetail({ mode: "complete", commitment: c })}
+                />
+              )}
 
-            {/* Section 5 — Response */}
-            <ResponseTab
-          liveEvent={liveEvent}
-          capas={capas} role={role}
-          canSign={isCustomerAdmin ? false : canSign}
-          canSubmit={canSubmitResponse}
-          agiMode={agiMode}
-          agiAgent={agiAgent}
-          timezone={timezone}
-          dateFormat={dateFormat}
-          responseText={responseText}
-          editingResponse={editingResponse}
-          ownerName={ownerName}
-          onGoToEvents={resetWorkflow}
-          onResponseTextChange={setResponseText}
-          onEditResponseToggle={() => {
-            if (editingResponse)
-              setResponseText(liveEvent?.responseDraft ?? "");
-            setEditingResponse((v) => !v);
-          }}
-          onCancelEdit={() => {
-            setResponseText(liveEvent?.responseDraft ?? "");
-            setEditingResponse(false);
-          }}
-          onSaveDraft={async () => {
-            if (!liveEvent) return;
-            const result = await saveResponseDraftServer(liveEvent.id, responseText.trim());
-            if (!result.success) {
-              setErrorMsg(result.error || "Failed to save response draft. Please try again.");
-              setErrorPopup(true);
-              return;
-            }
-            setEditingResponse(false);
-            setResponseSavedPopup(true);
-            router.refresh();
-          }}
-          onUseAGIDraft={async () => {
-            if (!liveEvent) return;
-            const result = await saveResponseDraftServer(liveEvent.id, liveEvent.agiDraft);
-            if (!result.success) {
-              setErrorMsg(result.error || "Failed to use AGI draft. Please try again.");
-              setErrorPopup(true);
-              return;
-            }
-            setResponseText(liveEvent.agiDraft);
-            setEditingResponse(true);
-            router.refresh();
-          }}
-          onGenerateAGIDraft={async () => {
-            if (!liveEvent) return;
-            const obsText = liveEvent.observations
-              .map((o) => `Obs ${o.number}: ${o.text}`)
-              .join("\n");
-            const capaText = liveEvent.observations
-              .filter((o) => o.capaId)
-              .map((o) => {
-                const c = capas.find((cp) => cp.id === o.capaId);
-                return c
-                  ? `${o.capaId}: ${c.description} \u2014 ${c.correctiveActions || "In progress"}`
-                  : o.capaId;
-              })
-              .join("\n");
-            const drafted = `REGULATORY RESPONSE \u2014 ${liveEvent.referenceNumber}\n\nDear ${liveEvent.agency},\n\nWe have received and reviewed the ${liveEvent.type} dated ${dayjs.utc(liveEvent.inspectionDate).format(dateFormat)}. We take these observations seriously and have initiated corrective actions as described below.\n\nOBSERVATIONS AND CORRECTIVE ACTIONS:\n\n${obsText}\n\nLINKED CAPAs:\n\n${capaText || "CAPAs being raised."}\n\nRespectfully submitted,\n[QA Head]\n[Company Name]`;
-            const result = await saveAGIDraftServer(liveEvent.id, drafted);
-            if (!result.success) {
-              setErrorMsg(result.error || "Failed to generate AGI draft. Please try again.");
-              setErrorPopup(true);
-              return;
-            }
-            router.refresh();
-          }}
-          onSignSubmit={() => setSignOpen(true)}
-            />
+              {urlState.tab === "observations" && (
+                <ObservationsListTab
+                  liveEvent={liveEvent}
+                  capas={capas}
+                  sites={sites}
+                  timezone={timezone}
+                  dateFormat={dateFormat}
+                  role={role}
+                  ownerName={ownerName}
+                  selectedObsId={selectedObsId}
+                  onSelectObs={(id) => {
+                    const idx = liveEvent.observations.findIndex((o) => o.id === id);
+                    urlState.setObsIndex(idx >= 0 ? idx : null);
+                  }}
+                  onAddObservation={() => { setEditingObs(null); setAddObsOpen(true); }}
+                  onEditObservation={(obs) => { setEditingObs(obs); setAddObsOpen(true); }}
+                  onAddCommitment={() => setAddCommitOpen(true)}
+                  onNavigateToInvestigation={(obsIndex) => urlState.navigate({ tab: "investigation", obsIndex })}
+                />
+              )}
 
-            {/* Back to events list */}
-            <div className="flex justify-start pt-4">
-              <Button variant="secondary" size="sm" onClick={resetWorkflow}>&larr; Back to FDA 483 Events</Button>
+              {urlState.tab === "investigation" && (
+                <InvestigationTab
+                  liveEvent={liveEvent}
+                  selectedObsIndex={urlState.obsIndex}
+                  onObsIndexChange={urlState.setObsIndex}
+                  onNavigateToTab={urlState.setTab}
+                  capas={capas}
+                  role={role}
+                  user={{ id: user?.id, name: user?.name }}
+                  users={complianceUsers}
+                  sites={sites}
+                  whyAnswers={whyAnswers}
+                  fishboneAnswers={fishboneAnswers}
+                  fishboneRoot={fishboneRoot}
+                  freeformRCA={freeformRCA}
+                  onWhyAnswersChange={setWhyAnswers}
+                  onFishboneAnswersChange={setFishboneAnswers}
+                  onFishboneRootChange={setFishboneRoot}
+                  onFreeformRCAChange={setFreeformRCA}
+                  onSelectRCAMethod={async (method) => {
+                    if (!selectedObs) return;
+                    const result = await updateObservationServer(selectedObs.id, { rcaMethod: method });
+                    if (!result.success) {
+                      toast.error(`Could not complete action: ${result.error || "Failed to set RCA method. Please try again."}`);
+                      return;
+                    }
+                    router.refresh();
+                  }}
+                  onSave5Why={async () => {
+                    if (!selectedObs) return;
+                    if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
+                    const text = whyAnswers.filter((w) => w.trim()).map((w, i) => `Why ${i + 1}: ${w}`).join("\n");
+                    const result = await updateObservationServer(selectedObs.id, {
+                      rootCause: text,
+                      rcaMethod: "5 Why",
+                      status: "Response Drafted",
+                    });
+                    if (!result.success) {
+                      toast.error(`Could not complete action: ${result.error || "Failed to save 5-Why RCA. Please try again."}`);
+                      return;
+                    }
+                    toast.success("RCA saved.");
+                    router.refresh();
+                  }}
+                  onSaveFishbone={async () => {
+                    if (!selectedObs) return;
+                    if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
+                    const text = Object.entries(fishboneAnswers).filter(([, v]) => v.trim()).map(([k, v]) => `${k}: ${v}`).join("\n") + `\n\nRoot cause: ${fishboneRoot}`;
+                    const result = await updateObservationServer(selectedObs.id, {
+                      rootCause: text,
+                      rcaMethod: "Fishbone",
+                      status: "Response Drafted",
+                    });
+                    if (!result.success) {
+                      toast.error(`Could not complete action: ${result.error || "Failed to save Fishbone RCA. Please try again."}`);
+                      return;
+                    }
+                    toast.success("RCA saved.");
+                    router.refresh();
+                  }}
+                  onSaveFreeform={async () => {
+                    if (!selectedObs) return;
+                    if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
+                    const result = await updateObservationServer(selectedObs.id, {
+                      rootCause: freeformRCA.trim(),
+                      status: "Response Drafted",
+                    });
+                    if (!result.success) {
+                      toast.error(`Could not complete action: ${result.error || "Failed to save RCA. Please try again."}`);
+                      return;
+                    }
+                    toast.success("RCA saved.");
+                    router.refresh();
+                  }}
+                  onRaiseCAPA={async (obs, formData) => {
+                    // Persist the modal's edits, falling back to the
+                    // observation prefill only where a field was cleared.
+                    // The server action builds CAPA.description from
+                    // observationText and CAPA.risk from observationSeverity,
+                    // so the edited title/description/risk are routed onto
+                    // those inputs (signature unchanged).
+                    const result = await raiseCAPAFromObservation({
+                      eventId: liveEvent.id,
+                      observationId: obs.id,
+                      observationNumber: obs.number,
+                      observationText: formData.title || obs.text,
+                      observationSeverity:
+                        (["Critical", "High", "Medium", "Low"] as const).find(
+                          (r) => r === formData.risk,
+                        ) ?? obs.severity,
+                      referenceNumber: liveEvent.referenceNumber,
+                      siteId: liveEvent.siteId,
+                      owner: formData.ownerId || user?.id || user?.name || "system",
+                      dueDate: formData.dueDate || liveEvent.responseDeadline,
+                      rootCause: formData.description || obs.rootCause,
+                      rcaMethod: obs.rcaMethod,
+                    });
+                    if (!result.success) {
+                      toast.error(`Could not complete action: ${result.error || "Failed to raise CAPA from this observation. Please try again."}`);
+                      return;
+                    }
+                    toast.success("CAPA raised.");
+                    router.refresh();
+                  }}
+                />
+              )}
+
+              {urlState.tab === "response" && (
+                <ResponseDetailTab
+                  liveEvent={liveEvent}
+                  capas={capas} role={role}
+                  canSign={isCustomerAdmin ? false : canSign}
+                  canSubmit={canSubmitResponse}
+                  agiMode={agiMode}
+                  agiAgent={agiAgent}
+                  timezone={timezone}
+                  dateFormat={dateFormat}
+                  responseText={responseText}
+                  editingResponse={editingResponse}
+                  ownerName={ownerName}
+                  onNavigate={(t) => urlState.navigate({ tab: t.tab, obsIndex: t.obsIndex ?? null })}
+                  onResponseTextChange={setResponseText}
+                  onEditResponseToggle={() => {
+                    if (editingResponse)
+                      setResponseText(liveEvent?.responseDraft ?? "");
+                    setEditingResponse((v) => !v);
+                  }}
+                  onCancelEdit={() => {
+                    setResponseText(liveEvent?.responseDraft ?? "");
+                    setEditingResponse(false);
+                  }}
+                  onSaveDraft={async () => {
+                    if (!liveEvent) return;
+                    const result = await saveResponseDraftServer(liveEvent.id, responseText.trim());
+                    if (!result.success) {
+                      toast.error(`Could not complete action: ${result.error || "Failed to save response draft. Please try again."}`);
+                      return;
+                    }
+                    setEditingResponse(false);
+                    toast.success("Response draft saved.");
+                    router.refresh();
+                  }}
+                  onUseAGIDraft={async () => {
+                    if (!liveEvent) return;
+                    const result = await saveResponseDraftServer(liveEvent.id, liveEvent.agiDraft);
+                    if (!result.success) {
+                      toast.error(`Could not complete action: ${result.error || "Failed to use AGI draft. Please try again."}`);
+                      return;
+                    }
+                    setResponseText(liveEvent.agiDraft);
+                    setEditingResponse(true);
+                    router.refresh();
+                  }}
+                  onGenerateAGIDraft={async () => {
+                    if (!liveEvent) return;
+                    // WIRE C — build the draft from real event data via the AI
+                    // gateway (mocked). The 1.5s latency lives inside
+                    // getResponseDraft; persistence + the Use/Edit/confirm flow
+                    // are unchanged (saveAGIDraftServer still commits).
+                    const siteName =
+                      sites.find((s) => s.id === liveEvent.siteId)?.name ??
+                      liveEvent.siteId;
+                    const { draft } = await getResponseDraft({
+                      reference: liveEvent.referenceNumber,
+                      agency: liveEvent.agency,
+                      site: siteName,
+                      inspectionDate: dayjs
+                        .utc(liveEvent.inspectionDate)
+                        .format(dateFormat),
+                      observations: liveEvent.observations.map((o) => {
+                        const linked = o.capaId
+                          ? capas.find((c) => c.id === o.capaId)
+                          : undefined;
+                        return {
+                          number: o.number,
+                          text: o.text,
+                          severity: o.severity,
+                          rootCause: o.rootCause ?? null,
+                          capaRef:
+                            linked?.reference ??
+                            (o.capaId ? o.capaId.slice(0, 8) : null),
+                        };
+                      }),
+                    });
+                    const result = await saveAGIDraftServer(liveEvent.id, draft);
+                    if (!result.success) {
+                      toast.error(`Could not complete action: ${result.error || "Failed to generate AGI draft. Please try again."}`);
+                      return;
+                    }
+                    router.refresh();
+                  }}
+                  onSignSubmit={() => setSignOpen(true)}
+                />
+              )}
+
+              {urlState.tab === "audit" && (
+                <AuditTab
+                  liveEvent={{ id: liveEvent.id, referenceNumber: liveEvent.referenceNumber }}
+                  auditRows={activeEventAuditRows}
+                  timezone={timezone}
+                  dateFormat={dateFormat}
+                />
+              )}
             </div>
           </div>
         )}
@@ -733,6 +1004,10 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
         onClose={() => setAddEventOpen(false)}
         onSave={onEventSave}
         sites={sites}
+        users={complianceUsers}
+        defaultOwnerId={
+          complianceUsers.some((u) => u.id === user?.id) ? user?.id : undefined
+        }
         lockedSiteId={selectedSiteId}
       />
       <AddObservationModal
@@ -747,6 +1022,17 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
         onClose={() => setAddCommitOpen(false)}
         onSave={onCommitSave}
         users={complianceUsers}
+        observations={commitObsOptions}
+        capas={commitCapaOptions}
+      />
+      <CommitmentDetailModal
+        open={!!commitDetail}
+        mode={commitDetail?.mode ?? "edit"}
+        commitment={commitDetail?.commitment ?? null}
+        users={complianceUsers}
+        onClose={() => setCommitDetail(null)}
+        onChanged={(msg) => { toast.success(msg); router.refresh(); }}
+        onError={(msg) => toast.error(msg)}
       />
       <SignSubmitModal
         open={signOpen}
@@ -789,67 +1075,17 @@ export function FDA483Page({ events: prismaEvents, stats: _stats }: FDA483PagePr
             return; // modal stays open
           }
           // Server confirmed the Part 11 signature. Wipe credentials and
-          // surface the success popup.
+          // surface the success toast.
           setSignOpen(false);
-          setSignedPopup(true);
           setSignMeaning("");
           setSignPassword("");
           setSignError(null);
+          toast.success("Response submitted.");
           router.refresh();
           // Stay on the current event so the user sees the submitted success view
         }}
       />
 
-      {/* ── Popups ── */}
-      <Popup
-        isOpen={errorPopup}
-        variant="error"
-        title="Action failed"
-        description={errorMsg}
-        onDismiss={() => setErrorPopup(false)}
-      />
-      <Popup
-        isOpen={eventAddedPopup}
-        variant="success"
-        title="Event logged"
-        description="Add observations and start drafting your response."
-        onDismiss={() => setEventAddedPopup(false)}
-      />
-      <Popup
-        isOpen={obsAddedPopup}
-        variant="success"
-        title="Observation saved"
-        description="Open RCA Workspace to document root cause."
-        onDismiss={() => setObsAddedPopup(false)}
-      />
-      <Popup
-        isOpen={responseSavedPopup}
-        variant="success"
-        title="Response draft saved"
-        description="Sign & Submit when QA Head is ready."
-        onDismiss={() => setResponseSavedPopup(false)}
-      />
-      <Popup
-        isOpen={signedPopup}
-        variant="success"
-        title="Response submitted"
-        description="Signed and submitted. Audit trail recorded."
-        onDismiss={() => setSignedPopup(false)}
-      />
-      <Popup
-        isOpen={rcaSavedPopup}
-        variant="success"
-        title="RCA saved successfully"
-        description="Root cause analysis saved. Observation status updated."
-        onDismiss={() => setRcaSavedPopup(false)}
-      />
-      <Popup
-        isOpen={capaRaisedPopup}
-        variant="success"
-        title="CAPA raised successfully"
-        description="Proceed to Observations tab to add a commitment."
-        onDismiss={() => setCapaRaisedPopup(false)}
-      />
       <NoSitesPopup isOpen={noSitesOpen} onClose={() => setNoSitesOpen(false)} feature="FDA 483 events" />
     </main>
   );

@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
+import { normalizeSeverityForDisplay } from "@/lib/severity";
 
 /**
  * Compound dashboard query — fetches all the slices needed for the
@@ -62,7 +63,9 @@ export const getDashboardStats = cache(async (tenantId: string) => {
   const openCAPAs = capas.filter((c) => isOpen(c.status) && !isRejected(c.status)).length;
 
   const openDeviations = deviations.filter((d) => isOpen(d.status)).length;
-  const criticalDeviations = deviations.filter((d) => d.severity === "critical" && isOpen(d.status)).length;
+  // Severity normalised to canonical FDA TitleCase ("Critical"); the
+  // DB carries both lowercase (legacy) and TitleCase (post-Cat 1) rows.
+  const criticalDeviations = deviations.filter((d) => normalizeSeverityForDisplay(d.severity, "fda") === "Critical" && isOpen(d.status)).length;
 
   const overdueEvents = events.filter(
     (e) =>

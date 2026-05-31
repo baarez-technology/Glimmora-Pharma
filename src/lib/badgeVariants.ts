@@ -1,58 +1,52 @@
-// Centralised badge variant lookups for the CAPA domain.
+// Centralised badge variant lookups for status taxonomies.
 //
-// Extracted from inline duplicates in CAPADetailModal, CAPATrackerTab, and
-// SignCloseModal that all carried bit-identical maps. The CAPA_ prefix is
-// deliberate — DriftStatus, ComplianceStatus, and system risk-level all
-// also map to Badge variants, but their key sets and value sets differ
-// from CAPA's. Centralising them under bare RISK_VARIANT / STATUS_VARIANT
-// names would set us up for a naming collision the next time one of those
-// other maps gets a second consumer (rule of three: extract on the third
-// duplicate, not the first).
+// Severity / risk colour mapping is no longer maintained here — see
+// src/lib/severity.ts for the single source of truth. The per-module
+// severity maps (CAPA_RISK_VARIANT, FINDING_SEVERITY_VARIANT,
+// DEVIATION_SEVERITY_VARIANT, OBSERVATION_SEVERITY_VARIANT,
+// SITE_RISK_VARIANT, CC_RISK_VARIANT) have been removed in favour of
+// `getSeverityVariant(value, taxonomy)` + `normalizeSeverityForDisplay`
+// from severity.ts.
 //
-// The narrow value-union types (e.g. "red" | "amber" | "green") are
-// intentionally tighter than the full Badge `variant` prop union — Badge
-// accepts six colours, but CAPA risk only ever produces three. The narrow
-// types are assignable to Badge's wider union, so consumers stay
-// type-safe without losing precision.
+// Status variant maps stay here. Status taxonomies are a separate audit
+// category (Cat 2) with its own normalisation rung; they retain their
+// per-module shape until that work lands.
 
-import type { CAPARisk } from "@/store/capa.slice";
 import type { CAPAStatus } from "@/types/capa";
-import type {
-  ChangeControlRisk,
-  ChangeControlStatus,
-} from "@/lib/change-control-constants";
+import type { ChangeControlStatus } from "@/lib/change-control-constants";
 
-export const CAPA_RISK_VARIANT: Record<CAPARisk, "red" | "amber" | "green"> = {
-  Critical: "red",
-  High: "amber",
-  // Medium added in substage 5.2 prereq-A. Sits between High (amber) and
-  // Low (green); using amber matches the existing "anything not Low/safe
-  // is amber" hierarchy without introducing a new colour.
-  Medium: "amber",
-  Low: "green",
-};
+// Convenience re-exports so callers can import severity helpers from
+// the same module they previously imported the variant maps from.
+export {
+  getSeverityVariant,
+  normalizeSeverityForDisplay,
+  SEVERITY_BADGE_VARIANT,
+  GENERIC_SEVERITY,
+  FDA_SEVERITY,
+  type GenericSeverity,
+  type FdaSeverity,
+  type SeverityTaxonomy,
+} from "@/lib/severity";
 
 export const CAPA_STATUS_VARIANT: Record<CAPAStatus, "blue" | "amber" | "purple" | "green" | "red"> = {
   open: "blue",
   in_progress: "amber",
   pending_qa_review: "purple",
+  // SME Section 1, Stage 5 (FULL) — Independent QA Verification.
+  // Distinct from pending_qa_review (purple) so users can see at a
+  // glance that approvals are done and the CAPA is awaiting an
+  // independent verifier. Amber (same as in_progress) keeps the
+  // "still actively in flight" semantic.
+  pending_verification: "amber",
   closed: "green",
   rejected: "red",
 };
 
-// Substage 4.8 — Change Control variants. Risk colour mirrors the CAPA
-// hierarchy (Critical=red, High/Medium=amber, Low=green). Status colour
-// follows the lifecycle: in-flight = blue/amber/purple, terminal-success
-// = green/gray, terminal-failure = red. Note: Closed=gray (not green) is
-// intentional — for CCs, "Closed" is post-implementation archival, while
-// "Implemented" is the success state worth highlighting.
-export const CC_RISK_VARIANT: Record<ChangeControlRisk, "red" | "amber" | "green"> = {
-  Critical: "red",
-  High: "amber",
-  Medium: "amber",
-  Low: "green",
-};
-
+// Substage 4.8 — Change Control status. Lifecycle: in-flight =
+// blue/amber/purple, terminal-success = green/gray, terminal-failure =
+// red. Note: Closed=gray (not green) is intentional — for CCs, "Closed"
+// is post-implementation archival, while "Implemented" is the success
+// state worth highlighting.
 export const CC_STATUS_VARIANT: Record<
   ChangeControlStatus,
   "blue" | "amber" | "green" | "purple" | "gray" | "red"

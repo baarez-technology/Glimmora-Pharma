@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -18,10 +18,11 @@ import {
 } from "@/lib/signing";
 import { readSigningProvenance } from "@/actions/capas/_shared";
 import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
+import { sanitizeServerError } from "@/lib/errors";
 
-/** Substage 5.4 — only these transitions require a Part 11 e-signature.
- *  The rest (Draft↔In Review, Approved→In Implementation, In Implementation
- *  →Implemented) are administrative and stay unsigned. */
+/** Substage 5.4 â€” only these transitions require a Part 11 e-signature.
+ *  The rest (Draftâ†”In Review, Approvedâ†’In Implementation, In Implementation
+ *  â†’Implemented) are administrative and stay unsigned. */
 const SIGNED_TRANSITION_TARGETS: ReadonlySet<ChangeControlStatus> = new Set([
   "Approved",
   "Rejected",
@@ -29,13 +30,13 @@ const SIGNED_TRANSITION_TARGETS: ReadonlySet<ChangeControlStatus> = new Set([
 ]);
 
 /**
- * Substage 4.8 — Change Control Linkage.
+ * Substage 4.8 â€” Change Control Linkage.
  *
  * Six server actions: create / update / transition status / soft-delete on
- * the ChangeControl entity, plus link / unlink between CAPA ↔ ChangeControl.
+ * the ChangeControl entity, plus link / unlink between CAPA â†” ChangeControl.
  * All actions follow the same patterns as the rest of the codebase
- * (requireAuth → tenant scope → zod validation → audit row in same try
- * block → revalidatePath → NODE_ENV-gated dev errors).
+ * (requireAuth â†’ tenant scope â†’ zod validation â†’ audit row in same try
+ * block â†’ revalidatePath â†’ NODE_ENV-gated dev errors).
  *
  * E-signature on CC approvals will adopt the SignedRecord pattern from
  * substage 5.4 in a future ticket; this v1 just records status transitions
@@ -51,11 +52,11 @@ const AUDIT_MODULE_LINK = "CAPA / Change Control";
 
 // Constants + types live in src/lib/change-control-constants.ts so this
 // "use server" file only exports async functions (Next 16 enforces this
-// at runtime — re-exporting non-functions from a "use server" file
+// at runtime â€” re-exporting non-functions from a "use server" file
 // crashes the app).
 
 /** Status transitions allowed by the state machine. Each entry maps the
- *  current status → an array of allowed next statuses. Anything not in
+ *  current status â†’ an array of allowed next statuses. Anything not in
  *  this map is rejected by transitionChangeControlStatus. */
 const ALLOWED_TRANSITIONS: Record<ChangeControlStatus, ChangeControlStatus[]> = {
   Draft: ["In Review"],
@@ -67,7 +68,7 @@ const ALLOWED_TRANSITIONS: Record<ChangeControlStatus, ChangeControlStatus[]> = 
   Rejected: [],
 };
 
-/** Roles allowed to approve / reject / close — mirrors the QA-tier role
+/** Roles allowed to approve / reject / close â€” mirrors the QA-tier role
  *  set used elsewhere in the codebase. */
 const QA_GATE_ROLES: ReadonlySet<string> = new Set([
   "qa_head",
@@ -87,13 +88,13 @@ const FINALIZED_STATUSES: ReadonlySet<string> = new Set([
 const LINK_BLOCKED_CC_STATUSES = FINALIZED_STATUSES;
 
 /** CAPA statuses that block new CC links (a closed CAPA shouldn't gain
- *  new corrective-implementation linkages — those belong on a fresh CAPA). */
+ *  new corrective-implementation linkages â€” those belong on a fresh CAPA). */
 const LINK_BLOCKED_CAPA_STATUSES: ReadonlySet<string> = new Set([
   "closed",
   "rejected",
 ]);
 
-// ── Schemas ──
+// â”€â”€ Schemas â”€â”€
 
 const CreateChangeControlSchema = z.object({
   title: z.string().min(5).max(200),
@@ -117,9 +118,9 @@ const UpdateChangeControlSchema = z.object({
 const TransitionStatusSchema = z.object({
   newStatus: z.enum(CHANGE_CONTROL_STATUSES),
   comment: z.string().max(2000).optional(),
-  // Required when transitioning In Implementation → Implemented.
+  // Required when transitioning In Implementation â†’ Implemented.
   actualImplementationDate: z.string().optional(),
-  // Substage 5.4 — required only when newStatus ∈ {Approved, Rejected,
+  // Substage 5.4 â€” required only when newStatus âˆˆ {Approved, Rejected,
   // Closed}. Optional in the schema; the action enforces presence based
   // on the target status and writes a SignedRecord row + paired audit
   // event when the transition is consequential.
@@ -141,7 +142,7 @@ const UnlinkSchema = z.object({
   reason: z.string().min(10).max(2000),
 });
 
-// ── Read wrappers (client-callable) ──
+// â”€â”€ Read wrappers (client-callable) â”€â”€
 
 /** Returns CCs the user can see (tenant-scoped, non-deleted by default).
  *  super_admin sees rows from any tenant. */
@@ -248,7 +249,7 @@ export async function loadChangeControlStatusHistory(
   return { success: true, data: rows };
 }
 
-/** Returns CAPAs the caller can link to — used by the CC-detail "Link a
+/** Returns CAPAs the caller can link to â€” used by the CC-detail "Link a
  *  CAPA" picker. Excludes closed/rejected CAPAs (per LINK_BLOCKED_CAPA_STATUSES)
  *  and CAPAs already linked to the given CC. */
 export async function loadLinkableCAPAs(ccId: string): Promise<ActionResult> {
@@ -321,7 +322,7 @@ export async function loadLinkableChangeControls(
   return { success: true, data: candidates };
 }
 
-// ── 1. createChangeControl ──
+// â”€â”€ 1. createChangeControl â”€â”€
 
 export async function createChangeControl(
   input: z.input<typeof CreateChangeControlSchema>,
@@ -390,20 +391,8 @@ export async function createChangeControl(
       }
     }
     if (!cc) {
-      const message = lastErr instanceof Error ? lastErr.message : String(lastErr);
-      const code = (lastErr as { code?: string } | null)?.code;
-      console.error("[action] createChangeControl exhausted retries:", {
-        code,
-        message,
-        lastErr,
-      });
-      return {
-        success: false,
-        error:
-          process.env.NODE_ENV === "production"
-            ? "Failed to allocate Change Control reference"
-            : `Failed to allocate Change Control reference: ${code ? `[${code}] ` : ""}${message}`,
-      };
+      console.error("[action] createChangeControl exhausted retries:", lastErr);
+      return { success: false, error: sanitizeServerError(lastErr, "Failed to allocate Change Control reference") };
     }
     await prisma.auditLog.create({
       data: {
@@ -414,7 +403,7 @@ export async function createChangeControl(
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_CREATED",
         recordId: cc.id,
-        recordTitle: `${cc.reference ?? cc.id} — ${cc.title.slice(0, 60)}`,
+        recordTitle: `${cc.reference ?? cc.id} â€” ${cc.title.slice(0, 60)}`,
         newValue: JSON.stringify({
           changeType: cc.changeType,
           risk: cc.risk,
@@ -425,20 +414,12 @@ export async function createChangeControl(
     revalidatePath("/change-control");
     return { success: true, data: cc };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] createChangeControl failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to create Change Control"
-          : `Failed to create Change Control: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] createChangeControl failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to create Change Control") };
   }
 }
 
-// ── 2. updateChangeControl ──
+// â”€â”€ 2. updateChangeControl â”€â”€
 
 export async function updateChangeControl(
   id: string,
@@ -464,7 +445,7 @@ export async function updateChangeControl(
   if (FINALIZED_STATUSES.has(existing.status)) {
     return {
       success: false,
-      error: `Cannot edit a Change Control in '${existing.status}' status — it is locked.`,
+      error: `Cannot edit a Change Control in '${existing.status}' status â€” it is locked.`,
     };
   }
   if (existing.status !== "Draft" && existing.status !== "In Review") {
@@ -514,7 +495,7 @@ export async function updateChangeControl(
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_UPDATED",
         recordId: id,
-        recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
+        recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
         oldValue: JSON.stringify(before),
         newValue: JSON.stringify({
           description: updated.description,
@@ -530,20 +511,12 @@ export async function updateChangeControl(
     revalidatePath(`/change-control`);
     return { success: true, data: updated };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] updateChangeControl failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to update Change Control"
-          : `Failed to update Change Control: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] updateChangeControl failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to update Change Control") };
   }
 }
 
-// ── 3. transitionChangeControlStatus ──
+// â”€â”€ 3. transitionChangeControlStatus â”€â”€
 
 export async function transitionChangeControlStatus(
   id: string,
@@ -630,7 +603,7 @@ export async function transitionChangeControlStatus(
     }
   }
 
-  // Substage 5.4 — consequential transitions (Approved / Rejected / Closed)
+  // Substage 5.4 â€” consequential transitions (Approved / Rejected / Closed)
   // require a Part 11 e-signature. Administrative transitions stay
   // unsigned. The signing block runs BEFORE the state change so a wrong
   // password yields zero side effects beyond the failed-attempt audit row.
@@ -656,7 +629,7 @@ export async function transitionChangeControlStatus(
           module: SIGNING_AUDIT_MODULE,
           action: "SIGNING_PASSWORD_FAILED",
           recordId: id,
-          recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
+          recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
           newValue: JSON.stringify({
             recordType: "CHANGE_CONTROL_TRANSITION",
             toStatus,
@@ -676,6 +649,31 @@ export async function transitionChangeControlStatus(
     let signedRecordId: string | null = null;
     let contentHash: string | null = null;
 
+    // Single status-change patch built once and shared by both the signed
+    // and administrative paths below.
+    const baseUpdateData = {
+      status: toStatus,
+      ...(toStatus === "Closed"
+        ? {
+            closedAt: transitionedAt,
+            closedById: session.user.id,
+            closedByName: session.user.name,
+          }
+        : {}),
+      ...(toStatus === "Implemented" && parsed.data.actualImplementationDate
+        ? {
+            actualImplementationDate: new Date(
+              parsed.data.actualImplementationDate,
+            ),
+          }
+        : {}),
+    };
+
+    // Optimistic-lock predicate: `status: fromStatus` ensures two concurrent
+    // transitions can't both succeed against the value we just read. If a
+    // peer transition committed first, updateMany.count is 0 and we surface
+    // STATE_CONFLICT so the caller can refresh and retry.
+    let updated;
     if (isSignedTransition) {
       const canonicalContent = canonicalizeChangeControlTransitionContent({
         ccId: existing.id,
@@ -686,10 +684,10 @@ export async function transitionChangeControlStatus(
         transitionedAt,
       });
       contentHash = computeContentHash(canonicalContent);
-      const contentSummary = `${existing.reference ?? existing.id} ${fromStatus} → ${toStatus} signed by ${session.user.name} (${session.user.role})`;
+      const contentSummary = `${existing.reference ?? existing.id} ${fromStatus} â†’ ${toStatus} signed by ${session.user.name} (${session.user.role})`;
       const provenance = await readSigningProvenance();
 
-      const { signedRecord } = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx) => {
         const sig = await tx.signedRecord.create({
           data: {
             tenantId: existing.tenantId,
@@ -707,111 +705,110 @@ export async function transitionChangeControlStatus(
             userAgent: provenance.userAgent,
           },
         });
-        await tx.changeControl.update({
-          where: { id },
-          data: {
-            status: toStatus,
-            latestSignedTransitionId: sig.id,
-            ...(toStatus === "Closed"
-              ? {
-                  closedAt: transitionedAt,
-                  closedById: session.user.id,
-                  closedByName: session.user.name,
-                }
-              : {}),
-          },
+        const updateRes = await tx.changeControl.updateMany({
+          where: { id, status: fromStatus, deletedAt: null },
+          data: { ...baseUpdateData, latestSignedTransitionId: sig.id },
         });
-        return { signedRecord: sig };
+        if (updateRes.count === 0) {
+          // Roll back the SignedRecord â€” the transition we signed for did
+          // not commit. The tx-throw triggers the outer catch's STATE_CONFLICT
+          // mapping.
+          throw new Error("STATE_CONFLICT");
+        }
+        const row = await tx.changeControl.findUnique({ where: { id } });
+        if (!row) throw new Error("STATE_CONFLICT");
+        return { sig, row };
       });
-      signedRecordId = signedRecord.id;
+      signedRecordId = result.sig.id;
+      updated = result.row;
+    } else {
+      const updateRes = await prisma.changeControl.updateMany({
+        where: { id, status: fromStatus, deletedAt: null },
+        data: baseUpdateData,
+      });
+      if (updateRes.count === 0) {
+        throw new Error("STATE_CONFLICT");
+      }
+      const row = await prisma.changeControl.findUnique({ where: { id } });
+      if (!row) throw new Error("STATE_CONFLICT");
+      updated = row;
     }
 
-    // Administrative transitions (or post-signed-transaction follow-up
-    // fields like actualImplementationDate) come through here. For signed
-    // transitions, the status was already flipped inside the transaction
-    // above — the second update just re-applies the same data idempotently
-    // and lets us return the latest row.
-    const updated = await prisma.changeControl.update({
-      where: { id },
-      data: {
-        status: toStatus,
-        ...(toStatus === "Implemented" && parsed.data.actualImplementationDate
-          ? {
-              actualImplementationDate: new Date(parsed.data.actualImplementationDate),
-            }
-          : {}),
-        ...(toStatus === "Closed" && !isSignedTransition
-          ? {
-              closedAt: transitionedAt,
-              closedById: session.user.id,
-              closedByName: session.user.name,
-            }
-          : {}),
-      },
-    });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: existing.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
-        module: AUDIT_MODULE_CC,
-        action: "CHANGE_CONTROL_STATUS_CHANGED",
-        recordId: id,
-        recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
-        oldValue: fromStatus,
-        newValue: JSON.stringify({
-          status: toStatus,
-          comment: parsed.data.comment ?? null,
-          actualImplementationDate:
-            parsed.data.actualImplementationDate ?? null,
-          ...(signedRecordId ? { signatureId: signedRecordId } : {}),
-        }),
-      },
-    });
-    if (isSignedTransition && signedRecordId) {
+    // Best-effort post-commit audit-log writes. Wrapped so a logging failure
+    // does not undo the already-committed transition. For signed transitions
+    // the SignedRecord row is the legal Part 11 record; AuditLog is operational.
+    try {
       await prisma.auditLog.create({
         data: {
           tenantId: existing.tenantId,
           userId: session.user.id,
           userName: session.user.name,
           userRole: session.user.role,
-          module: SIGNING_AUDIT_MODULE,
-          action: "CHANGE_CONTROL_TRANSITION_SIGNED",
-          recordId: signedRecordId,
-          recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
+          module: AUDIT_MODULE_CC,
+          action: "CHANGE_CONTROL_STATUS_CHANGED",
+          recordId: id,
+          recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
+          oldValue: fromStatus,
           newValue: JSON.stringify({
-            signerId: session.user.id,
-            contentHashPrefix: contentHash!.slice(0, 16),
-            signatureMeaning: toStatus,
-            ccId: existing.id,
-            fromStatus,
-            toStatus,
+            status: toStatus,
+            comment: parsed.data.comment ?? null,
+            actualImplementationDate:
+              parsed.data.actualImplementationDate ?? null,
+            ...(signedRecordId ? { signatureId: signedRecordId } : {}),
           }),
         },
       });
+    } catch (auditErr) {
+      console.error(
+        "[audit] CHANGE_CONTROL_STATUS_CHANGED log failed",
+        auditErr,
+      );
+    }
+    if (isSignedTransition && signedRecordId) {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            tenantId: existing.tenantId,
+            userId: session.user.id,
+            userName: session.user.name,
+            userRole: session.user.role,
+            module: SIGNING_AUDIT_MODULE,
+            action: "CHANGE_CONTROL_TRANSITION_SIGNED",
+            recordId: signedRecordId,
+            recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
+            newValue: JSON.stringify({
+              signerId: session.user.id,
+              contentHashPrefix: contentHash!.slice(0, 16),
+              signatureMeaning: toStatus,
+              ccId: existing.id,
+              fromStatus,
+              toStatus,
+            }),
+          },
+        });
+      } catch (auditErr) {
+        console.error(
+          "[audit] CHANGE_CONTROL_TRANSITION_SIGNED log failed",
+          auditErr,
+        );
+      }
     }
     revalidatePath("/change-control");
     return { success: true, data: updated };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] transitionChangeControlStatus failed:", {
-      code,
-      message,
-      err,
-    });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to transition Change Control status"
-          : `Failed to transition Change Control status: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    if (err instanceof Error && err.message === "STATE_CONFLICT") {
+      return {
+        success: false,
+        error:
+          "This Change Control was modified by another user. Refresh and try again.",
+      };
+    }
+    console.error("[action] transitionChangeControlStatus failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to transition Change Control status") };
   }
 }
 
-// ── 4. softDeleteChangeControl ──
+// â”€â”€ 4. softDeleteChangeControl â”€â”€
 
 export async function softDeleteChangeControl(
   id: string,
@@ -868,27 +865,19 @@ export async function softDeleteChangeControl(
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_SOFT_DELETED",
         recordId: id,
-        recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
+        recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
         newValue: JSON.stringify({ reason: parsed.data.reason }),
       },
     });
     revalidatePath("/change-control");
     return { success: true, data: updated };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] softDeleteChangeControl failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to delete Change Control"
-          : `Failed to delete Change Control: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] softDeleteChangeControl failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to delete Change Control") };
   }
 }
 
-// ── 5. linkCAPAToChangeControl ──
+// â”€â”€ 5. linkCAPAToChangeControl â”€â”€
 
 export async function linkCAPAToChangeControl(
   input: z.input<typeof LinkSchema>,
@@ -936,7 +925,7 @@ export async function linkCAPAToChangeControl(
     return { success: false, error: "Cannot link to a deleted Change Control." };
   }
   if (capa.tenantId !== cc.tenantId) {
-    // Defence-in-depth — both lookups already enforce tenant scope, but
+    // Defence-in-depth â€” both lookups already enforce tenant scope, but
     // this guards a super_admin from inadvertently linking across tenants.
     return {
       success: false,
@@ -977,7 +966,7 @@ export async function linkCAPAToChangeControl(
         module: AUDIT_MODULE_LINK,
         action: "CAPA_CC_LINKED",
         recordId: link.id,
-        recordTitle: `${capa.reference ?? capa.id} ↔ ${cc.reference ?? cc.id}`,
+        recordTitle: `${capa.reference ?? capa.id} â†” ${cc.reference ?? cc.id}`,
         newValue: JSON.stringify({
           capaId: capa.id,
           capaReference: capa.reference,
@@ -999,20 +988,12 @@ export async function linkCAPAToChangeControl(
         error: "This CAPA is already linked to this Change Control.",
       };
     }
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] linkCAPAToChangeControl failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to link CAPA to Change Control"
-          : `Failed to link CAPA to Change Control: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] linkCAPAToChangeControl failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to link CAPA to Change Control") };
   }
 }
 
-// ── 6. unlinkCAPAFromChangeControl ──
+// â”€â”€ 6. unlinkCAPAFromChangeControl â”€â”€
 
 export async function unlinkCAPAFromChangeControl(
   linkId: string,
@@ -1064,7 +1045,7 @@ export async function unlinkCAPAFromChangeControl(
         module: AUDIT_MODULE_LINK,
         action: "CAPA_CC_UNLINKED",
         recordId: linkId,
-        recordTitle: `${link.capa.reference ?? link.capaId} ↔ ${link.changeControl.reference ?? link.changeControlId}`,
+        recordTitle: `${link.capa.reference ?? link.capaId} â†” ${link.changeControl.reference ?? link.changeControlId}`,
         oldValue: JSON.stringify(snapshot),
         newValue: JSON.stringify({ reason: parsed.data.reason }),
       },
@@ -1074,15 +1055,7 @@ export async function unlinkCAPAFromChangeControl(
     revalidatePath(`/capa/${link.capaId}`);
     return { success: true, data: null };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] unlinkCAPAFromChangeControl failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to unlink CAPA from Change Control"
-          : `Failed to unlink CAPA from Change Control: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] unlinkCAPAFromChangeControl failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to unlink CAPA from Change Control") };
   }
 }

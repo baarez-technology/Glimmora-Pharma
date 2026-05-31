@@ -6,7 +6,7 @@ import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useRole } from "@/hooks/useRole";
-import { CC_RISK_VARIANT, CC_STATUS_VARIANT } from "@/lib/badgeVariants";
+import { CC_STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import {
   loadChangeControlById,
   loadChangeControlStatusHistory,
@@ -309,7 +309,7 @@ export function ChangeControlDetailModal({ ccId, onClose, onChanged }: Props) {
         >
           {cc.reference ?? cc.id.slice(0, 8)}
         </span>
-        <Badge variant={CC_RISK_VARIANT[cc.risk as keyof typeof CC_RISK_VARIANT] ?? "gray"}>{cc.risk}</Badge>
+        <Badge variant={getSeverityVariant(cc.risk, "generic")}>{normalizeSeverityForDisplay(cc.risk, "generic") ?? cc.risk}</Badge>
         <Badge variant={CC_STATUS_VARIANT[cc.status as keyof typeof CC_STATUS_VARIANT] ?? "gray"}>{cc.status}</Badge>
         {isDeleted && <Badge variant="red">Deleted</Badge>}
       </div>

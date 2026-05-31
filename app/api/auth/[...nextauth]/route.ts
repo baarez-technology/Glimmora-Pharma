@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { generateOtp, verifyOtp } from "@/lib/otp";
 import { sendOtpEmail } from "@/lib/mailer";
+import { auditAuthEvent } from "@/lib/auditServer";
 
 /**
  * Production guard for NEXTAUTH_SECRET (audit findings 3.6 + 11.3).
@@ -27,6 +28,29 @@ function assertProductionSecret(): void {
   if (process.env.NEXTAUTH_SECRET.length < 32) {
     throw new Error("NEXTAUTH_SECRET must be at least 32 characters.");
   }
+}
+
+// Best-effort client IP extraction from NextAuth's authorize() req param.
+// Walks the standard proxy headers; returns null if nothing usable. The
+// concrete value (when present) lands in AuditLog.ipAddress.
+function extractClientIp(
+  req:
+    | { headers?: Record<string, string | string[] | undefined> | undefined }
+    | undefined,
+): string | null {
+  const xff = req?.headers?.["x-forwarded-for"];
+  if (typeof xff === "string") {
+    const first = xff.split(",")[0]?.trim();
+    return first || null;
+  }
+  if (Array.isArray(xff)) {
+    const first = xff[0]?.split(",")[0]?.trim();
+    return first || null;
+  }
+  const xri = req?.headers?.["x-real-ip"];
+  if (typeof xri === "string") return xri || null;
+  if (Array.isArray(xri)) return xri[0] ?? null;
+  return null;
 }
 
 /**
@@ -54,6 +78,12 @@ function assertProductionSecret(): void {
  *   - OTP_EXPIRED             — code older than 10 minutes
  *   - OTP_LOCKED              — 5 wrong attempts; resend required
  *   - OTP_NO_OTP              — no live code on file; resend required
+ *
+ * Auth-event audit logging (Part 11 §11.10(e)): every outcome of this
+ * callback emits an `auditAuthEvent` call. The helper has its own
+ * try/catch and never throws, so logging failures cannot surface as
+ * sign-in errors. Branches without a resolvable tenantId (no-such-email,
+ * cross-tenant ambiguous email) log to stderr only — see auditServer.ts.
  */
 
 interface SessionUser {
@@ -79,12 +109,14 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
         otp: { label: "Verification code", type: "text" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         assertProductionSecret();
         if (!credentials?.email || !credentials?.password) return null;
         const email = credentials.email.toLowerCase().trim();
         const password = credentials.password;
         const otp = credentials.otp?.trim() ?? "";
+
+        const ipAddress = extractClientIp(req);
 
         try {
           // ── Path 1: Tenant table (super_admin / customer_admin) ──
@@ -100,15 +132,57 @@ export const authOptions: NextAuthOptions = {
             include: { subscription: true },
           });
           if (tenantMatches.length > 1) {
+            await auditAuthEvent({
+              action: "LOGIN_AMBIGUOUS_EMAIL",
+              tenantId: null,
+              userName: email,
+              recordTitle: email,
+              ipAddress,
+              newValue: {
+                email,
+                matchCount: tenantMatches.length,
+                path: "tenant",
+              },
+            });
             throw new Error("AMBIGUOUS_EMAIL");
           }
           const tenant = tenantMatches[0];
 
           if (tenant) {
-            if (!tenant.isActive) return null;
+            if (!tenant.isActive) {
+              await auditAuthEvent({
+                action: "LOGIN_ACCOUNT_INACTIVE",
+                tenantId: tenant.id,
+                userId: tenant.id,
+                userName: tenant.name,
+                userRole: tenant.role,
+                recordId: tenant.id,
+                recordTitle: tenant.email,
+                ipAddress,
+                newValue: { email, path: "tenant" },
+              });
+              return null;
+            }
 
             const valid = await bcrypt.compare(password, tenant.passwordHash);
-            if (!valid) return null;
+            if (!valid) {
+              await auditAuthEvent({
+                action: "LOGIN_FAILED",
+                tenantId: tenant.id,
+                userId: tenant.id,
+                userName: tenant.name,
+                userRole: tenant.role,
+                recordId: tenant.id,
+                recordTitle: tenant.email,
+                ipAddress,
+                newValue: {
+                  email,
+                  reason: "wrong_password",
+                  path: "tenant",
+                },
+              });
+              return null;
+            }
 
             // Subscription gate — super_admin bypasses; customer_admin still
             // checks because lapsed tenants should not be able to use the app.
@@ -119,6 +193,17 @@ export const authOptions: NextAuthOptions = {
                 sub.status?.toLowerCase() === "active" &&
                 new Date(sub.expiryDate) > new Date();
               if (!hasActiveSub && tenant.role !== "customer_admin") {
+                await auditAuthEvent({
+                  action: "SUBSCRIPTION_BLOCKED",
+                  tenantId: tenant.id,
+                  userId: tenant.id,
+                  userName: tenant.name,
+                  userRole: tenant.role,
+                  recordId: tenant.id,
+                  recordTitle: tenant.email,
+                  ipAddress,
+                  newValue: { email, role: tenant.role, path: "tenant" },
+                });
                 throw new Error("SUBSCRIPTION_INACTIVE");
               }
             }
@@ -130,13 +215,63 @@ export const authOptions: NextAuthOptions = {
               if (!otp) {
                 const code = await generateOtp(email, null);
                 await sendOtpEmail(tenant.email, code);
+                await auditAuthEvent({
+                  action: "OTP_SENT",
+                  tenantId: tenant.id,
+                  userId: tenant.id,
+                  userName: tenant.name,
+                  userRole: tenant.role,
+                  recordId: tenant.id,
+                  recordTitle: tenant.email,
+                  ipAddress,
+                  newValue: { email, path: "tenant" },
+                });
                 throw new Error("OTP_REQUIRED");
               }
               const v = await verifyOtp(email, null, otp);
               if (!v.ok) {
+                await auditAuthEvent({
+                  action: "OTP_FAILED",
+                  tenantId: tenant.id,
+                  userId: tenant.id,
+                  userName: tenant.name,
+                  userRole: tenant.role,
+                  recordId: tenant.id,
+                  recordTitle: tenant.email,
+                  ipAddress,
+                  newValue: { email, reason: v.reason, path: "tenant" },
+                });
                 throw new Error(`OTP_${v.reason.toUpperCase()}`);
               }
+              await auditAuthEvent({
+                action: "OTP_VERIFIED",
+                tenantId: tenant.id,
+                userId: tenant.id,
+                userName: tenant.name,
+                userRole: tenant.role,
+                recordId: tenant.id,
+                recordTitle: tenant.email,
+                ipAddress,
+                newValue: { email, path: "tenant" },
+              });
             }
+
+            await auditAuthEvent({
+              action: "LOGIN_SUCCESS",
+              tenantId: tenant.id,
+              userId: tenant.id,
+              userName: tenant.name,
+              userRole: tenant.role,
+              recordId: tenant.id,
+              recordTitle: tenant.email,
+              ipAddress,
+              newValue: {
+                email,
+                role: tenant.role,
+                mfaUsed: tenant.role !== "super_admin" && tenant.mfaEnabled,
+                path: "tenant",
+              },
+            });
 
             const result: SessionUser = {
               id: tenant.id,
@@ -162,15 +297,53 @@ export const authOptions: NextAuthOptions = {
             include: { tenant: { include: { subscription: true } } },
           });
           if (userMatches.length > 1) {
+            await auditAuthEvent({
+              action: "LOGIN_AMBIGUOUS_EMAIL",
+              tenantId: null,
+              userName: email,
+              recordTitle: email,
+              ipAddress,
+              newValue: {
+                email,
+                matchCount: userMatches.length,
+                path: "user",
+              },
+            });
             throw new Error("AMBIGUOUS_EMAIL");
           }
           const user = userMatches[0];
 
           if (user) {
-            if (!user.isActive) return null;
+            if (!user.isActive) {
+              await auditAuthEvent({
+                action: "LOGIN_ACCOUNT_INACTIVE",
+                tenantId: user.tenantId,
+                userId: user.id,
+                userName: user.name,
+                userRole: user.role,
+                recordId: user.id,
+                recordTitle: user.email,
+                ipAddress,
+                newValue: { email, path: "user" },
+              });
+              return null;
+            }
 
             const valid = await bcrypt.compare(password, user.passwordHash);
-            if (!valid) return null;
+            if (!valid) {
+              await auditAuthEvent({
+                action: "LOGIN_FAILED",
+                tenantId: user.tenantId,
+                userId: user.id,
+                userName: user.name,
+                userRole: user.role,
+                recordId: user.id,
+                recordTitle: user.email,
+                ipAddress,
+                newValue: { email, reason: "wrong_password", path: "user" },
+              });
+              return null;
+            }
 
             const sub = user.tenant?.subscription;
             const hasActiveSub =
@@ -178,6 +351,17 @@ export const authOptions: NextAuthOptions = {
               sub.status?.toLowerCase() === "active" &&
               new Date(sub.expiryDate) > new Date();
             if (!hasActiveSub) {
+              await auditAuthEvent({
+                action: "SUBSCRIPTION_BLOCKED",
+                tenantId: user.tenantId,
+                userId: user.id,
+                userName: user.name,
+                userRole: user.role,
+                recordId: user.id,
+                recordTitle: user.email,
+                ipAddress,
+                newValue: { email, role: user.role, path: "user" },
+              });
               throw new Error("SUBSCRIPTION_INACTIVE");
             }
 
@@ -187,17 +371,67 @@ export const authOptions: NextAuthOptions = {
               if (!otp) {
                 const code = await generateOtp(email, user.tenantId);
                 await sendOtpEmail(user.email, code);
+                await auditAuthEvent({
+                  action: "OTP_SENT",
+                  tenantId: user.tenantId,
+                  userId: user.id,
+                  userName: user.name,
+                  userRole: user.role,
+                  recordId: user.id,
+                  recordTitle: user.email,
+                  ipAddress,
+                  newValue: { email, path: "user" },
+                });
                 throw new Error("OTP_REQUIRED");
               }
               const v = await verifyOtp(email, user.tenantId, otp);
               if (!v.ok) {
+                await auditAuthEvent({
+                  action: "OTP_FAILED",
+                  tenantId: user.tenantId,
+                  userId: user.id,
+                  userName: user.name,
+                  userRole: user.role,
+                  recordId: user.id,
+                  recordTitle: user.email,
+                  ipAddress,
+                  newValue: { email, reason: v.reason, path: "user" },
+                });
                 throw new Error(`OTP_${v.reason.toUpperCase()}`);
               }
+              await auditAuthEvent({
+                action: "OTP_VERIFIED",
+                tenantId: user.tenantId,
+                userId: user.id,
+                userName: user.name,
+                userRole: user.role,
+                recordId: user.id,
+                recordTitle: user.email,
+                ipAddress,
+                newValue: { email, path: "user" },
+              });
             }
 
             await prisma.user.update({
               where: { id: user.id },
               data: { lastLogin: new Date() },
+            });
+
+            await auditAuthEvent({
+              action: "LOGIN_SUCCESS",
+              tenantId: user.tenantId,
+              userId: user.id,
+              userName: user.name,
+              userRole: user.role,
+              recordId: user.id,
+              recordTitle: user.email,
+              ipAddress,
+              newValue: {
+                email,
+                role: user.role,
+                mfaUsed: !!user.tenant?.mfaEnabled,
+                path: "user",
+              },
             });
 
             const result: SessionUser = {
@@ -213,6 +447,13 @@ export const authOptions: NextAuthOptions = {
             return result as unknown as SessionUser;
           }
 
+          await auditAuthEvent({
+            action: "LOGIN_NO_SUCH_ACCOUNT",
+            tenantId: null,
+            userName: email,
+            ipAddress,
+            newValue: { email, reason: "no_match" },
+          });
           return null;
         } catch (err) {
           if (err instanceof Error) {
@@ -229,6 +470,16 @@ export const authOptions: NextAuthOptions = {
               throw err;
             }
           }
+          await auditAuthEvent({
+            action: "LOGIN_INTERNAL_ERROR",
+            tenantId: null,
+            userName: email,
+            ipAddress,
+            newValue: {
+              email,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
           console.error("[auth] authorize failed:", err);
           return null;
         }

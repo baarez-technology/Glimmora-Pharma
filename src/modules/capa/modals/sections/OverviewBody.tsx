@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
@@ -12,8 +13,10 @@ import {
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
-import { CAPA_RISK_VARIANT as RISK_VARIANT } from "@/lib/badgeVariants";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
+import { STATUS_VARIANT as DEVIATION_STATUS_VARIANT, STATUS_LABEL as DEVIATION_STATUS_LABEL } from "@/modules/deviation/DeviationPage.constants";
 import type { CAPA } from "@/store/capa.slice";
+import type { DeviationStatus } from "@/store/deviation.slice";
 import type { UserConfig } from "@/store/settings.slice";
 import { SubmissionChecklist } from "../components/SubmissionChecklist";
 // CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
@@ -72,9 +75,21 @@ export function OverviewBody({
   hasCriteria,
   hasAlignment,
 }: OverviewBodyProps) {
+  const router = useRouter();
   const ownerName = users.find((u) => u.id === capa.owner)?.name ?? capa.owner;
-  const baseVariant = RISK_VARIANT[capa.risk];
-  const riskLevel = capa.risk === "Critical" ? "Critical" : capa.risk === "High" ? "High" : "Low";
+  const baseVariant = getSeverityVariant(capa.risk, "generic");
+
+  // SME Section 1, Stage 2 (FULL) — "Linked deviation" reads from the
+  // bidirectional CAPA.deviation relation hydrated via getCAPA /
+  // getCAPAs. Previously this section fetched separately via
+  // loadLinkedDeviationForCAPA (reverse-query workaround); now the data
+  // arrives with the CAPA prop, so no extra round-trip.
+  const linkedDeviation = capa.deviation ?? null;
+  // Display the stored risk verbatim. Previously Medium collapsed to the
+  // text "Low" while baseVariant stayed amber via RISK_VARIANT.Medium —
+  // the badge label and colour disagreed for any Medium CAPA. The DI-gate
+  // override on the Regulatory-exposure row still pins that row to "High".
+  const riskLevel = capa.risk;
 
   // Submission checklist visible only while the CAPA is editable. Once
   // submitted (pending_qa_review / closed / rejected) the panel is
@@ -174,6 +189,36 @@ export function OverviewBody({
             <button type="button" onClick={() => onNavigateGap(capa.findingId!)} className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0">
               <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{capa.findingId}
             </button>
+          </div>
+        )}
+        {/* SME Section 1, Stage 2 (partial) — reverse-query "Linked deviation".
+            Mirrors the linked-finding block above. Click navigates to the
+            Deviation list page (no deep-link param available today, matching
+            the inverse direction at DeviationPage.tsx:410 which also
+            router.push("/capa") without an id query). */}
+        {linkedDeviation && (
+          <div>
+            <p className="text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Linked deviation</p>
+            <button
+              type="button"
+              onClick={() => router.push("/deviation")}
+              className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0 text-left"
+              aria-label={`Open linked deviation ${linkedDeviation.id.slice(0, 8)}`}
+            >
+              <Link2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span className="font-mono">{linkedDeviation.id.slice(0, 8)}</span>
+              <span className="truncate" style={{ color: "var(--text-secondary)" }}>
+                {linkedDeviation.title}
+              </span>
+            </button>
+            <div className="flex items-center gap-1.5 mt-1">
+              <Badge variant={getSeverityVariant(linkedDeviation.severity, "fda")}>
+                {normalizeSeverityForDisplay(linkedDeviation.severity, "fda") ?? linkedDeviation.severity}
+              </Badge>
+              <Badge variant={DEVIATION_STATUS_VARIANT[linkedDeviation.status as DeviationStatus] ?? "gray"}>
+                {DEVIATION_STATUS_LABEL[linkedDeviation.status as DeviationStatus] ?? linkedDeviation.status}
+              </Badge>
+            </div>
           </div>
         )}
       </div>

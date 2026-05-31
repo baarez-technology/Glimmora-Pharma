@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Clock, GitMerge, Link2, Plus, X } from "lucide-react";
 import type { CAPAChangeControlLink as PrismaCCLink } from "@prisma/client";
 import { Badge } from "@/components/ui/Badge";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useRole } from "@/hooks/useRole";
@@ -235,16 +236,8 @@ export function LinkedChangeControlsSection({ capa }: { capa: CAPA }) {
                         {cc.reference ?? cc.id.slice(0, 8)}
                       </span>
                       <Badge variant="gray">{cc.changeType}</Badge>
-                      <Badge
-                        variant={
-                          cc.risk === "Critical"
-                            ? "red"
-                            : cc.risk === "Low"
-                              ? "green"
-                              : "amber"
-                        }
-                      >
-                        {cc.risk}
+                      <Badge variant={getSeverityVariant(cc.risk, "generic")}>
+                        {normalizeSeverityForDisplay(cc.risk, "generic") ?? cc.risk}
                       </Badge>
                       <Badge variant="gray">{cc.status}</Badge>
                       <Badge variant="blue">

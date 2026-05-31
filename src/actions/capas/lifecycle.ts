@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -9,10 +9,11 @@ import {
   unlockCAPAArtifacts,
   LOCKED_CAPA_STATUSES,
 } from "@/lib/evidence-lock";
-import { generateReference, isReferenceConflict } from "@/lib/reference";
+import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import type { ActionResult } from "./_types";
+import { sanitizeServerError } from "@/lib/errors";
 
-/* ── CAPA lifecycle actions ──
+/* â”€â”€ CAPA lifecycle actions â”€â”€
  *
  * Create / update / clearDIGate / submitForReview / rejectCAPA /
  * deleteCAPA. Closure (signAndCloseCAPA) lives in closure.ts because
@@ -21,7 +22,7 @@ import type { ActionResult } from "./_types";
  * can be tree-shaken independently.
  */
 
-// ── Schemas ──
+// â”€â”€ Schemas â”€â”€
 
 const CreateCAPASchema = z.object({
   description: z.string().min(10, "Description must be at least 10 characters"),
@@ -52,6 +53,13 @@ const UpdateCAPASchema = z.object({
   status: z.string().optional(),
   rca: z.string().optional(),
   rcaMethod: z.string().optional(),
+  // SME Section 1, Stage 4 (FULL) â€” correctiveActions is now managed
+  // via the structured CAPAActionItem rows (addActionItem /
+  // updateActionItem / deleteActionItem / reorderActionItems). The
+  // field stays on the CAPA model as a denormalised cache rebuilt by
+  // syncCorrectiveActions, but direct writes are blocked here so the
+  // structured surface is the only path. updateCAPA refuses payloads
+  // that include it; see the guard below.
   correctiveActions: z.string().optional(),
 });
 
@@ -63,7 +71,7 @@ const RejectSchema = z.object({
   reason: z.string().min(5, "Rejection reason must be at least 5 characters"),
 });
 
-// ── Actions ──
+// â”€â”€ Actions â”€â”€
 
 export async function createCAPA(
   input: z.input<typeof CreateCAPASchema>,
@@ -98,18 +106,33 @@ export async function createCAPA(
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         capa = await prisma.$transaction(async (tx) => {
+          // SME Section 1 (last rung) â€” site-scoped reference prefix.
+          // Format is now "CAPA-{siteCode}-{year}-{NNN}". Site code is
+          // resolved per call; the startsWith filter the helper feeds
+          // back into findLatestForYear scopes naturally to that site's
+          // bucket. Falls back to legacy "CAPA-{year}-{NNN}" when the
+          // CAPA has no site (siteId optional on the schema) or when
+          // the site has no code yet (backfill window).
+          let siteCode: string | null = null;
+          if (parsed.data.siteId) {
+            const site = await tx.site.findUnique({
+              where: { id: parsed.data.siteId },
+              select: { code: true },
+            });
+            siteCode = site?.code ?? null;
+          }
+          const referencePrefix = buildReferencePrefix("CAPA", siteCode);
           // Reference lookup is intentionally GLOBAL (no tenantId filter).
           // CAPA.reference has a global @unique index, not @@unique on
-          // [tenantId, reference] — so two tenants each computing their
-          // per-tenant max would both produce "CAPA-2026-001" and the second
-          // insert would hit P2002 every retry (the per-tenant max still
-          // says "this tenant has none"). Reading the global max for the
-          // year guarantees the computed next-number is strictly greater
-          // than anything already in the unique index. Tenants may see
-          // gaps in their own sequence — that's the documented trade-off
-          // of the global unique design.
+          // [tenantId, reference] â€” so two tenants each computing their
+          // per-tenant max would both produce "CAPA-CHN-2026-001" and the
+          // second insert would hit P2002 every retry. Reading the
+          // global max for the prefix-year guarantees strictly greater.
+          // Tenants may see gaps when two tenants share a site code AND
+          // collide on sequence â€” documented trade-off of the global
+          // unique design.
           const reference = await generateReference(
-            "CAPA",
+            referencePrefix,
             new Date(),
             async (prefix, year) => {
               const row = await tx.cAPA.findFirst({
@@ -122,7 +145,7 @@ export async function createCAPA(
               return row?.reference ?? null;
             },
           );
-          return tx.cAPA.create({
+          const created = await tx.cAPA.create({
             data: {
               ...rest,
               // owner is now zod-optional; the Prisma column is still
@@ -134,10 +157,33 @@ export async function createCAPA(
               createdBy: session.user.name,
               dueDate: new Date(dueDate),
               findingId: linkedFindingId ?? null,
+              // SME Section 1, Stage 2 (FULL) â€” write the new bidirectional
+              // FK on the CAPA row at creation time. Keeps both sides
+              // (CAPA.deviationId + Deviation.linkedCAPAId) atomic via the
+              // surrounding $transaction below.
+              deviationId: linkedDeviationId ?? null,
               diGate: diGateRequired ?? false,
               diGateStatus: diGateRequired ? "pending" : null,
             },
           });
+          // Link-side updates moved INSIDE the transaction (SME Stage 2
+          // FULL): the previous post-create updates ran outside the
+          // transaction, so a Deviation.update failure left the CAPA
+          // created without its back-link. Now both sides commit or
+          // neither does. The Finding update also goes here for symmetry.
+          if (linkedFindingId) {
+            await tx.finding.update({
+              where: { id: linkedFindingId, tenantId: session.user.tenantId },
+              data: { status: "in_progress", linkedCAPAId: created.id },
+            });
+          }
+          if (linkedDeviationId) {
+            await tx.deviation.update({
+              where: { id: linkedDeviationId, tenantId: session.user.tenantId },
+              data: { linkedCAPAId: created.id },
+            });
+          }
+          return created;
         });
         break;
       } catch (err) {
@@ -146,29 +192,8 @@ export async function createCAPA(
       }
     }
     if (!capa) {
-      const message = lastErr instanceof Error ? lastErr.message : String(lastErr);
-      const code = (lastErr as { code?: string } | null)?.code;
-      console.error("[action] createCAPA exhausted reference retries:", { code, message, lastErr });
-      return {
-        success: false,
-        error: process.env.NODE_ENV === "production"
-          ? "Failed to allocate CAPA reference"
-          : `Failed to allocate CAPA reference: ${code ? `[${code}] ` : ""}${message}`,
-      };
-    }
-
-    if (linkedFindingId) {
-      await prisma.finding.update({
-        where: { id: linkedFindingId, tenantId: session.user.tenantId },
-        data: { status: "In Progress", linkedCAPAId: capa.id },
-      });
-    }
-
-    if (linkedDeviationId) {
-      await prisma.deviation.update({
-        where: { id: linkedDeviationId, tenantId: session.user.tenantId },
-        data: { linkedCAPAId: capa.id },
-      });
+      console.error("[action] createCAPA exhausted reference retries:", lastErr);
+      return { success: false, error: sanitizeServerError(lastErr, "Failed to allocate CAPA reference") };
     }
 
     await prisma.auditLog.create({
@@ -180,7 +205,7 @@ export async function createCAPA(
         action: "CAPA_CREATED",
         recordId: capa.id,
         recordTitle: capa.reference
-          ? `${capa.reference} — ${parsed.data.description.slice(0, 60)}`
+          ? `${capa.reference} â€” ${parsed.data.description.slice(0, 60)}`
           : parsed.data.description.slice(0, 80),
         newValue: parsed.data.risk,
       },
@@ -191,15 +216,8 @@ export async function createCAPA(
     revalidatePath("/deviation");
     return { success: true, data: capa };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] createCAPA failed:", { code, message, err });
-    return {
-      success: false,
-      error: process.env.NODE_ENV === "production"
-        ? "Failed to create CAPA"
-        : `Failed to create CAPA: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] createCAPA failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to create CAPA") };
   }
 }
 
@@ -217,27 +235,164 @@ export async function updateCAPA(
     };
   }
 
+  // SME Section 1, Stage 4 (FULL) â€” block direct writes to correctiveActions.
+  // The field stays on the CAPA row as a denormalised cache rebuilt by
+  // syncCorrectiveActions inside the action-items mutation paths, but the
+  // only path to mutate it is now addActionItem / updateActionItem / etc.
+  // Audit the blocked attempt so legacy clients can be traced.
+  if (parsed.data.correctiveActions !== undefined) {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "CAPA",
+          action: "CAPA_UPDATE_BLOCKED_CORRECTIVE_ACTIONS_DEPRECATED",
+          recordId: id,
+          newValue: JSON.stringify({
+            attemptedBy: session.user.id,
+            payloadLength: parsed.data.correctiveActions.length,
+          }),
+        },
+      });
+    } catch (err) {
+      console.error("[action] failed to write CAPA_UPDATE_BLOCKED_CORRECTIVE_ACTIONS_DEPRECATED audit:", err);
+    }
+    return {
+      success: false,
+      error:
+        "Direct writes to correctiveActions are deprecated. Use the structured Action Items API (addActionItem / updateActionItem / deleteActionItem / reorderActionItems) on the Actions tab instead.",
+    };
+  }
+
   try {
     // Pre-fetch the current row so we can detect a status transition and
     // lock / unlock evidence accordingly. This is the path the reopen flow
     // travels through (status: "closed" / "pending_qa_review" / "rejected"
-    // → "open" / "in_progress"). Tenant-scoped via the same where clause.
+    // â†’ "open" / "in_progress"). Tenant-scoped via the same where clause.
     const before = await prisma.cAPA.findFirst({
       where: { id, tenantId: session.user.tenantId },
-      select: { status: true },
+      select: {
+        status: true,
+        reference: true,
+        rca: true,
+        rcaMethod: true,
+        rcaApproved: true,
+      },
     });
     if (!before) return { success: false, error: "CAPA not found" };
+
+    // SME Section 1, Stage 3 (partial) â€” RCA field-lock.
+    // Once a CAPA enters QA review (and through closure/rejection), the
+    // rca and rcaMethod fields become the regulatory record of "what
+    // we determined caused the deviation." Editing them while QA is
+    // mid-review undermines the integrity of that review. Reuses the
+    // existing LOCKED_CAPA_STATUSES set so the boundary is one
+    // codebase-wide constant (matches evidence + alignment + criteria
+    // locks). Strict: even re-posting the same value is treated as a
+    // write attempt and blocked â€” server cannot distinguish intent.
+    // `!== undefined` (not falsy) â€” clearing to empty string is itself
+    // a destructive edit and must be blocked.
+    if (
+      (parsed.data.rca !== undefined || parsed.data.rcaMethod !== undefined) &&
+      LOCKED_CAPA_STATUSES.has(before.status)
+    ) {
+      const attemptedFields = [
+        parsed.data.rca !== undefined ? "rca" : null,
+        parsed.data.rcaMethod !== undefined ? "rcaMethod" : null,
+      ].filter((v): v is string => v !== null);
+      try {
+        await prisma.auditLog.create({
+          data: {
+            tenantId: session.user.tenantId,
+            userId: session.user.id,
+            userName: session.user.name,
+            userRole: session.user.role,
+            module: "CAPA",
+            action: "CAPA_UPDATE_BLOCKED_RCA_LOCKED",
+            recordId: id,
+            recordTitle: (before.reference ?? id).slice(0, 80),
+            newValue: JSON.stringify({
+              currentStatus: before.status,
+              attemptedFields,
+            }),
+          },
+        });
+      } catch (err) {
+        console.error("[action] failed to write CAPA_UPDATE_BLOCKED_RCA_LOCKED audit:", err);
+      }
+      return {
+        success: false,
+        error: "Root cause analysis is locked once the CAPA enters QA review.",
+      };
+    }
+
+    // SME Section 1, Stage 3 (FULL) â€” auto-invalidate the RCA review
+    // when the underlying rca / rcaMethod text changes after approval.
+    // The Stage-3 RCA field-lock blocks edits >= pending_qa_review, but
+    // during "in_progress" the RCA is editable AND can already be
+    // approved by QA. Editing the approved content silently would mean
+    // QA's "Approved" verdict applies to text the reviewer never saw.
+    // So: detect any change, and if rcaApproved is true, clear the
+    // verdict + audit it so the reviewer re-reviews.
+    const rcaChanged =
+      parsed.data.rca !== undefined && parsed.data.rca !== before.rca;
+    const rcaMethodChanged =
+      parsed.data.rcaMethod !== undefined && parsed.data.rcaMethod !== before.rcaMethod;
+    const shouldInvalidateRcaReview =
+      (rcaChanged || rcaMethodChanged) && before.rcaApproved === true;
+    const rcaInvalidateData = shouldInvalidateRcaReview
+      ? {
+          rcaApproved: null,
+          rcaReviewedBy: null,
+          rcaReviewedById: null,
+          rcaReviewedAt: null,
+          rcaReviewNotes: null,
+          rcaOverrideBy: null,
+          rcaOverrideById: null,
+          rcaOverrideAt: null,
+          rcaOverrideReason: null,
+        }
+      : {};
 
     const capa = await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
         ...parsed.data,
         ...(parsed.data.dueDate ? { dueDate: new Date(parsed.data.dueDate) } : {}),
+        ...rcaInvalidateData,
       },
     });
 
+    if (shouldInvalidateRcaReview) {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            tenantId: session.user.tenantId,
+            userId: session.user.id,
+            userName: session.user.name,
+            userRole: session.user.role,
+            module: "CAPA / RCA Review",
+            action: "CAPA_RCA_REVIEW_INVALIDATED_BY_EDIT",
+            recordId: id,
+            recordTitle: (before.reference ?? id).slice(0, 80),
+            newValue: JSON.stringify({
+              changedFields: [
+                rcaChanged ? "rca" : null,
+                rcaMethodChanged ? "rcaMethod" : null,
+              ].filter((v): v is string => v !== null),
+            }),
+          },
+        });
+      } catch (err) {
+        console.error("[action] failed to write CAPA_RCA_REVIEW_INVALIDATED_BY_EDIT audit:", err);
+      }
+    }
+
     // Lock / unlock side-effect when the CAPA crosses the investigation
-    // boundary. Idempotent — both helpers no-op when the desired state is
+    // boundary. Idempotent â€” both helpers no-op when the desired state is
     // already in place.
     if (parsed.data.status && parsed.data.status !== before.status) {
       const wasLocked = LOCKED_CAPA_STATUSES.has(before.status);
@@ -328,7 +483,42 @@ export async function submitForReview(id: string): Promise<ActionResult> {
       return { success: false, error: "CAPA not found" };
     }
 
-    // Substage 4.7 gate — action plan must be reviewed for cosmetic-CAPA
+    // SME Section 1, Stage 3 (FULL) â€” RCA QA gate. The CAPA cannot leave
+    // in_progress without a QA reviewer (different from the creator)
+    // approving the root cause analysis. rcaApproved=true is the only
+    // acceptable state; null=unreviewed and false=rejected both block.
+    if (existing.rcaApproved !== true) {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            tenantId: session.user.tenantId,
+            userName: session.user.name,
+            userRole: session.user.role,
+            module: "CAPA",
+            action: "CAPA_SUBMIT_BLOCKED_RCA_NOT_APPROVED",
+            recordId: id,
+            newValue: JSON.stringify({
+              rcaApproved: existing.rcaApproved,
+              reason:
+                existing.rcaApproved === false
+                  ? "rca_rejected"
+                  : "rca_not_yet_reviewed",
+            }),
+          },
+        });
+      } catch (err) {
+        console.error("[action] failed to write CAPA_SUBMIT_BLOCKED_RCA_NOT_APPROVED audit:", err);
+      }
+      return {
+        success: false,
+        error:
+          existing.rcaApproved === false
+            ? "RCA was rejected by QA â€” revise the root cause analysis and request re-review before submitting for full QA review."
+            : "RCA must be approved by QA before this CAPA can enter full review. Open the RCA tab and request review.",
+      };
+    }
+
+    // Substage 4.7 gate â€” action plan must be reviewed for cosmetic-CAPA
     // risk before submission. Either alignmentStatus === "aligned", or a
     // separate-of-duties override on a "cosmetic" verdict has been recorded.
     if (
@@ -352,7 +542,7 @@ export async function submitForReview(id: string): Promise<ActionResult> {
 
     // Lock evidence + effectiveness criteria FIRST so the CAPA never sits in
     // pending_qa_review with editable artifacts. Both helpers inside
-    // lockCAPAArtifacts are idempotent — re-runs are safe.
+    // lockCAPAArtifacts are idempotent â€” re-runs are safe.
     await lockCAPAArtifacts(id, session.user.tenantId, {
       name: session.user.name,
       role: session.user.role,
@@ -403,7 +593,7 @@ export async function rejectCAPA(
   }
 
   try {
-    // Rejection ends investigation activity — lock both evidence and
+    // Rejection ends investigation activity â€” lock both evidence and
     // criteria the same way submitForReview/signAndCloseCAPA do so the
     // trail is consistent.
     await lockCAPAArtifacts(id, session.user.tenantId, {

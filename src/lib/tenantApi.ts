@@ -31,8 +31,6 @@ function formatFieldErrors(fieldErrors: Record<string, string[]> | undefined): s
   return parts.join(" · ");
 }
 
-const BASE = "/api";
-
 /** Logs the success/failure outcome of an API call with timing. */
 async function logCall<T>(
   method: string,
@@ -166,45 +164,3 @@ export async function deleteTenantApi(id: string): Promise<void> {
   });
 }
 
-export interface LoginResult {
-  ok: true;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    role: string;
-    gxpSignatory: boolean;
-    orgId: string;
-    tenantId: string;
-  };
-  tenant: Tenant;
-}
-
-/**
- * @param silent demote failure logs to warn level (used by the LoginPage's
- *               best-effort Neon login that may 500 when the API isn't
- *               wired up — the flow falls back to mock accounts).
- */
-export async function loginApi(
-  username: string,
-  password: string,
-  silent = false,
-): Promise<LoginResult | null> {
-  return logCall("POST", "/auth/login", async () => {
-    const res = await fetch(`${BASE}/auth/login`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (res.status === 401) return null;
-    if (res.status === 403) {
-      const body = (await res.json().catch(() => ({}))) as { reason?: string; error?: string };
-      const err = new Error(body.reason ?? body.error ?? "Login blocked");
-      (err as Error & { reason?: string }).reason = body.reason;
-      throw err;
-    }
-    if (!res.ok) throw new Error(`Login failed: ${res.status}`);
-    return (await res.json()) as LoginResult;
-  }, { silent });
-}

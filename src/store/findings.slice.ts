@@ -12,6 +12,10 @@ export interface EditHistoryEntry {
 
 export interface Finding {
   id: string;
+  // Human-readable reference (e.g. "FND-CHN-2026-001"). Optional —
+  // populated server-side at create + backfill; UI falls back to the
+  // cuid slice when missing.
+  reference?: string;
   tenantId: string;
   siteId: string;
   area: string;

@@ -186,12 +186,12 @@ export function AppShell({ children, initialTenant, initialUser }: AppShellProps
               variant="ghost"
               fullWidth
               onClick={async () => {
-                toast.info("Signing out...");
+                toast.info("Signing out…");
                 try {
                   await nextAuthLogout();
                 } catch { /* ignore — fall through to local logout */ }
                 dispatch(logout());
-                toast.success("Logged out successfully");
+                toast.success("Signed out.");
                 // Hard nav (this surface used window.location to defeat any
                 // stale SPA state). Slight delay so the toast renders.
                 setTimeout(() => { window.location.href = "/login"; }, 500);

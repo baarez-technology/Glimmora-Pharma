@@ -3,13 +3,23 @@ import type { LinkedDocument } from "@/components/shared/DocumentUpload";
 
 export type DeviationType = "planned" | "unplanned";
 export type DeviationCategory = "process" | "equipment" | "material" | "environmental" | "personnel" | "documentation" | "system" | "other";
-export type DeviationSeverity = "critical" | "major" | "minor";
+// Accepts both casings. Legacy DB rows are lowercase
+// (critical/major/minor); rows written via createDeviation after the
+// Cat 1 severity-unification rung are TitleCase (Critical/Major/Minor,
+// matching the FDA-regulatory canonical form). Display code normalises
+// via src/lib/severity.ts; comparisons must do the same.
+export type DeviationSeverity = "critical" | "major" | "minor" | "Critical" | "Major" | "Minor";
 export type DeviationStatus = "draft" | "open" | "under_investigation" | "pending_qa_review" | "closed" | "rejected";
 export type ImpactLevel = "high" | "medium" | "low" | "none";
-export type DeviationRCAMethod = "5Why" | "Fishbone" | "FaultTree";
+export type DeviationRCAMethod = "5Why" | "Fishbone" | "FaultTree" | "BarrierAnalysis";
 
 export interface Deviation {
   id: string;
+  // Human-readable reference (e.g. "DEV-CHN-2026-001"). Optional in
+  // the Redux shape because legacy/pre-backfill rows may not have one;
+  // every created Deviation populates it server-side. UI fallback when
+  // missing: display the cuid-prefixed slice.
+  reference?: string;
   tenantId: string;
   title: string;
   description: string;
@@ -28,11 +38,28 @@ export interface Deviation {
   immediateAction: string;
   rootCause?: string;
   rcaMethod?: DeviationRCAMethod;
+  /** Authoritative userId FK of the reporter (Deviation.createdById).
+   *  Used by the investigation/CAPA-decision SoD checks in the UI. */
+  createdById?: string;
+  // ── Tier 2, Items 3+4 — investigation + CAPA decision ──
+  /** Raw structured RCA form buffer as JSON text (repopulates the edit
+   *  form without re-parsing rootCause). */
+  rcaData?: string;
+  investigationCompletedAt?: string;
+  investigationCompletedById?: string;
+  capaDecisionMade?: boolean;
+  capaDecisionRequired?: boolean;
+  capaDecisionReason?: string;
+  capaDecisionAt?: string;
+  capaDecisionById?: string;
   patientSafetyImpact: ImpactLevel;
   productQualityImpact: ImpactLevel;
   regulatoryImpact: ImpactLevel;
   batchesAffected?: string[];
   linkedCAPAId?: string;
+  /** Human-readable reference of the linked CAPA (resolved from the
+   *  sourcedCAPA relation); used for display while linkedCAPAId routes. */
+  linkedCAPARef?: string;
   linkedFindingId?: string;
   documents?: LinkedDocument[];
   closedBy?: string;

@@ -34,6 +34,7 @@ export const CAPA_STATUSES: Record<string, StatusDef> = {
   open: { value: "open", label: "Open", color: "#3B82F6", bg: "#EFF6FF", description: "CAPA created, root cause analysis not yet started", nextActions: ["Add RCA", "Add action plan"] },
   in_progress: { value: "in_progress", label: "In Progress", color: "#F59E0B", bg: "#FEF9EC", description: "RCA complete, corrective actions being implemented", nextActions: ["Attach evidence", "Submit for review"] },
   pending_qa_review: { value: "pending_qa_review", label: "Pending QA Review", color: "#8B5CF6", bg: "#F5F3FF", description: "Submitted to QA Head for review and sign-off", nextActions: ["QA Head to review"] },
+  pending_verification: { value: "pending_verification", label: "Pending Verification", color: "#0EA5E9", bg: "#F0F9FF", description: "All approvals collected. Awaiting independent QA verification before closure.", nextActions: ["Verifier (distinct from approvers) to sign verification"] },
   closed: { value: "closed", label: "Closed", color: "#0F6E56", bg: "#E8F5F1", description: "QA Head signed and closed. Effectiveness check due in 90 days.", nextActions: ["Monitor effectiveness"] },
   rejected: { value: "rejected", label: "Rejected", color: "#A32D2D", bg: "#FEF2F2", description: "QA Head rejected. Rework required.", nextActions: ["Review rejection reason", "Rework and resubmit"] },
 };

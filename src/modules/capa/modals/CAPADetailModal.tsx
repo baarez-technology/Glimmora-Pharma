@@ -13,7 +13,7 @@ import { useRole } from "@/hooks/useRole";
 import { EvidenceCollectionPanel } from "../tabs/EvidenceCollectionPanel";
 import { EffectivenessCriteriaPanel } from "../tabs/EffectivenessCriteriaPanel";
 import { ActionsPanel } from "../tabs/ActionsPanel";
-import { CAPA_RISK_VARIANT as RISK_VARIANT, CAPA_STATUS_VARIANT as STATUS_VARIANT } from "@/lib/badgeVariants";
+import { CAPA_STATUS_VARIANT as STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { isOverdue as isOverdueHelper, STATUS_LABEL } from "@/types/capa";
 import dayjs from "@/lib/dayjs";
 import type { CAPA } from "@/store/capa.slice";
@@ -130,12 +130,28 @@ export function CAPADetailModal({
 
   const evidenceBadge = evidenceCounts ? `${evidenceCounts.complete}/${evidenceCounts.total}` : null;
   const hasRca = (capa.rca?.trim().length ?? 0) > 0;
+  // SME Section 1, Stage 4 (FULL) — hasActions is now derived from
+  // structured CAPAActionItem rows instead of splitting the
+  // correctiveActions string. Skipped items don't count toward "has
+  // actions" (they represent withdrawn commitments). The legacy
+  // string-split derivation is preserved as a fallback for any CAPA
+  // that hasn't been hydrated with actionItems yet (e.g. an older code
+  // path that queried without the include).
+  const liveActionItems = (capa.actionItems ?? []).filter(
+    (a) => a.status !== "skipped",
+  );
+  const hasActions =
+    liveActionItems.length > 0 ||
+    (capa.actionItems === undefined &&
+      ((capa.correctiveActions ?? "").trim().length > 0));
+  const actionsBadge = liveActionItems.length > 0 ? String(liveActionItems.length) : null;
+  // Legacy field passed down to ActionsPanel for the existing bullet-list
+  // fallback render. Will be unused once ActionItemsSection lands as the
+  // primary surface.
   const actionLines = (capa.correctiveActions ?? "")
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
-  const hasActions = actionLines.length > 0;
-  const actionsBadge = hasActions ? String(actionLines.length) : null;
 
   const criteriaBadge = criteriaCount !== null ? String(criteriaCount) : null;
   // 20-char minimum mirrors the Submission checklist threshold so a CAPA
@@ -165,7 +181,7 @@ export function CAPADetailModal({
     { id: "overview", label: "Overview", badge: null },
     { id: "evidence", label: "Evidence", badge: evidenceBadge },
     { id: "rca", label: "RCA", badge: hasRca ? "✓" : null },
-    { id: "actions", label: "Actions", badge: actionsBadge },
+    { id: "actions", label: "Action Plans", badge: actionsBadge },
     { id: "criteria", label: "Effectiveness Criteria", badge: criteriaBadge },
   ];
 
@@ -177,7 +193,7 @@ export function CAPADetailModal({
               readable per-tenant identifier (CAPA-YYYY-NNN) replaces the
               raw cuid that used to render here. */}
           <span className="font-mono text-[12px] text-(--text-secondary)">{referenceDisplay}</span>
-          <Badge variant={RISK_VARIANT[capa.risk]}>{capa.risk}</Badge>
+          <Badge variant={getSeverityVariant(capa.risk, "generic")}>{normalizeSeverityForDisplay(capa.risk, "generic") ?? capa.risk}</Badge>
           <Badge variant={STATUS_VARIANT[capa.status]}>{STATUS_LABEL[capa.status]}</Badge>
           {overdue && <Badge variant="red">Overdue</Badge>}
           {/* CHANGE CONTROL HIDDEN — "Implemented with override" badge

@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -13,6 +13,7 @@ import {
 import {
   APPROVAL_REQUIREMENTS,
   canApproveCAPA,
+  evaluateApprovalProgress,
   type ApprovalTier,
 } from "@/lib/capa-approvals";
 import { getCAPAApprovals } from "@/lib/queries/capas";
@@ -22,8 +23,9 @@ import {
   type ActionResult,
 } from "./_types";
 import { readSigningProvenance } from "./_shared";
+import { sanitizeServerError } from "@/lib/errors";
 
-/* ── Substage 5.2 — Tiered Approval Routing + Substage 5.4 — e-sig ───────
+/* â”€â”€ Substage 5.2 â€” Tiered Approval Routing + Substage 5.4 â€” e-sig â”€â”€â”€â”€â”€â”€â”€
  *
  * Count-based approvals keyed off APPROVAL_REQUIREMENTS in
  * src/lib/capa-approvals.ts. closure.ts's signAndCloseCAPA gates the
@@ -33,13 +35,13 @@ import { readSigningProvenance } from "./_shared";
  *
  * Substage 5.4 layered Part 11 e-signatures on top: every approve and
  * revoke action mints a SignedRecord row with a SHA-256 content hash and
- * a re-authenticated password under §11.200(a)(1)(ii).
+ * a re-authenticated password under Â§11.200(a)(1)(ii).
  */
 
-// ── Schemas ──
+// â”€â”€ Schemas â”€â”€
 
 const ApproveCAPASchema = z.object({
-  // Re-authentication password (Part 11 §11.200(a)(1)(ii)). Plaintext —
+  // Re-authentication password (Part 11 Â§11.200(a)(1)(ii)). Plaintext â€”
   // never logged, never echoed back. The action runs bcrypt.compare and
   // discards the value.
   password: z.string().min(1, "Password is required to sign"),
@@ -51,7 +53,7 @@ const RevokeCAPAApprovalSchema = z.object({
 });
 
 /**
- * Client-callable read wrapper — mirrors loadCriteriaForCAPA / loadEvidenceForCAPA.
+ * Client-callable read wrapper â€” mirrors loadCriteriaForCAPA / loadEvidenceForCAPA.
  * The panel calls this from a client component to refresh after a successful
  * approve / revoke. Tenant-scoped via the parent-CAPA guard.
  */
@@ -75,7 +77,7 @@ export async function loadApprovalsForCAPA(
  * approvals, comments).satisfied === true, enforced inside
  * signAndCloseCAPA. Per substage 5.3 ("All reviewer comments adjudicated
  * and documented before approval"), this action also blocks while any
- * concern comment is unresolved — applies to intermediate approvals as
+ * concern comment is unresolved â€” applies to intermediate approvals as
  * well as the final close.
  */
 export async function approveCAPA(
@@ -100,18 +102,19 @@ export async function approveCAPA(
       risk: true,
       description: true,
       reference: true,
+      createdBy: true,
     },
   });
   if (!existing) return { success: false, error: "CAPA not found" };
   if (existing.status !== "pending_qa_review") {
     return {
       success: false,
-      error: "CAPA is not awaiting approvals — submit it for QA review first.",
+      error: "CAPA is not awaiting approvals â€” submit it for QA review first.",
     };
   }
   // Role allowed for this tier? "Critical" needs qa_head + regulatory_affairs;
   // other tiers need qa_head only. Anyone else (it_cdo, viewer, etc.) gets
-  // a hard rejection — they're not in the approver set for this tier.
+  // a hard rejection â€” they're not in the approver set for this tier.
   if (!canApproveCAPA(session.user.role, existing.risk)) {
     const tierReqs = APPROVAL_REQUIREMENTS[existing.risk as ApprovalTier];
     const allowedRoles = tierReqs
@@ -119,10 +122,48 @@ export async function approveCAPA(
       : "an authorised approver";
     return {
       success: false,
-      error: `Your role cannot approve a ${existing.risk} CAPA — ${allowedRoles} required.`,
+      error: `Your role cannot approve a ${existing.risk} CAPA â€” ${allowedRoles} required.`,
     };
   }
-  // Distinct-user rule — same user cannot stack two LIVE approvals against
+  // Stage 5 (partial) â€” Part 11 Â§11.10(d) separation of duties.
+  // Creator and approver MUST be distinct identities. CAPA.createdBy is a
+  // display-name string today (not a userId FK), so this comparison is by
+  // name and is brittle if two users share a display name or if a user
+  // renames. Tightening this is blocked on a CAPA.createdBy â†’ createdById
+  // schema migration (parked on Postgres alongside the broader Stage 5
+  // verification work). Until then, name-equality is the strongest signal
+  // available here. No system/sentinel creator exists in this codebase
+  // (verified via grep), so no bypass branch is needed for automated
+  // flows â€” AI-driven CAPA creation still records the invoking user's
+  // name in createdBy.
+  if (existing.createdBy && existing.createdBy === session.user.name) {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: APPROVAL_AUDIT_MODULE,
+          action: "CAPA_APPROVAL_BLOCKED_SELF_APPROVAL",
+          recordId: capaId,
+          recordTitle: (existing.reference ?? existing.description).slice(0, 80),
+          newValue: JSON.stringify({
+            attemptedBy: session.user.id,
+            capaCreator: existing.createdBy,
+            comparedBy: "displayName",
+          }),
+        },
+      });
+    } catch (err) {
+      console.error("[action] failed to write CAPA_APPROVAL_BLOCKED_SELF_APPROVAL audit:", err);
+    }
+    return {
+      success: false,
+      error: "You cannot approve a CAPA you created. Separation of duties requires a different approver.",
+    };
+  }
+  // Distinct-user rule â€” same user cannot stack two LIVE approvals against
   // the same CAPA. revokedAt: null filter means a previously-revoked
   // approval doesn't lock the user out of re-approving.
   const alreadyApproved = await prisma.cAPAApproval.findFirst({
@@ -140,7 +181,7 @@ export async function approveCAPA(
       error: "You have already approved this CAPA. Approval requires distinct users.",
     };
   }
-  // §5.3 — block approval while any concern comment is unresolved.
+  // Â§5.3 â€” block approval while any concern comment is unresolved.
   // Counts isConcern && !resolvedAt && !deletedAt (deleted concerns are
   // treated as withdrawn).
   const unresolvedConcerns = await prisma.cAPAComment.count({
@@ -159,9 +200,9 @@ export async function approveCAPA(
     };
   }
 
-  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing. We
+  // Â§11.200(a)(1)(ii) â€” re-authenticate at the moment of signing. We
   // verify before any state change so a wrong password causes zero side
-  // effects (other than the audit row, which is the point — every failed
+  // effects (other than the audit row, which is the point â€” every failed
   // signing attempt is recorded).
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
@@ -204,14 +245,14 @@ export async function approveCAPA(
     comment: parsed.data.comment ?? null,
   });
   const contentHash = computeContentHash(canonicalContent);
-  const contentSummary = `${existing.reference ?? existing.id} approved by ${session.user.name} (${session.user.role}) — risk: ${existing.risk}`;
+  const contentSummary = `${existing.reference ?? existing.id} approved by ${session.user.name} (${session.user.role}) â€” risk: ${existing.risk}`;
   const provenance = await readSigningProvenance();
 
   try {
     // Atomic 3-step: create approval row first (so we have its id for
     // SignedRecord.recordId), then create the SignedRecord, then link
     // the approval back via signatureId. Either all three commit or none.
-    const { approval, signedRecord } = await prisma.$transaction(
+    const { approval, signedRecord, transitioned } = await prisma.$transaction(
       async (tx) => {
         const created = await tx.cAPAApproval.create({
           data: {
@@ -246,11 +287,38 @@ export async function approveCAPA(
           where: { id: created.id },
           data: { signatureId: sig.id },
         });
-        return { approval: linked, signedRecord: sig };
+        // SME Section 1, Stage 5 (FULL) â€” auto-transition to
+        // pending_verification when this approval satisfies the tier
+        // requirement (and no unresolved concerns block). Done inside
+        // the same tx so the approval row, the SignedRecord, and the
+        // status flip all commit atomically â€” no window where another
+        // process sees an "approved CAPA still in pending_qa_review".
+        const allApprovals = await tx.cAPAApproval.findMany({
+          where: { capaId, tenantId: session.user.tenantId, revokedAt: null },
+          select: { approverRole: true, approverId: true },
+        });
+        const allComments = await tx.cAPAComment.findMany({
+          where: { capaId, tenantId: session.user.tenantId },
+          select: { isConcern: true, resolvedAt: true, deletedAt: true },
+        });
+        const newProgress = evaluateApprovalProgress(
+          existing.risk as ApprovalTier,
+          allApprovals,
+          allComments,
+        );
+        let didTransition = false;
+        if (newProgress.satisfied) {
+          await tx.cAPA.update({
+            where: { id: capaId, tenantId: session.user.tenantId },
+            data: { status: "pending_verification" },
+          });
+          didTransition = true;
+        }
+        return { approval: linked, signedRecord: sig, transitioned: didTransition };
       },
     );
 
-    // Two paired audit rows — one for the workflow event (CAPA_APPROVED),
+    // Two paired audit rows â€” one for the workflow event (CAPA_APPROVED),
     // one for the signing event (CAPA_APPROVAL_SIGNED). The signed event
     // points at the SignedRecord id so the audit trail and the
     // SignedRecord ledger cross-reference cleanly.
@@ -292,20 +360,36 @@ export async function approveCAPA(
       },
     });
 
+    // SME Section 1, Stage 5 (FULL) â€” paired audit row when this
+    // approval was the last one needed and the CAPA auto-transitioned
+    // to pending_verification. Separate row so analytics queries can
+    // count "approvals collected" vs "verification gates opened"
+    // distinctly.
+    if (transitioned) {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: APPROVAL_AUDIT_MODULE,
+          action: "CAPA_AWAITING_VERIFICATION",
+          recordId: capaId,
+          recordTitle: existing.description.slice(0, 80),
+          newValue: JSON.stringify({
+            triggeredByApprovalId: approval.id,
+            triggeredBySignatureId: signedRecord.id,
+          }),
+        },
+      });
+    }
+
     revalidatePath("/capa");
     revalidatePath(`/capa/${capaId}`);
     return { success: true, data: { approval, signature: signedRecord } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] approveCAPA failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to record approval"
-          : `Failed to record approval: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] approveCAPA failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to record approval") };
   }
 }
 
@@ -315,7 +399,7 @@ export async function approveCAPA(
  * in pending_qa_review (revocation after closure would require the close
  * to be undone first, which is intentionally not possible here).
  *
- * Substage 5.4 — revocation is a Part 11 signing event in its own right.
+ * Substage 5.4 â€” revocation is a Part 11 signing event in its own right.
  * The original approval row is NOT deleted: it carries `revokedAt` +
  * `revokedSignatureId` so the audit chain stays intact. The original
  * SignedRecord is also preserved (Part 11 immutability). A NEW
@@ -344,6 +428,7 @@ export async function revokeCAPAApproval(
           status: true,
           description: true,
           reference: true,
+          verifiedAt: true,
         },
       },
     },
@@ -352,11 +437,18 @@ export async function revokeCAPAApproval(
   if (existing.revokedAt !== null) {
     return { success: false, error: "Approval has already been revoked." };
   }
-  if (existing.capa.status !== "pending_qa_review") {
+  // SME Section 1, Stage 5 (FULL) â€” allow revocation from BOTH
+  // pending_qa_review (the original behaviour) AND pending_verification
+  // (the new state introduced by the verification gate). After closure
+  // / rejection revocation is no longer allowed â€” those are terminal.
+  if (
+    existing.capa.status !== "pending_qa_review" &&
+    existing.capa.status !== "pending_verification"
+  ) {
     return {
       success: false,
       error:
-        "Cannot revoke approval — the CAPA has already moved past QA review.",
+        "Cannot revoke approval â€” the CAPA has already moved past QA review.",
     };
   }
   if (existing.approverId !== session.user.id) {
@@ -366,7 +458,7 @@ export async function revokeCAPAApproval(
     };
   }
 
-  // §11.200(a)(1)(ii) password re-verification — same as the approve path.
+  // Â§11.200(a)(1)(ii) password re-verification â€” same as the approve path.
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
     parsed.data.password,
@@ -412,6 +504,15 @@ export async function revokeCAPAApproval(
   const contentSummary = `${existing.capa.reference ?? existing.capa.id} approval by ${existing.approverName} (${existing.approverRole}) revoked by ${session.user.name}`;
   const provenance = await readSigningProvenance();
 
+  // SME Section 1, Stage 5 (FULL) â€” if the CAPA had already advanced to
+  // pending_verification (and possibly been verified), this revocation
+  // breaks the "all approvals satisfied" invariant. Auto-invalidate the
+  // verification fields AND walk the status back to pending_qa_review
+  // so the verifier (if any) and the rest of the workflow can re-converge.
+  const wasInVerificationPhase =
+    existing.capa.status === "pending_verification";
+  const verificationWasComplete = existing.capa.verifiedAt !== null;
+
   try {
     const { revocationSignature } = await prisma.$transaction(
       async (tx) => {
@@ -436,7 +537,7 @@ export async function revokeCAPAApproval(
           },
         });
         // 2. Mark the approval revoked + link to the revocation signature.
-        //    The original signatureId stays untouched — the original
+        //    The original signatureId stays untouched â€” the original
         //    approval SignedRecord is preserved (Part 11 immutability).
         await tx.cAPAApproval.update({
           where: { id: approvalId },
@@ -445,6 +546,26 @@ export async function revokeCAPAApproval(
             revokedSignatureId: sig.id,
           },
         });
+        // 3. Auto-invalidate verification when the CAPA was past approval.
+        //    Wipes the verification fields (the verifier may have signed
+        //    against a now-incomplete approval set â€” that attestation
+        //    is no longer valid). Status reverts to pending_qa_review so
+        //    the workflow can re-converge naturally. The original
+        //    verification SignedRecord row (if minted) is preserved per
+        //    Part 11 immutability â€” only the verifiedAt pointer clears.
+        if (wasInVerificationPhase) {
+          await tx.cAPA.update({
+            where: { id: existing.capa.id, tenantId: session.user.tenantId },
+            data: {
+              status: "pending_qa_review",
+              verifiedBy: null,
+              verifiedById: null,
+              verifiedAt: null,
+              verificationNotes: null,
+              verificationSignatureId: null,
+            },
+          });
+        }
         return { revocationSignature: sig };
       },
     );
@@ -494,19 +615,34 @@ export async function revokeCAPAApproval(
       },
     });
 
+    // SME Section 1, Stage 5 (FULL) â€” audit the cascading verification
+    // invalidation if it fired. Forensic-significant: "approval X was
+    // revoked, which invalidated verification Y" needs to be queryable
+    // as one chain in the audit log.
+    if (wasInVerificationPhase) {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "CAPA / Verification",
+          action: "CAPA_VERIFICATION_INVALIDATED_BY_APPROVAL_REVOKE",
+          recordId: existing.capa.id,
+          recordTitle: existing.capa.description.slice(0, 80),
+          newValue: JSON.stringify({
+            triggeredByApprovalRevoke: approvalId,
+            verificationWasComplete,
+          }),
+        },
+      });
+    }
+
     revalidatePath("/capa");
     revalidatePath(`/capa/${existing.capa.id}`);
     return { success: true, data: { revocationSignature } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] revokeCAPAApproval failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to revoke approval"
-          : `Failed to revoke approval: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] revokeCAPAApproval failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to revoke approval") };
   }
 }

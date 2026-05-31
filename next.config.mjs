@@ -25,6 +25,15 @@ const nextConfig = {
       "@reduxjs/toolkit",
       "dayjs",
     ],
+    // 10 MB ceiling for document uploads (FDA 483 attachments,
+    // evidence files, CSV/CSA stage documents). Next.js 16 defaults
+    // to 1 MB which silently rejects most real pharma PDFs. Matches
+    // the server-side caps in src/actions/evidence.ts and
+    // src/actions/systems.ts. Beyond 10 MB, consider direct-to-storage
+    // uploads (S3 presigned URLs etc.) — not Server Actions.
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
   },
 
   // Security + performance headers

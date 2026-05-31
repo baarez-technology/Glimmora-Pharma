@@ -253,6 +253,11 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     const autoAdvance = selectedCAPA.status === "open" && data.rca?.trim();
     const capaId = selectedCAPA.id;
     startTransition(async () => {
+      // SME Section 1, Stage 4 (FULL) — correctiveActions is no longer
+      // part of the EditCAPAModal form; the structured Action Plan
+      // table is the only edit surface. Server still rejects any
+      // correctiveActions payload (deprecated guard) so even if a
+      // legacy caller resurfaced it, the action would block.
       const res = await updateCAPAServer(capaId, {
         description: data.description,
         owner: data.owner,
@@ -260,7 +265,6 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         risk: data.risk as never,
         rcaMethod: (data.rcaMethod as string) || undefined,
         rca: data.rca ?? "",
-        correctiveActions: data.correctiveActions ?? "",
         status: autoAdvance ? "in_progress" : undefined,
       });
       if (!res.success) {
@@ -275,7 +279,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
           description: data.description, owner: data.owner,
           dueDate: dayjs(data.dueDate).utc().toISOString(),
           risk: data.risk, rcaMethod: (data.rcaMethod as RCAMethod) || undefined,
-          rca: data.rca ?? "", correctiveActions: data.correctiveActions ?? "",
+          rca: data.rca ?? "",
           effectivenessCheck: data.effectivenessCheck, diGate: data.diGate,
           diGateStatus: data.diGateStatus ?? "open",
           diGateNotes: data.diGateNotes ?? "",
@@ -368,7 +372,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
       {/* Header */}
       <header className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="page-title">QMS &amp; CAPA Tracker</h1>
+          <h1 className="page-title">CAPA Tracker</h1>
           <p className="page-subtitle mt-1">{capas.length === 0 ? "No CAPAs raised yet" : `${capas.length} CAPAs \u00b7 ${openCAPAs.length} open \u00b7 ${overdueCAPAs.length} overdue`}</p>
           <StatusGuide module="CAPA Tracker" statuses={CAPA_STATUSES} />
         </div>

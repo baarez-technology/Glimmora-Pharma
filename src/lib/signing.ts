@@ -151,7 +151,24 @@ export function canonicalizeCAPAApprovalRevocationContent(
   });
 }
 
-/** Input shape for canonicalising a CAPA closure (signAndCloseCAPA). */
+/** Input shape for canonicalising a CAPA closure (signAndCloseCAPA).
+ *
+ *  SME Section 1, Stage 4 (FULL) — actionItemsSummary BINDS the closure
+ *  signature to the final state of each structured action item. Without
+ *  it the signer's attestation says "I closed CAPA X" but doesn't
+ *  cryptographically commit to which corrective actions were complete
+ *  vs skipped. With it, an inspector reading the SignedRecord can
+ *  recompute the hash from the action-item snapshot and confirm
+ *  nothing was changed after signing. */
+export interface CAPAActionItemHashedSummary {
+  id: string;
+  sequence: number;
+  description: string;
+  status: string;
+  completedById: string | null;
+  completedAt: string | null;
+}
+
 export interface CAPAClosureCanonicalInput {
   capaId: string;
   capaReference: string | null;
@@ -159,6 +176,12 @@ export interface CAPAClosureCanonicalInput {
   riskLevel: string;
   closedAt: Date;
   closingComment: string | null;
+  actionItemsSummary: CAPAActionItemHashedSummary[];
+  // SME Section 1, Stage 6 (FULL) — bind the 90-day effectiveness due
+  // date into the closure signature so the commitment is attested by
+  // the same hash. Inspector reading a signed closure can verify both
+  // the closure event AND when the effectiveness check is due.
+  effectivenessDueAt: Date;
 }
 
 export function canonicalizeCAPAClosureContent(
@@ -166,12 +189,128 @@ export function canonicalizeCAPAClosureContent(
 ): string {
   return canonicalJson({
     recordType: "CAPA_CLOSURE",
+    actionItemsSummary: input.actionItemsSummary,
     capaDescription: input.capaDescription,
     capaId: input.capaId,
     capaReference: input.capaReference,
     closedAt: input.closedAt.toISOString(),
     closingComment: input.closingComment ?? null,
+    effectivenessDueAt: input.effectivenessDueAt.toISOString(),
     riskLevel: input.riskLevel,
+  });
+}
+
+/** Input shape for canonicalising a CAPA effectiveness review
+ *  (SME Section 1, Stage 6 FULL). The signing event records the
+ *  reviewer's verdict — "effective", "ineffective", or "partial" —
+ *  bound to the CAPA id and the closure timestamp it's reviewing. */
+export interface CAPAEffectivenessCanonicalInput {
+  capaId: string;
+  capaReference: string | null;
+  capaDescription: string;
+  closedAt: Date;
+  effectivenessDueAt: Date;
+  reviewedAt: Date;
+  verdict: "effective" | "ineffective" | "partial";
+  notes: string;
+}
+
+export function canonicalizeCAPAEffectivenessContent(
+  input: CAPAEffectivenessCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "CAPA_EFFECTIVENESS_REVIEW",
+    capaDescription: input.capaDescription,
+    capaId: input.capaId,
+    capaReference: input.capaReference,
+    closedAt: input.closedAt.toISOString(),
+    effectivenessDueAt: input.effectivenessDueAt.toISOString(),
+    notes: input.notes,
+    reviewedAt: input.reviewedAt.toISOString(),
+    verdict: input.verdict,
+  });
+}
+
+/** Input shape for canonicalising an effectiveness-review revocation. */
+export interface CAPAEffectivenessRevocationCanonicalInput {
+  capaId: string;
+  capaReference: string | null;
+  originalReviewedAt: Date;
+  originalReviewerId: string;
+  originalVerdict: string;
+  revokedAt: Date;
+  revokerId: string;
+  revokerRole: string;
+}
+
+export function canonicalizeCAPAEffectivenessRevocationContent(
+  input: CAPAEffectivenessRevocationCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "CAPA_EFFECTIVENESS_REVIEW_REVOCATION",
+    capaId: input.capaId,
+    capaReference: input.capaReference,
+    originalReviewedAt: input.originalReviewedAt.toISOString(),
+    originalReviewerId: input.originalReviewerId,
+    originalVerdict: input.originalVerdict,
+    revokedAt: input.revokedAt.toISOString(),
+    revokerId: input.revokerId,
+    revokerRole: input.revokerRole,
+  });
+}
+
+/** Input shape for canonicalising a CAPA independent QA verification
+ *  (SME Section 1, Stage 5 FULL). Verification is the signing event
+ *  that attests "an independent reviewer (different from creator and
+ *  from every approver) confirmed this CAPA's work is correct."
+ *  Distinct from closure (which is the ledger event that finalises the
+ *  CAPA) and from approval (which is the tier-rule satisfaction event). */
+export interface CAPAVerificationCanonicalInput {
+  capaId: string;
+  capaReference: string | null;
+  capaDescription: string;
+  riskLevel: string;
+  verifiedAt: Date;
+  notes: string;
+}
+
+export function canonicalizeCAPAVerificationContent(
+  input: CAPAVerificationCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "CAPA_VERIFICATION",
+    capaDescription: input.capaDescription,
+    capaId: input.capaId,
+    capaReference: input.capaReference,
+    notes: input.notes,
+    riskLevel: input.riskLevel,
+    verifiedAt: input.verifiedAt.toISOString(),
+  });
+}
+
+/** Input shape for canonicalising a CAPA verification revocation. */
+export interface CAPAVerificationRevocationCanonicalInput {
+  capaId: string;
+  capaReference: string | null;
+  originalVerifiedAt: Date;
+  originalVerifierId: string;
+  revokedAt: Date;
+  revokerId: string;
+  revokerRole: string;
+}
+
+export function canonicalizeCAPAVerificationRevocationContent(
+  input: CAPAVerificationRevocationCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "CAPA_VERIFICATION_REVOCATION",
+    capaId: input.capaId,
+    capaReference: input.capaReference,
+    originalVerifiedAt: input.originalVerifiedAt.toISOString(),
+    originalVerifierId: input.originalVerifierId,
+    revokedAt: input.revokedAt.toISOString(),
+    revokerId: input.revokerId,
+    revokerRole: input.revokerRole,
   });
 }
 

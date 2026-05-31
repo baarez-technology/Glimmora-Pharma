@@ -56,3 +56,21 @@ export function isReferenceConflict(err: unknown): boolean {
   const e = err as { code?: string; meta?: { target?: string[] } } | null;
   return e?.code === "P2002" && (e?.meta?.target?.includes("reference") ?? false);
 }
+
+/**
+ * Build the segmented prefix used by the new per-site reference format
+ * (e.g. "DEV-CHN"). Trims the site code defensively — uppercase 2-6
+ * chars are validated at the schema/UI layer, but a stray null falls
+ * back to the legacy 2-segment format ("DEV-2026-001") so a misconfigured
+ * site doesn't block record creation entirely.
+ *
+ * Module codes: "DEV" | "CAPA" | "FND" | "483" | "CC" — kept as plain
+ * strings (not an enum) because each create-action passes its own
+ * literal and TS narrows at the call site.
+ */
+export function buildReferencePrefix(
+  moduleCode: string,
+  siteCode: string | null | undefined,
+): string {
+  return siteCode ? `${moduleCode}-${siteCode}` : moduleCode;
+}

@@ -1051,7 +1051,6 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
           endDate: sp.expiryDate,
           maxAccounts: sp.maxAccounts,
           status: sp.status,
-          createdAt: new Date().toISOString(),
         })),
         config: {
           ...editingTenant.config,
@@ -1070,11 +1069,11 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         await updateTenantApi(editingTenant.id, patch);
         dispatch(updateTenant({ id: editingTenant.id, patch }));
         setSyncError(null);
-        toast.success(`Customer "${data.customerName}" updated.`);
+        toast.success(`Customer ${data.customerName} updated.`);
       } catch (err) {
         console.error("[admin] failed to persist tenant update", err);
         setSyncError(null);
-        toast.error(`Could not update "${data.customerName}": ${mapCustomerError(err)}`);
+        toast.error(`Could not update ${data.customerName}: ${mapCustomerError(err)}`);
         return;
       }
       // MFA changes route through toggleTenantMFA so the audit pair and
@@ -1110,7 +1109,6 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         name: data.customerName,
         plan: "enterprise",
         adminEmail: data.email,
-        createdAt: new Date().toISOString(),
         active: data.active,
         mfaEnabled: data.mfaEnabled,
         subscriptionPlans: data.subscriptionPlans.map((sp) => ({
@@ -1119,7 +1117,6 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
           endDate: sp.expiryDate,
           maxAccounts: sp.maxAccounts,
           status: sp.status,
-          createdAt: new Date().toISOString(),
         })),
         config: {
           org: {
@@ -1154,12 +1151,12 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       } catch (err) {
         console.error("[admin] failed to persist new tenant", err);
         setSyncError(null);
-        toast.error(`Could not create "${data.customerName}": ${mapCustomerError(err)}`);
+        toast.error(`Could not create ${data.customerName}: ${mapCustomerError(err)}`);
         return;
       }
       dispatch(addTenant(newTenant));
       setSyncError(null);
-      toast.success(`Customer "${data.customerName}" created.`);
+      toast.success(`Customer ${data.customerName} created.`);
 
       // Auto-open subscription modal if no plan was added in the drawer
       if (data.subscriptionPlans.length === 0) {
@@ -1295,7 +1292,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
           />
           <input
             type="search"
-            placeholder="Search organizations..."
+            placeholder="Search organizations…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-lg py-2 pl-9 pr-3 text-[13px] outline-none transition-all"
@@ -1451,7 +1448,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
                     {/* Created */}
                     <td>
                       <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                        {dayjs(tenant.createdAt).format("MMM D, YYYY")}
+                        {tenant.createdAt ? dayjs(tenant.createdAt).format("MMM D, YYYY") : "—"}
                       </span>
                     </td>
                     {/* Actions */}
@@ -1607,7 +1604,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
             <Button variant="primary" size="sm" icon={Save} onClick={async () => {
               const tenant = tenants.find((t) => t.id === postCreateTenantId);
               if (!tenant) return;
-              const plan = { id: `sp-${Date.now()}`, startDate: postCreateSubData.startDate, endDate: postCreateSubData.expiryDate, maxAccounts: postCreateSubData.maxAccounts, status: postCreateSubData.status, createdAt: new Date().toISOString() };
+              const plan = { id: `sp-${Date.now()}`, startDate: postCreateSubData.startDate, endDate: postCreateSubData.expiryDate, maxAccounts: postCreateSubData.maxAccounts, status: postCreateSubData.status };
               const patch: Partial<Tenant> = { subscriptionPlans: [...(tenant.subscriptionPlans ?? []), plan] };
               try {
                 await updateTenantApi(postCreateTenantId, patch);

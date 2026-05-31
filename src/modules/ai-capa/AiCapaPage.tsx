@@ -17,6 +17,7 @@ import {
   AiBackendError,
 } from "@/lib/aiBackend";
 import { friendlyAiError } from "@/lib/friendlyError";
+import { formatDateTime } from "@/lib/dates";
 
 /**
  * AI CAPA lifecycle dashboard.
@@ -1012,8 +1013,7 @@ function planActions(plan: unknown): ActionItem[] {
 
 function formatDate(v: unknown): string {
   if (typeof v !== "string") return "—";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+  return formatDateTime(v);
 }
 
 /* ── Submit modals ────────────────────────────────────────────── */

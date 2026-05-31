@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -14,8 +14,9 @@ import {
   ALIGNMENT_LOCKED_MESSAGE,
   type ActionResult,
 } from "./_types";
+import { sanitizeServerError } from "@/lib/errors";
 
-/* ── Substage 4.7 — Action-to-Cause Alignment Review ──────────────────────
+/* â”€â”€ Substage 4.7 â€” Action-to-Cause Alignment Review â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  *
  * Three-action surface (set / override / clear) keyed off the alignment*
  * columns added in migration add_capa_alignment_review. The submission
@@ -25,7 +26,7 @@ import {
  * "cosmetic" verdict.
  */
 
-// ── Schemas ──
+// â”€â”€ Schemas â”€â”€
 
 const AlignmentStatusSchema = z.object({
   status: z.enum(ALIGNMENT_STATUSES),
@@ -46,7 +47,7 @@ const AlignmentOverrideSchema = z.object({
 });
 
 // Roles authorised to set / override / clear alignment review. Matches the
-// existing canCloseCapa role gate but does NOT require gxpSignatory —
+// existing canCloseCapa role gate but does NOT require gxpSignatory â€”
 // alignment review is a procedural decision, not an e-signed event.
 function canReviewAlignment(role: string): boolean {
   return role === "qa_head" || role === "super_admin" || role === "customer_admin";
@@ -54,7 +55,7 @@ function canReviewAlignment(role: string): boolean {
 
 /**
  * Record (or update) the reviewer's action-to-cause alignment verdict on
- * a CAPA. A status change always wipes any prior override — a fresh review
+ * a CAPA. A status change always wipes any prior override â€” a fresh review
  * starts a fresh decision.
  */
 export async function setCAPAAlignmentStatus(
@@ -135,16 +136,8 @@ export async function setCAPAAlignmentStatus(
     revalidatePath(`/capa/${capaId}`);
     return { success: true, data: capa };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] setCAPAAlignmentStatus failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to set alignment status"
-          : `Failed to set alignment status: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] setCAPAAlignmentStatus failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to set alignment status") };
   }
 }
 
@@ -202,7 +195,7 @@ export async function overrideCAPAAlignmentFlag(
       error: "This cosmetic flag has already been overridden.",
     };
   }
-  // Separation of duties — the reviewer who set the cosmetic flag cannot
+  // Separation of duties â€” the reviewer who set the cosmetic flag cannot
   // override it. A different qa_head must do so.
   if (
     existing.alignmentReviewedById &&
@@ -247,16 +240,8 @@ export async function overrideCAPAAlignmentFlag(
     revalidatePath(`/capa/${capaId}`);
     return { success: true, data: capa };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] overrideCAPAAlignmentFlag failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to override alignment flag"
-          : `Failed to override alignment flag: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] overrideCAPAAlignmentFlag failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to override alignment flag") };
   }
 }
 
@@ -315,15 +300,7 @@ export async function clearCAPAAlignmentReview(
     revalidatePath(`/capa/${capaId}`);
     return { success: true, data: capa };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] clearCAPAAlignmentReview failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to clear alignment review"
-          : `Failed to clear alignment review: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] clearCAPAAlignmentReview failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to clear alignment review") };
   }
 }

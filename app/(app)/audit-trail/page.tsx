@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation";
 import { AuditTrailPage } from "@/modules/audit-trail/AuditTrailPage";
 import { ErrorBoundary } from "@/components/errors";
 import { requireAuth } from "@/lib/auth";
+import { requireRoleOrDeny } from "@/lib/authz";
 import { getAuditLogs } from "@/lib/queries";
 
 export const metadata = {
@@ -12,9 +12,7 @@ const ALLOWED_ROLES = new Set(["qa_head", "customer_admin", "super_admin"]);
 
 export default async function Page() {
   const session = await requireAuth();
-  if (!ALLOWED_ROLES.has(session.user.role)) {
-    redirect("/");
-  }
+  await requireRoleOrDeny(session, ALLOWED_ROLES, { module: "audit_trail" });
 
   const result = await getAuditLogs(session.user.tenantId);
 

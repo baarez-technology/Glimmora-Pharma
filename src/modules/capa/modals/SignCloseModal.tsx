@@ -10,7 +10,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Toggle } from "@/components/ui/Toggle";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
-import { CAPA_RISK_VARIANT as RISK_VARIANT, CAPA_STATUS_VARIANT as STATUS_VARIANT } from "@/lib/badgeVariants";
+import { CAPA_STATUS_VARIANT as STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { STATUS_LABEL } from "@/types/capa";
 
 interface SignCloseModalProps {
@@ -101,7 +101,7 @@ export function SignCloseModal({ isOpen, onClose, onSign, capa, error, busy }: S
         <div className={clsx("rounded-lg p-3 mb-4 border", "bg-(--bg-surface) border-(--bg-border)")}>
           <div className="flex items-center gap-2">
             <span className="font-mono text-[12px] text-[#0ea5e9] font-semibold" title={capa.id}>{capa.reference ?? `CAPA-LEGACY-${capa.id.slice(0, 8)}`}</span>
-            <Badge variant={RISK_VARIANT[capa.risk]}>{capa.risk}</Badge>
+            <Badge variant={getSeverityVariant(capa.risk, "generic")}>{normalizeSeverityForDisplay(capa.risk, "generic") ?? capa.risk}</Badge>
             <Badge variant={STATUS_VARIANT[capa.status]}>{STATUS_LABEL[capa.status]}</Badge>
           </div>
           <p className="text-[12px] mt-1 line-clamp-2" style={{ color: "var(--text-secondary)" }}>{capa.description}</p>

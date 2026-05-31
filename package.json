@@ -29,7 +29,6 @@
     "@sapphi-red/web-noise-suppressor": "^0.3.5",
     "@tanstack/react-query": "^5.90.21",
     "@types/nodemailer": "^8.0.0",
-    "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.20",

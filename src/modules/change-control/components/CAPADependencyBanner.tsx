@@ -2,7 +2,7 @@
 
 import { AlertOctagon, Info } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
-import { CAPA_RISK_VARIANT } from "@/lib/badgeVariants";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { isHardGateRisk } from "@/lib/cc-dependencies";
 import type { CCDetail } from "../_shared";
 
@@ -102,8 +102,8 @@ export function CAPADependencyBanner({ cc }: { cc: CCDetail }) {
               >
                 {link.capa.reference ?? link.capa.id.slice(0, 8)}
               </span>
-              <Badge variant={CAPA_RISK_VARIANT[link.capa.risk as keyof typeof CAPA_RISK_VARIANT] ?? "gray"}>
-                {link.capa.risk}
+              <Badge variant={getSeverityVariant(link.capa.risk, "generic")}>
+                {normalizeSeverityForDisplay(link.capa.risk, "generic") ?? link.capa.risk}
               </Badge>
               <Badge variant="gray">{link.capa.status}</Badge>
             </li>

@@ -41,3 +41,29 @@ export {
   approveCAPA,
   revokeCAPAApproval,
 } from "./capas/approvals";
+
+export {
+  reviewRCA,
+  overrideRCAReview,
+  clearRCAReview,
+} from "./capas/rca-review";
+
+export {
+  verifyCAPA,
+  revokeCAPAVerification,
+} from "./capas/verification";
+
+export {
+  addActionItem,
+  updateActionItem,
+  deleteActionItem,
+  reorderActionItems,
+  loadActionItemsForCAPA,
+} from "./capas/action-items";
+
+export {
+  recordEffectivenessReview,
+  revokeEffectivenessReview,
+} from "./capas/effectiveness";
+
+export { loadSuggestedRecurrenceMatches } from "./capas/recurrence";

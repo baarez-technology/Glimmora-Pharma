@@ -137,7 +137,7 @@ export function SitePicker() {
                 id="site-search"
                 type="search"
                 icon={Search}
-                placeholder="Search sites..."
+                placeholder="Search sites…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />

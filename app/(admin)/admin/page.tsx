@@ -1,11 +1,19 @@
 import { requireAuth } from "@/lib/auth";
+import { requireRoleOrDeny } from "@/lib/authz";
 import { getTenants } from "@/lib/queries/tenants";
 import { CustomerAccountsPage } from "@/modules/admin/CustomerAccountsPage";
 
+const ALLOWED_ROLES = new Set(["super_admin", "customer_admin"]);
+
 export default async function Page() {
   const session = await requireAuth();
-
-  // Role gate (super_admin OR customer_admin) is now enforced by middleware.ts.
+  // Role gate enforced by middleware.ts AND this server-side check (defense-in-depth).
+  await requireRoleOrDeny(session, ALLOWED_ROLES, {
+    module: "admin",
+    recordId: "admin-index",
+    recordTitle: "/admin",
+    extra: { path: "/admin" },
+  });
 
   const initialTenants = await getTenants();
   // Pass isSuperAdmin so the MFA column renders consistently between SSR

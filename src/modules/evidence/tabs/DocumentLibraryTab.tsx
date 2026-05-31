@@ -80,7 +80,7 @@ export function DocumentLibraryTab({
       {/* Search */}
       <div className="relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-        <input type="search" className="input w-full pl-10 text-[13px]" placeholder="Search by document title or reference number..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search documents" />
+        <input type="search" className="input w-full pl-10 text-[13px]" placeholder="Search documents…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search documents" />
       </div>
 
       {/* Facets */}
@@ -93,7 +93,7 @@ export function DocumentLibraryTab({
         <Dropdown placeholder="All statuses" value={statusFilter} onChange={setStatusFilter} width="w-36" options={[{ value: "", label: "All statuses" }, ...DOC_STATUSES.map((s) => ({ value: s, label: s }))]} />
         <input type="date" className="input text-[12px] w-36" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label="From date" />
         <input type="date" className="input text-[12px] w-36" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="To date" />
-        {anyFilter && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear</Button>}
+        {anyFilter && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
 
         {/* View toggle */}
         <div className={clsx("ml-auto flex items-center gap-1 p-1 rounded-lg", "bg-(--bg-surface)")}>

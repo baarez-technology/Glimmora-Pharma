@@ -88,20 +88,20 @@ export function getNextStep(args: {
     return {
       Icon: AlertCircle,
       title: "CAPA rejected",
-      description: "QA returned this CAPA for revision. Re-open from the Actions tab.",
+      description: "QA returned this CAPA for revision. Re-open from the Action Plans tab.",
       tone: "warning",
       targetTab: "actions",
-      action: { label: "Go to Actions tab", onClick: () => onChangeTab("actions") },
+      action: { label: "Go to Action Plans tab", onClick: () => onChangeTab("actions") },
     };
   }
   if (capa.status === "pending_qa_review") {
     return {
       Icon: Clock,
       title: "Awaiting approvals",
-      description: "QA Head review pending. The Actions tab tracks who's signed.",
+      description: "QA Head review pending. The Action Plans tab tracks who's signed.",
       tone: "info",
       targetTab: "actions",
-      action: { label: "Go to Actions tab", onClick: () => onChangeTab("actions") },
+      action: { label: "Go to Action Plans tab", onClick: () => onChangeTab("actions") },
     };
   }
   // Editable states: open / in_progress. Walk the priority list in spec order.
@@ -142,7 +142,7 @@ export function getNextStep(args: {
       description: "Document what will fix the issue and prevent recurrence.",
       tone: "warning",
       targetTab: "actions",
-      action: { label: "Go to Actions tab", onClick: () => onChangeTab("actions") },
+      action: { label: "Go to Action Plans tab", onClick: () => onChangeTab("actions") },
     };
   }
   if (!hasAlignment) {
@@ -152,7 +152,7 @@ export function getNextStep(args: {
       description: "Verify the corrective actions match the documented root cause before submission.",
       tone: "warning",
       targetTab: "actions",
-      action: { label: "Go to Actions tab", onClick: () => onChangeTab("actions") },
+      action: { label: "Go to Action Plans tab", onClick: () => onChangeTab("actions") },
     };
   }
   return {

@@ -2,10 +2,10 @@ generator client {
   provider = "prisma-client-js"
 }
 
-datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
-}
+  datasource db {
+    provider = "sqlite"
+    url      = env("DATABASE_URL")
+  }
 
 // ── AUTH / TENANTS ──
 
@@ -40,6 +40,8 @@ model Tenant {
   inspections     Inspection[]
   playbooks       Playbook[]
   trainingRecords TrainingRecord[]
+  // SME Section 1, Stage 4 (FULL) — reverse for CAPAActionItem.tenantId.
+  capaActionItems CAPAActionItem[]
 }
 
 model Subscription {
@@ -61,6 +63,15 @@ model Site {
   id        String   @id @default(cuid())
   tenantId  String
   name      String
+  // Reference-format site code — 2-6 uppercase chars (validated at the
+  // application layer; SQLite has no CHECK constraint). Used to build
+  // the second segment of every module reference (e.g. "DEV-CHN-2026-001").
+  // Per-tenant unique (@@unique below). Nullable for the backfill window;
+  // every seeded + production site should populate it.
+  // Generally IMMUTABLE after first record references it — changing
+  // would orphan historical reference strings. SitesTab enforces this
+  // via a "code locked once records exist" guard.
+  code      String?
   location  String?
   gmpScope  String?
   risk      String   @default("MEDIUM")
@@ -75,6 +86,7 @@ model Site {
   deviations Deviation[]
 
   @@unique([tenantId, name])
+  @@unique([tenantId, code])
 }
 
 model User {
@@ -94,6 +106,25 @@ model User {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   site   Site?  @relation(fields: [siteId], references: [id])
+  // SME Section 1, Stage 5 (FULL) — virtual reverse field for the
+  // Deviation.createdById FK. Carries no column; Prisma uses it for
+  // include/select queries.
+  createdDeviations Deviation[] @relation("DeviationCreatedBy")
+  // Tier 2, Items 3+4 — virtual reverse fields for the new Deviation SoD
+  // FKs (who completed the investigation / who made the CAPA decision).
+  investigationCompletedDeviations Deviation[] @relation("DeviationInvestigationCompletedBy")
+  capaDecisionDeviations           Deviation[] @relation("DeviationCapaDecisionBy")
+  // SME Section 1, Stage 4 (FULL) — virtual reverse fields for the
+  // CAPAActionItem.ownerId / completedById FKs.
+  ownedCAPAActionItems     CAPAActionItem[] @relation("CAPAActionItemOwner")
+  completedCAPAActionItems CAPAActionItem[] @relation("CAPAActionItemCompletedBy")
+  // FDA 483 events this user owns internally (notifications/reminders target).
+  fda483EventsAsOwner      FDA483Event[]    @relation("FDA483EventInternalOwner")
+  // FDA 483 first-class commitments — created / completed by this user, plus
+  // evidence documents they uploaded.
+  createdFDA483Commitments     FDA483Commitment[]         @relation("FDA483CommitmentCreatedBy")
+  completedFDA483Commitments   FDA483Commitment[]         @relation("FDA483CommitmentCompletedBy")
+  uploadedFDA483CommitmentDocs FDA483CommitmentDocument[] @relation("FDA483CommitmentDocUploadedBy")
 
   @@unique([tenantId, email])
   @@unique([tenantId, username])
@@ -103,6 +134,10 @@ model User {
 
 model Finding {
   id           String    @id @default(cuid())
+  // Human-readable per-tenant per-site per-year reference, format
+  // "FND-{siteCode}-{year}-{NNN}". Nullable for the backfill window;
+  // every created Finding populates it atomically via createFinding.
+  reference    String?   @unique
   tenantId     String
   siteId       String?
   requirement  String
@@ -116,12 +151,18 @@ model Finding {
   evidenceLink String?
   linkedCAPAId String?
   createdBy    String
+  // SME Section 1, Stage 6 (FULL) — recurrence linkage. Same shape as
+  // Deviation.previousCAPAId. Nullable; onDelete: SetNull.
+  previousCAPAId String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   site   Site?  @relation(fields: [siteId], references: [id])
   capa   CAPA?
+  // SME Section 1, Stage 6 (FULL) — FK to the prior CAPA whose
+  // recurrence this Finding represents.
+  previousCAPA CAPA? @relation("FindingRecurrenceOf", fields: [previousCAPAId], references: [id], onDelete: SetNull)
 }
 
 // ── CAPA ──
@@ -168,8 +209,58 @@ model CAPA {
   alignmentOverrideById     String?
   alignmentOverrideAt       DateTime?
   alignmentOverrideReason   String?
-  effectivenessCheck Boolean   @default(false)
-  effectivenessDate  DateTime?
+  // ── SME Section 1, Stage 3 (FULL) — RCA QA Gate ──
+  // Mirrors the alignment-review block above (Substage 4.7) so future
+  // readers see one consistent shape across the two review gates.
+  // rcaApproved: null = not yet reviewed; true = approved by QA;
+  // false = rejected (needs revision). The override trio applies when a
+  // rejected RCA is overridden by a SECOND reviewer with a recorded
+  // rationale — same SoD pattern as alignmentOverride*. Editing the
+  // rca / rcaMethod fields while rcaApproved is true auto-invalidates
+  // the review back to null (see updateCAPA auto-invalidate logic).
+  rcaApproved               Boolean?
+  rcaReviewedBy             String?
+  rcaReviewedById           String?
+  rcaReviewedAt             DateTime?
+  rcaReviewNotes            String?
+  rcaOverrideBy             String?
+  rcaOverrideById           String?
+  rcaOverrideAt             DateTime?
+  rcaOverrideReason         String?
+  // ── SME Section 1, Stage 5 (FULL) — Independent QA Verification ──
+  // Verification is a Part-11 signing event distinct from approval and
+  // closure. The verifier MUST differ from the creator AND from every
+  // approver (enforced in verifyCAPA). verificationSignatureId points
+  // at a CAPA_VERIFICATION SignedRecord row minted in the same tx as
+  // the verifiedAt write. signAndCloseCAPA refuses to proceed unless
+  // verifiedAt is set — so closure preserves both signing events
+  // (verification + closure) as two distinct, separately-signed steps.
+  verifiedBy                String?
+  verifiedById              String?
+  verifiedAt                DateTime?
+  verificationNotes         String?
+  verificationSignatureId   String?  @unique
+  // SME Section 1, Stage 6 (FULL) — Effectiveness review.
+  // effectivenessCheck (legacy boolean) = "was 90-day monitoring
+  // committed to at closure?", set true atomically with closedAt.
+  // effectivenessDate (legacy column, repurposed semantically) =
+  // closedAt + 90 days. NOT renamed to effectivenessDueAt to avoid a
+  // two-fields-meaning-the-same-thing drift hazard — the comment
+  // documents the semantic. The closure SignedRecord's contentHash now
+  // binds this date (see canonicalizeCAPAClosureContent) so an
+  // inspector reading a signed closure has the 90-day commitment
+  // cryptographically attested.
+  effectivenessCheck         Boolean   @default(false)
+  effectivenessDate          DateTime?
+  // Six fields capturing the review outcome — populated by
+  // recordEffectivenessReview, cleared by revokeEffectivenessReview.
+  // effectivenessVerdict: "effective" | "ineffective" | "partial"
+  effectivenessReviewedAt    DateTime?
+  effectivenessVerdict       String?
+  effectivenessReviewedBy    String?
+  effectivenessReviewedById  String?
+  effectivenessReviewNotes   String?
+  effectivenessSignatureId   String?   @unique
   diGate             Boolean   @default(false)
   diGateStatus       String?
   diGateNotes        String?
@@ -192,6 +283,17 @@ model CAPA {
   // before this column landed remain null (legacy closures predate the
   // closure-signature requirement; the audit trail captures them).
   closureSignatureId String? @unique
+  // SME Section 1, Stage 2 (FULL) — bidirectional CAPA↔Deviation link.
+  // Mirrors the Finding precedent: nullable FK + @unique for 1:1
+  // semantics + named relation to disambiguate from the legacy
+  // Deviation.linkedCAPAId string column. onDelete: SetNull because the
+  // CAPA is an independent regulatory record — losing its source
+  // deviation should not cascade-delete the CAPA. Coexists with the
+  // legacy Deviation.linkedCAPAId column (kept for the Stage 1 close
+  // gate); createCAPA writes BOTH sides atomically and closeDeviation
+  // verifies they agree before allowing closure. Unifying on this
+  // relation alone is a future rung.
+  deviationId        String?  @unique
   createdBy          String
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -200,12 +302,65 @@ model CAPA {
   site                   Site?                        @relation(fields: [siteId], references: [id])
   finding                Finding?                     @relation(fields: [findingId], references: [id])
   closureSignature       SignedRecord?                @relation("CAPAClosureSignature", fields: [closureSignatureId], references: [id])
+  verificationSignature  SignedRecord?                @relation("CAPAVerificationSignature", fields: [verificationSignatureId], references: [id])
+  // SME Section 1, Stage 6 (FULL) — Effectiveness review signature.
+  effectivenessSignature SignedRecord?                @relation("CAPAEffectivenessSignature", fields: [effectivenessSignatureId], references: [id])
+  deviation              Deviation?                   @relation("CAPADeviationSource", fields: [deviationId], references: [id], onDelete: SetNull)
   documents              CAPADocument[]
   evidenceItems          EvidenceItem[]
   effectivenessCriteria  CAPAEffectivenessCriterion[]
   approvals              CAPAApproval[]
   comments               CAPAComment[]
   changeControlLinks     CAPAChangeControlLink[]
+  actionItems            CAPAActionItem[]             @relation("CAPAActionItems")
+  // SME Section 1, Stage 6 (FULL) — recurrence back-links. Populated
+  // when a new Deviation / Finding cites this CAPA as the cause of
+  // recurrence; a non-empty list is a strong signal that the original
+  // CAPA was ineffective.
+  recurringDeviations    Deviation[]                  @relation("DeviationRecurrenceOf")
+  recurringFindings      Finding[]                    @relation("FindingRecurrenceOf")
+  // FDA 483 commitments that cite this CAPA as their source.
+  sourcedCommitments     FDA483Commitment[]           @relation("FDA483CommitmentSourceCAPA")
+}
+
+// ── SME Section 1, Stage 4 (FULL) — Structured CAPA Action Plan items ──
+// Replaces the free-text CAPA.correctiveActions blob. Each action plan
+// step is now its own row with owner, due date, status, completion
+// tracking. correctiveActions stays on CAPA as a denormalised cache
+// (string-join of descriptions in sequence order) so legacy reads keep
+// working; updateCAPA now rejects writes to correctiveActions — all
+// writes go through addActionItem / updateActionItem / etc.
+model CAPAActionItem {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  capaId          String
+  capa            CAPA     @relation("CAPAActionItems", fields: [capaId], references: [id], onDelete: Cascade)
+  // Stable ordering — reorderActionItems mutates this field.
+  sequence        Int
+  description     String
+  // Display-name cache + nullable userId FK. Matches the dual-write
+  // pattern adopted in Stage 5 for Deviation.createdBy/createdById.
+  owner           String
+  ownerId         String?
+  ownerUser       User?    @relation("CAPAActionItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  dueDate         DateTime
+  // "pending" | "in_progress" | "complete" | "skipped". Stored as String
+  // (not Prisma enum) for SQLite portability, validated at app layer.
+  status          String   @default("pending")
+  completedBy     String?
+  completedById   String?
+  completedByUser User?    @relation("CAPAActionItemCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  completedAt     DateTime?
+  completionNotes String?
+  createdAt       DateTime @default(now())
+  createdBy       String
+  createdById     String?
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, capaId])
+  @@index([capaId, sequence])
+  @@index([dueDate])
 }
 
 model CAPADocument {
@@ -229,6 +384,9 @@ model CAPADocument {
 
 model Deviation {
   id                   String    @id @default(cuid())
+  // Human-readable per-tenant per-site per-year reference, format
+  // "DEV-{siteCode}-{year}-{NNN}". Nullable for the backfill window.
+  reference            String?   @unique
   tenantId             String
   siteId               String?
   title                String
@@ -257,13 +415,67 @@ model Deviation {
   // event. Null until closeDeviation mints a SignedRecord. Legacy closures
   // (predating this column) remain null.
   closureSignatureId   String?   @unique
+  // SME Section 1, Stage 5 (FULL) — createdBy is the denormalised
+  // display-name cache (kept for join-free reads); createdById is the
+  // authoritative userId FK used by SoD comparisons across CAPA's
+  // verification + RCA-review + approval guards. Nullable for the
+  // backfill window — legacy rows whose name doesn't resolve to exactly
+  // one User stay null and get flagged by the backfill report.
+  // onDelete: SetNull because the Deviation is an independent
+  // regulatory record that must survive User deletion.
   createdBy            String
+  createdById          String?
+  // SME Section 1, Stage 6 (FULL) — recurrence linkage. When a new
+  // Deviation reports the same root cause as a previously-closed CAPA,
+  // the creator can mark it as a recurrence by setting previousCAPAId.
+  // Surfacing this in the CAPA's effectiveness review tells the
+  // reviewer "this CAPA was found ineffective by recurrence." Nullable
+  // — most Deviations have no recurrence link. onDelete: SetNull so
+  // the Deviation survives if the prior CAPA is hard-deleted.
+  previousCAPAId       String?
+  // ── Tier 2, Item 4 — Investigation (RCA performed AFTER the report, by
+  //    someone other than the reporter; SoD enforced via createdById vs
+  //    investigationCompletedById). rcaMethod + rootCause above are reused:
+  //    rcaMethod = picked method, rootCause = synthesized human-readable
+  //    text (same serialized format as FDA 483). rcaData carries the raw
+  //    structured form buffer as JSON text (codebase convention is JSON in
+  //    a String column — cf. AuditLog.newValue — so the edit flow can
+  //    repopulate the form without re-parsing rootCause). Nullable: legacy
+  //    deviations have no investigation record. onDelete: SetNull so the
+  //    Deviation (a regulatory record) survives User deletion.
+  rcaData                    String?
+  investigationCompletedAt   DateTime?
+  investigationCompletedById String?
+  // ── Tier 2, Item 3 — CAPA Decision (made AFTER investigation, by QA;
+  //    SoD: decider != reporter AND != investigator). capaDecisionMade flips
+  //    true once a decision is recorded; capaDecisionRequired is the verdict
+  //    (true = CAPA needed, false = not needed); capaDecisionReason is the
+  //    justification (required for either verdict, for the audit trail).
+  capaDecisionMade           Boolean   @default(false)
+  capaDecisionRequired       Boolean?
+  capaDecisionReason         String?
+  capaDecisionAt             DateTime?
+  capaDecisionById           String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
   tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   site              Site?          @relation(fields: [siteId], references: [id])
   closureSignature  SignedRecord?  @relation("DeviationClosureSignature", fields: [closureSignatureId], references: [id])
+  createdByUser     User?          @relation("DeviationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  // Tier 2 — investigation completer + CAPA-decision maker FKs (SoD chain).
+  investigationCompletedByUser User? @relation("DeviationInvestigationCompletedBy", fields: [investigationCompletedById], references: [id], onDelete: SetNull)
+  capaDecisionByUser           User? @relation("DeviationCapaDecisionBy", fields: [capaDecisionById], references: [id], onDelete: SetNull)
+  // SME Section 1, Stage 6 (FULL) — FK to the prior CAPA whose
+  // recurrence this Deviation represents.
+  previousCAPA      CAPA?          @relation("DeviationRecurrenceOf", fields: [previousCAPAId], references: [id], onDelete: SetNull)
+  // SME Section 1, Stage 2 (FULL) — virtual reverse field for the
+  // CAPA↔Deviation 1:1 relation. Carries no column of its own (the FK
+  // lives on CAPA.deviationId); Prisma uses this for include/select
+  // queries. Coexists with the legacy `linkedCAPAId String?` column
+  // above — same logical relationship, different sides; createCAPA
+  // writes both atomically.
+  sourcedCAPA       CAPA?          @relation("CAPADeviationSource")
 }
 
 // ── FDA 483 ──
@@ -288,12 +500,18 @@ model FDA483Event {
   // event. Null until signSubmitFDA483Response mints a SignedRecord.
   // Legacy submissions (predating this column) remain null.
   responseSignatureId String? @unique
+  // Extended capture fields. All nullable for backward compat with seed
+  // data; internalOwnerId is required at the form layer for new events.
+  inspectionEndDate DateTime?           // optional; falls back to inspectionDate when blank
+  leadInvestigator  String?             // optional; FDA inspector name from the form
+  internalOwnerId   String?             // optional in DB, required in the modal
   createdBy        String
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   responseSignature SignedRecord?       @relation("FDA483ResponseSignature", fields: [responseSignatureId], references: [id])
+  internalOwner     User?               @relation("FDA483EventInternalOwner", fields: [internalOwnerId], references: [id])
   observations      FDA483Observation[]
   commitments       FDA483Commitment[]
   documents         FDA483Document[]
@@ -315,6 +533,10 @@ model FDA483Document {
 
 model FDA483Observation {
   id           String   @id @default(cuid())
+  // Human-readable per-tenant per-site per-year reference, format
+  // "483-{siteCode}-{year}-{NNN}". Site code resolved via the parent
+  // FDA483Event's siteId at create time. Nullable for the backfill window.
+  reference    String?  @unique
   eventId      String
   number       Int
   text         String
@@ -330,6 +552,8 @@ model FDA483Observation {
   updatedAt    DateTime @updatedAt
 
   event FDA483Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  // First-class commitments may cite this observation as their source.
+  commitments FDA483Commitment[]
 }
 
 model FDA483Commitment {
@@ -337,10 +561,50 @@ model FDA483Commitment {
   eventId String
   text    String
   dueDate DateTime?
+  // `owner` stores a userId (resolved to a name in the UI via ownerName).
   owner   String?
   status  String    @default("Pending")
+  // ── First-class commitment fields (FDA 483 commitments rung) ──
+  // Human-readable reference "COMM-{siteCode}-{year}-{NNN}"; nullable for
+  // the backfill window (legacy seeded commitments have none).
+  reference       String?   @unique
+  // Optional source linkage — a commitment derives from ONE observation OR
+  // ONE CAPA, or is event-level (both null). Enforced mutually-exclusive in
+  // the server action, not the schema.
+  observationId   String?
+  capaId          String?
+  // Completion data (set when status → "Complete").
+  completedAt     DateTime?
+  completedById   String?
+  completionNotes String?
+  // Created-by metadata (createdAt also gives a natural sort order).
+  createdAt       DateTime  @default(now())
+  // @default(now()) (alongside @updatedAt) backfills the existing rows the
+  // migration rebuilds; @updatedAt keeps it fresh on subsequent writes.
+  updatedAt       DateTime  @default(now()) @updatedAt
+  createdById     String?
 
-  event FDA483Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event           FDA483Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  observation     FDA483Observation? @relation(fields: [observationId], references: [id], onDelete: SetNull)
+  capa            CAPA?              @relation("FDA483CommitmentSourceCAPA", fields: [capaId], references: [id], onDelete: SetNull)
+  completedByUser User?              @relation("FDA483CommitmentCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  createdByUser   User?              @relation("FDA483CommitmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  documents       FDA483CommitmentDocument[]
+}
+
+// Evidence attachments uploaded when a commitment is marked complete.
+model FDA483CommitmentDocument {
+  id           String   @id @default(cuid())
+  commitmentId String
+  fileName     String
+  fileUrl      String
+  fileType     String?
+  fileSize     String?
+  uploadedAt   DateTime @default(now())
+  uploadedById String?
+
+  commitment FDA483Commitment @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
+  uploadedBy User?            @relation("FDA483CommitmentDocUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
 }
 
 // ── CSV/CSA ──
@@ -865,6 +1129,8 @@ model SignedRecord {
   // nullable because the SignedRecord may also serve other recordTypes
   // (CAPA_APPROVAL, CAPA_APPROVAL_REVOCATION) that don't link back here.
   capaClosure               CAPA?            @relation("CAPAClosureSignature")
+  capaVerification          CAPA?            @relation("CAPAVerificationSignature")
+  capaEffectiveness         CAPA?            @relation("CAPAEffectivenessSignature")
   fda483Response            FDA483Event?     @relation("FDA483ResponseSignature")
   documentApproval          Document?        @relation("DocumentApprovalSignature")
   deviationClosure          Deviation?       @relation("DeviationClosureSignature")

@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -11,6 +11,9 @@ import {
 } from "@/lib/signing";
 import { readSigningProvenance } from "@/actions/capas/_shared";
 import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
+import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
+import { FDA_SEVERITY, coerceSeverityCasing, normalizeSeverityForDisplay } from "@/lib/severity";
+import { sanitizeServerError } from "@/lib/errors";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -26,7 +29,12 @@ const CreateDeviationSchema = z.object({
   description: z.string().min(10),
   type: z.enum(["planned", "unplanned"]),
   category: z.enum(["process", "equipment", "material", "environmental", "personnel", "documentation", "system", "other"]),
-  severity: z.enum(["critical", "major", "minor"]),
+  // Accepts both lowercase (legacy callers) and TitleCase (new
+  // callers); the preprocessor normalises to canonical FDA TitleCase
+  // before validation. Database values written from this point forward
+  // are TitleCase; existing lowercase rows are normalised at display
+  // time by src/lib/severity.ts. See AUDIT Cat 1.
+  severity: z.preprocess((v) => coerceSeverityCasing(v, "fda"), z.enum(FDA_SEVERITY)),
   area: z.string().min(1),
   immediateAction: z.string().min(5),
   patientSafetyImpact: z.enum(["high", "medium", "low", "none"]),
@@ -37,6 +45,12 @@ const CreateDeviationSchema = z.object({
   detectedDate: z.string().optional(),
   siteId: z.string().optional(),
   batchesAffected: z.string().optional(),
+  // SME Section 1, Stage 6 (FULL) â€” optional recurrence link.
+  // Reporter (or the suggested-matches UI) cites the prior CAPA whose
+  // recurrence this Deviation represents. Validated server-side to
+  // exist in the caller's tenant. Permissive about the prior CAPA's
+  // status â€” non-closed parents are allowed but flagged in audit.
+  previousCAPAId: z.string().optional(),
 });
 
 const UpdateDeviationSchema = CreateDeviationSchema.partial().extend({
@@ -57,30 +71,120 @@ export async function createDeviation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  try {
-    const deviation = await prisma.deviation.create({
-      data: {
-        title: parsed.data.title,
-        description: parsed.data.description,
-        type: parsed.data.type,
-        category: parsed.data.category,
-        severity: parsed.data.severity,
-        area: parsed.data.area,
-        immediateAction: parsed.data.immediateAction,
-        patientSafetyImpact: parsed.data.patientSafetyImpact,
-        productQualityImpact: parsed.data.productQualityImpact,
-        regulatoryImpact: parsed.data.regulatoryImpact,
-        owner: parsed.data.owner,
-        siteId: parsed.data.siteId ?? null,
-        batchesAffected: parsed.data.batchesAffected ?? null,
-        tenantId: session.user.tenantId,
-        status: "open",
-        detectedBy: session.user.name,
-        detectedDate: parsed.data.detectedDate ? new Date(parsed.data.detectedDate) : new Date(),
-        dueDate: new Date(parsed.data.dueDate),
-        createdBy: session.user.name,
-      },
+  // SME Section 1, Stage 6 (FULL) â€” if previousCAPAId is supplied,
+  // verify it exists in the caller's tenant before persisting the
+  // link. Permissive about its status (non-closed parents are allowed,
+  // just flagged in the audit row below for the effectiveness
+  // reviewer to notice).
+  let priorCAPAStatus: string | null = null;
+  if (parsed.data.previousCAPAId) {
+    const prior = await prisma.cAPA.findFirst({
+      where: { id: parsed.data.previousCAPAId, tenantId: session.user.tenantId },
+      select: { id: true, status: true },
     });
+    if (!prior) {
+      return {
+        success: false,
+        error: "Cited recurrence CAPA not found in your tenant.",
+      };
+    }
+    priorCAPAStatus = prior.status;
+  }
+
+  // SME final rung â€” site-scoped reference allocation. Same retry-on-
+  // P2002 pattern createCAPA uses; bumps sequence when two concurrent
+  // creates compute the same NNN. Site code resolved per call; falls
+  // back to legacy "DEV-{year}-{NNN}" format when the deviation has no
+  // siteId or the site has no code populated (backfill window).
+  let siteCodeForRef: string | null = null;
+  if (parsed.data.siteId) {
+    const site = await prisma.site.findUnique({
+      where: { id: parsed.data.siteId },
+      select: { code: true },
+    });
+    siteCodeForRef = site?.code ?? null;
+  }
+  const referencePrefix = buildReferencePrefix("DEV", siteCodeForRef);
+
+  const MAX_REF_RETRIES = 5;
+  let deviation: Awaited<ReturnType<typeof prisma.deviation.create>> | null = null;
+  let lastRefErr: unknown = null;
+  for (let attempt = 0; attempt < MAX_REF_RETRIES; attempt++) {
+    try {
+      deviation = await prisma.$transaction(async (tx) => {
+        const reference = await generateReference(
+          referencePrefix,
+          new Date(),
+          async (prefix, year) => {
+            const row = await tx.deviation.findFirst({
+              where: { reference: { startsWith: `${prefix}-${year}-` } },
+              orderBy: { reference: "desc" },
+              select: { reference: true },
+            });
+            return row?.reference ?? null;
+          },
+        );
+        return tx.deviation.create({
+          data: {
+            reference,
+            title: parsed.data.title,
+            description: parsed.data.description,
+            type: parsed.data.type,
+            category: parsed.data.category,
+            severity: parsed.data.severity,
+            area: parsed.data.area,
+            immediateAction: parsed.data.immediateAction,
+            patientSafetyImpact: parsed.data.patientSafetyImpact,
+            productQualityImpact: parsed.data.productQualityImpact,
+            regulatoryImpact: parsed.data.regulatoryImpact,
+            owner: parsed.data.owner,
+            siteId: parsed.data.siteId ?? null,
+            batchesAffected: parsed.data.batchesAffected ?? null,
+            tenantId: session.user.tenantId,
+            status: "open",
+            detectedBy: session.user.name,
+            detectedDate: parsed.data.detectedDate ? new Date(parsed.data.detectedDate) : new Date(),
+            dueDate: new Date(parsed.data.dueDate),
+            // SME Section 1, Stage 5 (FULL) â€” dual-write the denormalised
+            // display-name cache + the authoritative userId FK.
+            createdBy: session.user.name,
+            createdById: session.user.id,
+            // SME Section 1, Stage 6 (FULL) â€” recurrence link.
+            previousCAPAId: parsed.data.previousCAPAId ?? null,
+          },
+        });
+      });
+      break;
+    } catch (err) {
+      lastRefErr = err;
+      if (!isReferenceConflict(err)) throw err;
+    }
+  }
+  if (!deviation) {
+    console.error("[action] createDeviation exhausted reference retries:", lastRefErr);
+    return { success: false, error: sanitizeServerError(lastRefErr, "Failed to allocate deviation reference") };
+  }
+
+  try {
+    if (parsed.data.previousCAPAId) {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "Deviation Management",
+          action: "DEVIATION_LINKED_TO_PRIOR_CAPA_AS_RECURRENCE",
+          recordId: deviation.id,
+          recordTitle: deviation.reference ?? parsed.data.title.slice(0, 80),
+          newValue: JSON.stringify({
+            previousCAPAId: parsed.data.previousCAPAId,
+            priorCAPAStatus,
+            atCreation: true,
+          }),
+        },
+      });
+    }
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -89,17 +193,27 @@ export async function createDeviation(
         module: "Deviation Management",
         action: "DEVIATION_CREATED",
         recordId: deviation.id,
-        recordTitle: parsed.data.title,
+        recordTitle: deviation.reference ?? parsed.data.title.slice(0, 80),
         newValue: parsed.data.severity,
       },
     });
     revalidatePath("/deviation");
     return { success: true, data: deviation };
   } catch (err) {
-    console.error("[action] createDeviation failed:", err);
+    console.error("[action] createDeviation post-create steps failed:", err);
     return { success: false, error: "Failed to create deviation" };
   }
 }
+
+// SME Section 1, Stage 1 follow-up â€” closure-bypass guard.
+// Status values reachable only through dedicated gated Server Actions.
+// updateDeviation must refuse to write these â€” transitions to "closed"
+// belong to closeDeviation (Part 11 SignedRecord + Critical-CAPA gate);
+// transitions to "rejected" belong to rejectDeviation (role check +
+// audit). Strict mode: a protected value is rejected even when it equals
+// the current row's status, so the UI cannot accidentally re-post a
+// closed deviation and silently weaken the rule.
+const PROTECTED_DEVIATION_STATUSES = new Set(["closed", "rejected"]);
 
 export async function updateDeviation(
   id: string,
@@ -109,6 +223,33 @@ export async function updateDeviation(
   const parsed = UpdateDeviationSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  if (parsed.data.status && PROTECTED_DEVIATION_STATUSES.has(parsed.data.status)) {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "Deviation Management",
+          action: "DEVIATION_UPDATE_BLOCKED_PROTECTED_STATUS",
+          recordId: id,
+          newValue: JSON.stringify({
+            attemptedStatus: parsed.data.status,
+            protected: true,
+          }),
+        },
+      });
+    } catch (err) {
+      console.error("[action] failed to write DEVIATION_UPDATE_BLOCKED_PROTECTED_STATUS audit:", err);
+    }
+    const dedicated =
+      parsed.data.status === "closed" ? "closeDeviation" : "rejectDeviation";
+    return {
+      success: false,
+      error: `Status transitions to "${parsed.data.status}" must use the dedicated action (${dedicated}).`,
+    };
   }
   try {
     const { dueDate, detectedDate, ...rest } = parsed.data;
@@ -162,11 +303,95 @@ export async function closeDeviation(
       title: true,
       severity: true,
       rootCause: true,
+      linkedCAPAId: true,
     },
   });
   if (!existing) return { success: false, error: "Deviation not found" };
 
-  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing.
+  // SME Section 1, Stage 1 â€” CAPA Decision Gate.
+  // A Critical deviation cannot be closed until a CAPA exists and is linked.
+  // The linked CAPA must also still exist in this tenant (an orphan
+  // linkedCAPAId from a previously hard-deleted CAPA does not satisfy the
+  // gate). CAPA has no soft-delete column (deletedAt is not on the model),
+  // so existence is the only check.
+  // Handles both legacy lowercase ("critical") and TitleCase
+  // ("Critical") rows; see src/lib/severity.ts for the unification.
+  if (normalizeSeverityForDisplay(existing.severity, "fda") === "Critical") {
+    let gateBlocked = false;
+    let gateReason:
+      | "critical_no_linked_capa"
+      | "critical_linked_capa_missing"
+      | "critical_link_inconsistent"
+      | null = null;
+    let inconsistentCapaDeviationId: string | null = null;
+    if (!existing.linkedCAPAId) {
+      gateBlocked = true;
+      gateReason = "critical_no_linked_capa";
+    } else {
+      // SME Section 1, Stage 2 (FULL) â€” also fetch deviationId for the
+      // bidirectional-consistency check. Records that disagree (CAPA.X.deviationId
+      // !== this.id even though this.linkedCAPAId === X.id) signal a
+      // data-integrity violation introduced by some non-atomic write path;
+      // block closure so the inconsistency is investigated rather than
+      // signed-over.
+      const linkedCapa = await prisma.cAPA.findFirst({
+        where: { id: existing.linkedCAPAId, tenantId: session.user.tenantId },
+        select: { id: true, deviationId: true },
+      });
+      if (!linkedCapa) {
+        gateBlocked = true;
+        gateReason = "critical_linked_capa_missing";
+      } else if (linkedCapa.deviationId !== existing.id) {
+        gateBlocked = true;
+        gateReason = "critical_link_inconsistent";
+        inconsistentCapaDeviationId = linkedCapa.deviationId;
+      }
+    }
+    if (gateBlocked) {
+      const auditAction =
+        gateReason === "critical_link_inconsistent"
+          ? "DEVIATION_CLOSE_BLOCKED_LINK_INCONSISTENT"
+          : "DEVIATION_CLOSE_BLOCKED_NO_CAPA";
+      try {
+        await prisma.auditLog.create({
+          data: {
+            tenantId: session.user.tenantId,
+            userId: session.user.id,
+            userName: session.user.name,
+            userRole: session.user.role,
+            module: "Deviation Management",
+            action: auditAction,
+            recordId: existing.id,
+            recordTitle: existing.title.slice(0, 80),
+            newValue: JSON.stringify({
+              severity: "critical",
+              reason: gateReason,
+              linkedCAPAId: existing.linkedCAPAId ?? null,
+              ...(gateReason === "critical_link_inconsistent"
+                ? { capaDeviationId: inconsistentCapaDeviationId }
+                : {}),
+            }),
+          },
+        });
+      } catch (err) {
+        console.error(`[action] failed to write ${auditAction} audit:`, err);
+      }
+      if (gateReason === "critical_link_inconsistent") {
+        return {
+          success: false,
+          error:
+            "CAPA_DEVIATION_LINK_INCONSISTENT â€” the linked CAPA does not back-reference this deviation. The records have drifted; investigate before closing.",
+        };
+      }
+      return {
+        success: false,
+        error:
+          "Critical deviations require a linked CAPA before closure. Raise a CAPA from this deviation first.",
+      };
+    }
+  }
+
+  // Â§11.200(a)(1)(ii) â€” re-authenticate at the moment of signing.
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
     parsed.data.password,
@@ -314,6 +539,276 @@ export async function rejectDeviation(
   }
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Tier 2, Items 3 + 4 — Investigation + CAPA Decision workflow.
+ *
+ * SoD chain (Separation of Duties), enforced server-side here and mirrored
+ * in the UI:
+ *   • Reporter      = Deviation.createdById (set at creation)
+ *   • Investigator  = Deviation.investigationCompletedById (set on complete)
+ *   • CAPA decider  = Deviation.capaDecisionById (must differ from BOTH the
+ *                     reporter and the investigator, and must be QA-role)
+ *
+ * createdById is nullable for the backfill window; when it is null we cannot
+ * prove who the reporter was, so the reporter-vs-self guard is skipped for
+ * that row (documented gap — legacy rows pre-date the createdById FK).
+ * ────────────────────────────────────────────────────────────────────── */
+
+const DEVIATION_RCA_METHODS = ["5Why", "Fishbone", "FaultTree", "BarrierAnalysis"] as const;
+
+const SaveInvestigationSchema = z.object({
+  rcaMethod: z.enum(DEVIATION_RCA_METHODS),
+  // Structured form buffer as JSON text (codebase convention — see the
+  // rcaData column note in schema.prisma). Optional on save-progress.
+  rcaData: z.string().max(20000).optional(),
+  rootCause: z.string().max(10000).optional(),
+});
+
+const CompleteInvestigationSchema = SaveInvestigationSchema.extend({
+  // Synthesized human-readable root cause — required to complete.
+  rootCause: z.string().min(1, "Root cause is required to complete the investigation").max(10000),
+});
+
+const CapaDecisionSchema = z.object({
+  capaRequired: z.boolean(),
+  // Justification is required for EITHER verdict (audit trail matters
+  // whether a CAPA is raised or explicitly waived).
+  reason: z.string().min(5, "A justification (at least 5 characters) is required"),
+});
+
+function isQARole(role: string): boolean {
+  return role === "qa_head" || role === "super_admin";
+}
+
+export async function saveInvestigationProgress(
+  id: string,
+  input: z.input<typeof SaveInvestigationSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = SaveInvestigationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const existing = await prisma.deviation.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: { id: true, title: true, reference: true, status: true, createdById: true },
+  });
+  if (!existing) return { success: false, error: "Deviation not found" };
+  if (existing.status === "closed" || existing.status === "rejected") {
+    return { success: false, error: "Cannot edit the investigation of a closed or rejected deviation." };
+  }
+  // SoD — the reporter cannot perform the investigation.
+  if (existing.createdById && existing.createdById === session.user.id) {
+    return { success: false, error: "Investigation must be performed by someone other than the reporter." };
+  }
+  try {
+    const deviation = await prisma.deviation.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: {
+        rcaMethod: parsed.data.rcaMethod,
+        rcaData: parsed.data.rcaData ?? null,
+        ...(parsed.data.rootCause !== undefined ? { rootCause: parsed.data.rootCause } : {}),
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "Deviation Management",
+        action: "DEVIATION_INVESTIGATION_SAVED",
+        recordId: id,
+        recordTitle: existing.reference ?? existing.title.slice(0, 80),
+        newValue: JSON.stringify({ rcaMethod: parsed.data.rcaMethod }),
+      },
+    });
+    revalidatePath("/deviation");
+    return { success: true, data: deviation };
+  } catch (err) {
+    console.error("[action] saveInvestigationProgress failed:", err);
+    return { success: false, error: "Failed to save investigation progress" };
+  }
+}
+
+export async function completeInvestigation(
+  id: string,
+  input: z.input<typeof CompleteInvestigationSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = CompleteInvestigationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const existing = await prisma.deviation.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: { id: true, title: true, reference: true, status: true, createdById: true },
+  });
+  if (!existing) return { success: false, error: "Deviation not found" };
+  if (existing.status === "closed" || existing.status === "rejected") {
+    return { success: false, error: "Cannot complete the investigation of a closed or rejected deviation." };
+  }
+  if (existing.createdById && existing.createdById === session.user.id) {
+    return { success: false, error: "Investigation must be performed by someone other than the reporter." };
+  }
+  try {
+    const deviation = await prisma.deviation.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: {
+        rcaMethod: parsed.data.rcaMethod,
+        rcaData: parsed.data.rcaData ?? null,
+        rootCause: parsed.data.rootCause,
+        investigationCompletedAt: new Date(),
+        investigationCompletedById: session.user.id,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "Deviation Management",
+        action: "DEVIATION_INVESTIGATION_COMPLETED",
+        recordId: id,
+        recordTitle: existing.reference ?? existing.title.slice(0, 80),
+        newValue: JSON.stringify({ rcaMethod: parsed.data.rcaMethod, completedBy: session.user.name }),
+      },
+    });
+    revalidatePath("/deviation");
+    return { success: true, data: deviation };
+  } catch (err) {
+    console.error("[action] completeInvestigation failed:", err);
+    return { success: false, error: "Failed to complete investigation" };
+  }
+}
+
+/** Shared validation for save/edit of the CAPA decision (SoD + QA role +
+ *  investigation-complete precondition). Returns the loaded row on success. */
+async function guardCapaDecision(
+  id: string,
+  session: Awaited<ReturnType<typeof requireAuth>>,
+) {
+  if (!isQARole(session.user.role)) {
+    return { ok: false as const, error: "CAPA decision requires QA approval." };
+  }
+  const existing = await prisma.deviation.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: {
+      id: true, title: true, reference: true, status: true,
+      createdById: true, investigationCompletedById: true, investigationCompletedAt: true,
+      capaDecisionMade: true, capaDecisionRequired: true, capaDecisionReason: true,
+    },
+  });
+  if (!existing) return { ok: false as const, error: "Deviation not found" };
+  if (existing.status === "closed" || existing.status === "rejected") {
+    return { ok: false as const, error: "Cannot decide CAPA on a closed or rejected deviation." };
+  }
+  if (!existing.investigationCompletedAt) {
+    return { ok: false as const, error: "Complete the investigation before deciding on a CAPA." };
+  }
+  // SoD — the decider cannot be the reporter or the investigator.
+  if (existing.createdById && existing.createdById === session.user.id) {
+    return { ok: false as const, error: "The CAPA decision cannot be made by the reporter (segregation of duties)." };
+  }
+  if (existing.investigationCompletedById && existing.investigationCompletedById === session.user.id) {
+    return { ok: false as const, error: "The CAPA decision cannot be made by the investigator (segregation of duties)." };
+  }
+  return { ok: true as const, existing };
+}
+
+export async function saveCAPADecision(
+  id: string,
+  input: z.input<typeof CapaDecisionSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = CapaDecisionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const guard = await guardCapaDecision(id, session);
+  if (!guard.ok) return { success: false, error: guard.error };
+  try {
+    const deviation = await prisma.deviation.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: {
+        capaDecisionMade: true,
+        capaDecisionRequired: parsed.data.capaRequired,
+        capaDecisionReason: parsed.data.reason,
+        capaDecisionAt: new Date(),
+        capaDecisionById: session.user.id,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "Deviation Management",
+        action: "DEVIATION_CAPA_DECISION_MADE",
+        recordId: id,
+        recordTitle: guard.existing.reference ?? guard.existing.title.slice(0, 80),
+        newValue: JSON.stringify({ capaRequired: parsed.data.capaRequired, reason: parsed.data.reason }),
+      },
+    });
+    revalidatePath("/deviation");
+    return { success: true, data: deviation };
+  } catch (err) {
+    console.error("[action] saveCAPADecision failed:", err);
+    return { success: false, error: "Failed to save CAPA decision" };
+  }
+}
+
+export async function editCAPADecision(
+  id: string,
+  input: z.input<typeof CapaDecisionSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = CapaDecisionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const guard = await guardCapaDecision(id, session);
+  if (!guard.ok) return { success: false, error: guard.error };
+  if (!guard.existing.capaDecisionMade) {
+    return { success: false, error: "No existing CAPA decision to edit. Use Save Decision first." };
+  }
+  try {
+    const deviation = await prisma.deviation.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: {
+        capaDecisionRequired: parsed.data.capaRequired,
+        capaDecisionReason: parsed.data.reason,
+        capaDecisionAt: new Date(),
+        capaDecisionById: session.user.id,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "Deviation Management",
+        action: "DEVIATION_CAPA_DECISION_UPDATED",
+        recordId: id,
+        recordTitle: guard.existing.reference ?? guard.existing.title.slice(0, 80),
+        oldValue: JSON.stringify({
+          capaRequired: guard.existing.capaDecisionRequired,
+          reason: guard.existing.capaDecisionReason,
+        }),
+        newValue: JSON.stringify({ capaRequired: parsed.data.capaRequired, reason: parsed.data.reason }),
+      },
+    });
+    revalidatePath("/deviation");
+    return { success: true, data: deviation };
+  } catch (err) {
+    console.error("[action] editCAPADecision failed:", err);
+    return { success: false, error: "Failed to update CAPA decision" };
+  }
+}
+
 export async function deleteDeviation(id: string): Promise<ActionResult> {
   const session = await requireAuth();
   try {
@@ -337,3 +832,4 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
     return { success: false, error: "Failed to delete deviation" };
   }
 }
+

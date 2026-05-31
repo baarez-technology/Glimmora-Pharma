@@ -20,6 +20,7 @@ import { auditLog } from "@/lib/audit";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/severity";
 import { Popup } from "@/components/ui/Popup";
 import { Modal } from "@/components/ui/Modal";
 
@@ -113,7 +114,7 @@ export function AGIPage({ activityLogs: _activityLogs = [] }: AGIPageProps = {})
     setResolveOpen(false); setSelectedAlert(null); setResolveAction(""); setResolvedPopup(true);
   }
 
-  function driftSevBadge(s: DriftSeverity) { return <Badge variant={s === "Critical" ? "red" : s === "Major" ? "amber" : "gray"}>{s}</Badge>; }
+  function driftSevBadge(s: DriftSeverity) { return <Badge variant={getSeverityVariant(s, "fda")}>{normalizeSeverityForDisplay(s, "fda") ?? s}</Badge>; }
 
   /* ══════════════════════════════════════ */
 

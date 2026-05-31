@@ -399,7 +399,7 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
     <main id="main-content" aria-label="CSV/CSA and systems risk register" className="w-full space-y-5">
       {/* Header */}
       <PageHeader
-        title="CSV/CSA &amp; Systems Risk"
+        title="CSV/CSA Validation"
         subtitle={systems.length === 0 ? "No systems registered yet" : `${systems.length} systems \u00b7 ${highRisk} high risk \u00b7 ${valOverdue} validation overdue`}
         actions={!isViewOnly ? <Button variant="primary" icon={Plus} onClick={() => { if (!hasSites) { setNoSitesOpen(true); return; } setAddOpen(true); }}>Add system</Button> : undefined}
       />
@@ -492,7 +492,7 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
                   className="bg-transparent border-none cursor-pointer p-0 hover:underline"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  CSV / CSA
+                  CSV/CSA
                 </button>
                 <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>&rsaquo;</span>
                 <span className="font-medium truncate" style={{ color: "var(--text-primary)" }}>{selectedSystem.name}</span>
@@ -546,7 +546,7 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
           { label: "Add to roadmap", style: "primary", onClick: handleConfirmAutoRoadmap },
         ]}
       />
-      <NoSitesPopup isOpen={noSitesOpen} onClose={() => setNoSitesOpen(false)} feature="CSV / CSA" />
+      <NoSitesPopup isOpen={noSitesOpen} onClose={() => setNoSitesOpen(false)} feature="CSV/CSA" />
     </main>
   );
 }

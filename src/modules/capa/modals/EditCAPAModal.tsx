@@ -3,7 +3,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import clsx from "clsx";
-import { Save } from "lucide-react";
+import { Lock, Save } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import type { CAPA } from "@/store/capa.slice";
 import type { UserConfig } from "@/store/settings.slice";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Toggle } from "@/components/ui/Toggle";
 import { Modal } from "@/components/ui/Modal";
+import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 
 const editSchema = z.object({
   description: z.string().min(5, "Description required"),
@@ -19,7 +20,12 @@ const editSchema = z.object({
   risk: z.enum(["Critical", "High", "Medium", "Low"]),
   rcaMethod: z.enum(["5 Why", "Fishbone", "Fault Tree", "Other"]).optional(),
   rca: z.string().optional(),
-  correctiveActions: z.string().optional(),
+  // SME Section 1, Stage 4 (FULL) — corrective actions are now managed
+  // via the structured Action Items table in the Actions tab. The
+  // textarea was removed from this modal; updateCAPA rejects any
+  // correctiveActions payload it receives. Field omitted from the
+  // form schema so consumers can't accidentally resurrect the old
+  // edit surface.
   effectivenessCheck: z.boolean(),
   diGate: z.boolean(),
   diGateStatus: z.enum(["open", "cleared"]).optional(),
@@ -48,7 +54,6 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
         risk: capa.risk,
         rcaMethod: capa.rcaMethod ?? undefined,
         rca: capa.rca ?? "",
-        correctiveActions: capa.correctiveActions ?? "",
         effectivenessCheck: capa.effectivenessCheck,
         diGate: capa.diGate,
         diGateStatus: capa.diGateStatus ?? "open",
@@ -62,9 +67,24 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
 
   if (!capa) return null;
 
+  // SME Section 1, Stage 3 (partial) — RCA field-lock (client mirror).
+  // Server enforces the same rule in updateCAPA. When locked we still
+  // render the values (informational during review) but disable inputs
+  // and strip rca/rcaMethod from the submitted payload so the server's
+  // lock check sees no edit intent. JSON.stringify drops undefined
+  // values, so setting these to undefined removes them from the wire.
+  const rcaLocked = LOCKED_CAPA_STATUSES.has(capa.status);
+  const handleSave = (data: EditForm) => {
+    if (rcaLocked) {
+      onSave({ ...data, rca: undefined, rcaMethod: undefined });
+    } else {
+      onSave(data);
+    }
+  };
+
   return (
     <Modal open={isOpen} onClose={onClose} title={`Edit ${capa.reference ?? "CAPA"}`} className="max-w-2xl">
-      <form onSubmit={form.handleSubmit(onSave)} aria-label="Edit CAPA" noValidate className="space-y-4">
+      <form onSubmit={form.handleSubmit(handleSave)} aria-label="Edit CAPA" noValidate className="space-y-4">
         <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Basic information</p>
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
@@ -121,22 +141,42 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
 
         <div className="border-t pt-4" style={{ borderColor: "var(--bg-border)" }}>
           <p className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Root cause analysis</p>
+          {rcaLocked && (
+            <p className="text-[11px] mb-3 flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+              <Lock className="w-3 h-3" aria-hidden="true" />
+              Root cause analysis is locked once the CAPA enters QA review. Reopen to edit.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">RCA method</p>
-              <Controller name="rcaMethod" control={form.control} render={({ field }) => <Dropdown value={field.value ?? ""} onChange={field.onChange} placeholder="Select method..." width="w-full" options={[{ value: "5 Why", label: "5 Why" }, { value: "Fishbone", label: "Fishbone" }, { value: "Fault Tree", label: "Fault Tree" }, { value: "Other", label: "Other" }]} />} />
+              <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5 flex items-center gap-1">
+                RCA method
+                {rcaLocked && <Lock className="w-3 h-3" aria-hidden="true" />}
+              </p>
+              <Controller name="rcaMethod" control={form.control} render={({ field }) => <Dropdown value={field.value ?? ""} onChange={field.onChange} placeholder="Select method..." width="w-full" disabled={rcaLocked} options={[{ value: "5 Why", label: "5 Why" }, { value: "Fishbone", label: "Fishbone" }, { value: "Fault Tree", label: "Fault Tree" }, { value: "Other", label: "Other" }]} />} />
             </div>
             <div className={clsx("flex items-center justify-between p-3 rounded-lg border", "bg-(--bg-surface) border-(--bg-border)")}>
               <Controller name="effectivenessCheck" control={form.control} render={({ field }) => <Toggle id="edit-eff" checked={field.value} onChange={field.onChange} label="Effectiveness check" description="90-day monitoring planned" />} />
             </div>
             <div className="col-span-2">
-              <label htmlFor="edit-rca" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Root cause <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(required before submitting for QA review)</span></label>
-              <textarea id="edit-rca" rows={4} className="input text-[12px] resize-none" placeholder="Describe the root cause..." {...form.register("rca")} />
+              <label htmlFor="edit-rca" className="text-[11px] font-medium text-(--text-secondary) mb-1.5 flex items-center gap-1">
+                Root cause
+                <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(required before submitting for QA review)</span>
+                {rcaLocked && <Lock className="w-3 h-3 ml-1" aria-hidden="true" />}
+              </label>
+              <textarea
+                id="edit-rca"
+                rows={4}
+                className="input text-[12px] resize-none"
+                placeholder="Describe the root cause..."
+                disabled={rcaLocked}
+                title={rcaLocked ? "Locked during QA review" : undefined}
+                {...form.register("rca")}
+              />
             </div>
-            <div className="col-span-2">
-              <label htmlFor="edit-corrective" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Corrective actions taken</label>
-              <textarea id="edit-corrective" rows={3} className="input text-[12px] resize-none" placeholder="Describe what was done to fix the issue..." {...form.register("correctiveActions")} />
-            </div>
+            {/* SME Section 1, Stage 4 (FULL) — corrective-actions
+                textarea removed. The Action Plan table in the Actions
+                tab is the only edit surface now. */}
           </div>
         </div>
 

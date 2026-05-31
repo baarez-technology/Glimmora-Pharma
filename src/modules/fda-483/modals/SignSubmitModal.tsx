@@ -1,20 +1,10 @@
 import { ShieldCheck } from "lucide-react";
-import type { FDA483Event, EventType } from "@/types/fda483";
+import type { FDA483Event } from "@/types/fda483";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
-
-function eventTypeBadge(t: EventType) {
-  const m: Record<EventType, "red" | "amber" | "blue"> = {
-    "FDA 483": "red",
-    "Warning Letter": "red",
-    "EMA Inspection": "amber",
-    "MHRA Inspection": "amber",
-    "WHO Inspection": "blue",
-  };
-  return <Badge variant={m[t]}>{t}</Badge>;
-}
+import { eventTypeBadge } from "../_shared";
 
 export interface SignSubmitModalProps {
   open: boolean;
@@ -69,8 +59,14 @@ export function SignSubmitModal({
           }}
         >
           <div className="flex items-center gap-2 flex-wrap">
-            {eventTypeBadge(liveEvent.type)}
-            <span className="font-mono text-[11px] text-[#0ea5e9]">
+            {(() => {
+              const t = eventTypeBadge(liveEvent.type);
+              return <Badge variant={t.variant}>{t.label}</Badge>;
+            })()}
+            <span
+              className="font-mono text-[11px]"
+              style={{ color: "var(--text-primary)" }}
+            >
               {liveEvent.referenceNumber}
             </span>
           </div>

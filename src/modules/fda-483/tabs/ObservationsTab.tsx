@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import type {
   FDA483Event,
-  EventType,
   EventStatus,
   Observation,
   ObservationSeverity,
@@ -18,64 +17,31 @@ import type { CAPA } from "@/store/capa.slice";
 import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/severity";
+import {
+  eventStatusBadge,
+  eventTypeBadge,
+  getEffectiveEventStatus,
+  observationSeverityBadge,
+  observationStatusBadge,
+} from "../_shared";
 
-/* ── Helpers ── */
-
-function eventTypeBadge(t: EventType) {
-  const m: Record<EventType, "red" | "amber" | "blue"> = {
-    "FDA 483": "red",
-    "Warning Letter": "red",
-    "EMA Inspection": "amber",
-    "MHRA Inspection": "amber",
-    "WHO Inspection": "blue",
-  };
-  return <Badge variant={m[t]}>{t}</Badge>;
-}
-
-function eventStatusBadge(s: EventStatus) {
-  const m: Record<EventStatus, "blue" | "red" | "amber" | "green" | "purple" | "gray"> = {
-    Open: "blue",
-    "Under Investigation": "amber",
-    "Response Due": "red",
-    "Response Drafted": "purple",
-    "Pending QA Sign-off": "amber",
-    "Response Submitted": "green",
-    "FDA Acknowledged": "green",
-    Closed: "gray",
-    "Warning Letter": "red",
-  };
-  return <Badge variant={m[s] ?? "gray"}>{s}</Badge>;
-}
+/* ── Helpers ──
+ * Inline badge / status helpers extracted to ../_shared.ts. Thin
+ * wrappers below preserve the pre-refactor call shape for the JSX. */
 
 function obsSevBadge(s: ObservationSeverity) {
-  return (
-    <Badge
-      variant={s === "Critical" ? "red" : s === "High" ? "amber" : "green"}
-    >
-      {s}
-    </Badge>
-  );
+  const b = observationSeverityBadge(s);
+  return <Badge variant={b.variant}>{b.label}</Badge>;
 }
 
 function obsStatBadge(s: Observation["status"]) {
-  const m: Record<string, "blue" | "amber" | "purple" | "green"> = {
-    Open: "blue",
-    "RCA In Progress": "amber",
-    "Response Drafted": "purple",
-    Closed: "green",
-  };
-  return <Badge variant={m[s] ?? "gray"}>{s}</Badge>;
-}
-
-function daysLeft(d: string) {
-  return dayjs.utc(d).diff(dayjs(), "day");
+  const b = observationStatusBadge(s);
+  return <Badge variant={b.variant}>{b.label}</Badge>;
 }
 
 function getEffectiveStatus(e: FDA483Event): EventStatus {
-  if (e.status === "Closed") return "Closed";
-  if (e.status === "Response Submitted") return "Response Submitted";
-  if (daysLeft(e.responseDeadline) <= 15) return "Response Due";
-  return e.status;
+  return getEffectiveEventStatus(e.status, e.responseDeadline);
 }
 
 interface Site {
@@ -157,8 +123,14 @@ export function ObservationsTab({
           <div className="flex items-start justify-between flex-wrap gap-3">
             <div>
               <div className="flex items-center gap-2 flex-wrap mb-2">
-                {eventTypeBadge(liveEvent.type)}
-                {eventStatusBadge(getEffectiveStatus(liveEvent))}
+                {(() => {
+                  const t = eventTypeBadge(liveEvent.type);
+                  return <Badge variant={t.variant}>{t.label}</Badge>;
+                })()}
+                {(() => {
+                  const s = eventStatusBadge(getEffectiveStatus(liveEvent));
+                  return <Badge variant={s.variant}>{s.label}</Badge>;
+                })()}
                 <span className="font-mono text-[12px] font-semibold text-[#0ea5e9]">
                   {liveEvent.referenceNumber}
                 </span>
@@ -549,16 +521,8 @@ export function ObservationsTab({
                   </span>
                 </div>
                 <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-                  <Badge
-                    variant={
-                      c.risk === "Critical"
-                        ? "red"
-                        : c.risk === "High"
-                          ? "amber"
-                          : "green"
-                    }
-                  >
-                    {c.risk}
+                  <Badge variant={getSeverityVariant(c.risk, "generic")}>
+                    {normalizeSeverityForDisplay(c.risk, "generic") ?? c.risk}
                   </Badge>
                   <Badge
                     variant={

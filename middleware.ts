@@ -13,7 +13,7 @@ import { getToken } from "next-auth/jwt";
  * coverage is defense-in-depth, not a replacement for the per-page session
  * lookup that supplies tenantId for Prisma queries.
  */
-export async function proxy(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const token = await getToken({
     req,
     secret: process.env.NEXTAUTH_SECRET,

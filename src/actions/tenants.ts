@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import { requireAuth } from "@/lib/auth";
 import { BCRYPT_COST } from "@/lib/passwords";
 import { getTenants } from "@/lib/queries/tenants";
 import type { Tenant as ReduxTenant } from "@/store/auth.slice";
+import { sanitizeServerError } from "@/lib/errors";
 
 export async function listTenants(): Promise<ReduxTenant[]> {
   const session = await requireAuth();
@@ -91,16 +92,8 @@ export async function createTenant(
     if ((err as { code?: string }).code === "P2002") {
       return { success: false, error: "Email, username, or code already exists" };
     }
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] createTenant failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to create account"
-          : `Failed to create account: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] createTenant failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to create account") };
   }
 }
 
@@ -147,11 +140,11 @@ export async function updateTenant(
 /**
  * Toggle tenant-level MFA. Super admin only.
  *
- * On a false → true transition, also stamps `sessionsValidAfter = now()` so
+ * On a false â†’ true transition, also stamps `sessionsValidAfter = now()` so
  * every existing session in that tenant is invalidated on its next request
  * (the JWT callback in pages/api/auth/[...nextauth].ts compares token.iat
- * against this timestamp and returns an empty token if older). On true →
- * false we leave sessions alone — relaxing MFA shouldn't punt people out.
+ * against this timestamp and returns an empty token if older). On true â†’
+ * false we leave sessions alone â€” relaxing MFA shouldn't punt people out.
  */
 export async function toggleTenantMFA(
   id: string,

@@ -153,9 +153,9 @@ export function SystemInventoryTab({
         <Dropdown placeholder="All statuses" value={valFilter} onChange={onValFilterChange} width="w-36" options={[{ value: "", label: "All statuses" }, { value: "Validated", label: "Validated" }, { value: "In Progress", label: "In Progress" }, { value: "Overdue", label: "Overdue" }, { value: "Not Started", label: "Not Started" }]} />
         <div className="relative flex-1 max-w-[200px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-          <input type="search" className="input pl-8 text-[12px]" placeholder="Search systems..." value={searchQ} onChange={(e) => onSearchChange(e.target.value)} aria-label="Search systems" />
+          <input type="search" className="input pl-8 text-[12px]" placeholder="Search systems…" value={searchQ} onChange={(e) => onSearchChange(e.target.value)} aria-label="Search systems" />
         </div>
-        {anyFilter && <Button variant="ghost" size="sm" onClick={onClearFilters}>Clear</Button>}
+        {anyFilter && <Button variant="ghost" size="sm" onClick={onClearFilters}>Clear filters</Button>}
       </section>
 
       {/* Table */}

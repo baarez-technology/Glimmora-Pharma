@@ -23,6 +23,9 @@ import type { CAPA } from "@/store/capa.slice";
 import type { UserConfig } from "@/store/settings.slice";
 import { AlignmentReviewSection } from "./sections/AlignmentReviewSection";
 import { ApprovalsSection } from "./sections/ApprovalsSection";
+import { VerificationSection } from "./sections/VerificationSection";
+import { ActionItemsSection } from "./sections/ActionItemsSection";
+import { EffectivenessSection } from "./sections/EffectivenessSection";
 import { DiscussionSection } from "./sections/DiscussionSection";
 // import { CCOverrideModal } from "./modals/CCOverrideModal";
 
@@ -71,7 +74,11 @@ export function ActionsPanel({
   // SubmissionChecklist. Prop kept on the interface so callers don't
   // need to change.
   isDark: _isDark,
-  actionLines,
+  // SME Section 1, Stage 4 (FULL) — actionLines is the legacy
+  // newline-split-string prop. Retained on the interface for callers
+  // that haven't been migrated, but unused in the body now that
+  // ActionItemsSection renders the structured table directly from capa.
+  actionLines: _actionLines,
   users,
   dateFormat,
   canSign,
@@ -146,38 +153,13 @@ export function ActionsPanel({
       tabIndex={0}
       className="space-y-4"
     >
-      {/* ── Existing corrective actions list (unchanged) ── */}
-      <div>
-        <h3
-          className="text-[11px] font-semibold uppercase tracking-wider mb-2"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Corrective actions
-        </h3>
-        {actionLines.length > 0 ? (
-          <ul className="space-y-1.5">
-            {actionLines.map((line, i) => (
-              <li
-                key={i}
-                className="flex gap-2 text-[12px] leading-relaxed"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>
-                  {i + 1}.
-                </span>
-                <span>{line}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p
-            className="text-[12px] italic"
-            style={{ color: "var(--text-muted)" }}
-          >
-            No corrective actions documented yet. Use Edit to add.
-          </p>
-        )}
-      </div>
+      {/* SME Section 1, Stage 4 (FULL) — structured Action Plan table.
+          Replaces the legacy newline-split bullet list. correctiveActions
+          remains on the CAPA row as a denormalised cache (rebuilt by
+          syncCorrectiveActions on every action-item write); the
+          actionLines prop is retained on this component's interface but
+          intentionally unused below. */}
+      <ActionItemsSection capa={capa} />
 
       {capa.effectivenessCheck &&
         capa.status === "closed" &&
@@ -214,6 +196,12 @@ export function ActionsPanel({
 
       {/* ── Substage 5.2 — Tiered Approval Routing ── */}
       <ApprovalsSection capa={capa} discussionVersion={discussionVersion} />
+
+      {/* ── SME Section 1, Stage 5 (FULL) — Independent QA Verification ── */}
+      <VerificationSection capa={capa} />
+
+      {/* ── SME Section 1, Stage 6 (FULL) — 90-day Effectiveness Review ── */}
+      <EffectivenessSection capa={capa} />
 
       {canSubmit && hasRca && (
         <Button

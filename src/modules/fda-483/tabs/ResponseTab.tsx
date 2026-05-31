@@ -20,18 +20,18 @@ import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { daysUntil, getEffectiveEventStatus } from "../_shared";
 
-/* ── Helpers ── */
+/* ── Helpers ──
+ * Inline daysLeft + getEffectiveStatus extracted to ../_shared.ts.
+ * Thin wrappers preserve the pre-refactor call shape. */
 
-function daysLeft(d: string) {
-  return dayjs.utc(d).diff(dayjs(), "day");
+function daysLeft(d: string): number {
+  return daysUntil(d) ?? 0;
 }
 
 function getEffectiveStatus(e: FDA483Event): EventStatus {
-  if (e.status === "Closed") return "Closed";
-  if (e.status === "Response Submitted") return "Response Submitted";
-  if (daysLeft(e.responseDeadline) <= 15) return "Response Due";
-  return e.status;
+  return getEffectiveEventStatus(e.status, e.responseDeadline);
 }
 
 export interface ResponseTabProps {

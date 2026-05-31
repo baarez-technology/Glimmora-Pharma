@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
@@ -14,12 +14,13 @@ import {
   getEvidenceNoteHistory,
   type EvidenceStatus,
 } from "@/lib/queries/evidence";
+import { sanitizeServerError } from "@/lib/errors";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
-// ── Constants / config ──
+// â”€â”€ Constants / config â”€â”€
 
 const MAX_FILE_MB = Number(process.env.EVIDENCE_MAX_FILE_MB ?? "10");
 const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
@@ -38,14 +39,14 @@ const RETENTION_YEARS = 7;
 
 const AUDIT_MODULE = "CAPA / Evidence";
 
-// ── Schemas ──
+// â”€â”€ Schemas â”€â”€
 
 const StatusUpdateSchema = z.object({
   status: z.enum(EVIDENCE_STATUSES as readonly [EvidenceStatus, ...EvidenceStatus[]]),
   notes: z.string().max(10_000).optional(),
   // Required when transitioning TO or FROM NOT_APPLICABLE (Part 11 ALCOA+:
   // every NA decision needs an auditable rationale). Server enforces the
-  // requirement based on the actual oldStatus → newStatus transition.
+  // requirement based on the actual oldStatus â†’ newStatus transition.
   naReason: z.string().min(10).max(2000).optional(),
 });
 
@@ -53,7 +54,7 @@ const RemoveFileSchema = z.object({
   reason: z.string().min(10, "Deletion reason must be at least 10 characters"),
 });
 
-// ── Internal helpers ──
+// â”€â”€ Internal helpers â”€â”€
 
 /**
  * Tenant-scope guard: returns the EvidenceItem joined to its CAPA's tenantId,
@@ -82,7 +83,7 @@ function nowPlusYears(years: number): Date {
   return d;
 }
 
-// ── ACTION 1: initialise the 7 evidence rows for a CAPA ──
+// â”€â”€ ACTION 1: initialise the 7 evidence rows for a CAPA â”€â”€
 
 export async function initializeEvidenceForCAPA(
   capaId: string,
@@ -99,7 +100,7 @@ export async function initializeEvidenceForCAPA(
   if (!capa) return { success: false, error: "CAPA not found" };
 
   try {
-    // Idempotent — skipDuplicates means re-running is a no-op once rows exist.
+    // Idempotent â€” skipDuplicates means re-running is a no-op once rows exist.
     const result = await prisma.evidenceItem.createMany({
       data: EVIDENCE_CATEGORIES.map((category) => ({
         capaId,
@@ -129,11 +130,11 @@ export async function initializeEvidenceForCAPA(
         });
         created += 1;
       } catch {
-        // P2002 on (capaId, category) — already exists, skip.
+        // P2002 on (capaId, category) â€” already exists, skip.
       }
     }
     if (created === 0) {
-      // Genuine error — re-throw the original.
+      // Genuine error â€” re-throw the original.
       console.error("[action] initializeEvidenceForCAPA failed:", err);
       return { success: false, error: "Failed to initialize evidence categories" };
     }
@@ -141,7 +142,7 @@ export async function initializeEvidenceForCAPA(
   }
 }
 
-// ── ACTION 2: update status / notes (with note-version snapshot) ──
+// â”€â”€ ACTION 2: update status / notes (with note-version snapshot) â”€â”€
 
 export async function updateEvidenceStatus(
   evidenceItemId: string,
@@ -248,20 +249,12 @@ export async function updateEvidenceStatus(
     revalidatePath("/capa");
     return { success: true, data: null };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = (err as { code?: string } | null)?.code;
-    console.error("[action] updateEvidenceStatus failed:", { code, message, err });
-    return {
-      success: false,
-      error:
-        process.env.NODE_ENV === "production"
-          ? "Failed to update evidence status"
-          : `Failed to update evidence status: ${code ? `[${code}] ` : ""}${message}`,
-    };
+    console.error("[action] updateEvidenceStatus failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to update evidence status") };
   }
 }
 
-// ── ACTION 3: upload a file ──
+// â”€â”€ ACTION 3: upload a file â”€â”€
 
 export async function addEvidenceFile(
   evidenceItemId: string,
@@ -350,7 +343,7 @@ export async function addEvidenceFile(
   }
 }
 
-// ── ACTION 4: soft-delete a file ──
+// â”€â”€ ACTION 4: soft-delete a file â”€â”€
 
 export async function removeEvidenceFile(
   fileId: string,
@@ -393,7 +386,7 @@ export async function removeEvidenceFile(
   }
   // Retention applies to destroying the file bytes, not to this soft-delete:
   // the row stays (deletedAt + reason + audit row), and fileStorage.delete()
-  // is intentionally not called below — bytes survive on disk for the full
+  // is intentionally not called below â€” bytes survive on disk for the full
   // retainUntil window. A future hard-delete/purge job is where the
   // retainUntil check belongs.
 
@@ -428,7 +421,7 @@ export async function removeEvidenceFile(
       });
     });
 
-    // The actual file on disk is preserved — ALCOA+ Enduring. fileStorage
+    // The actual file on disk is preserved â€” ALCOA+ Enduring. fileStorage
     // .delete() is a no-op for the local backend.
     revalidatePath(`/capa/${file.evidenceItem.capa.id}`);
     return { success: true, data: null };
@@ -438,7 +431,7 @@ export async function removeEvidenceFile(
   }
 }
 
-// ── ACTION 5: read note-version history ──
+// â”€â”€ ACTION 5: read note-version history â”€â”€
 
 export async function loadEvidenceNoteHistory(
   evidenceItemId: string,
@@ -468,7 +461,7 @@ export async function loadEvidenceNoteHistory(
   };
 }
 
-// ── Client-callable read wrapper for the Evidence panel ──
+// â”€â”€ Client-callable read wrapper for the Evidence panel â”€â”€
 
 export async function loadEvidenceForCAPA(capaId: string): Promise<ActionResult> {
   const session = await requireAuth();

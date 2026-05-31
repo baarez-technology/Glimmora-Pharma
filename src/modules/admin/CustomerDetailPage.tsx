@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -162,7 +164,7 @@ export function CustomerDetailPage() {
                 {tenant.active ? "Active" : "Inactive"}
               </Badge>
               <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                Created {dayjs(tenant.createdAt).format("MMM D, YYYY")}
+                Created {tenant.createdAt ? dayjs(tenant.createdAt).format("MMM D, YYYY") : "—"}
               </span>
             </div>
           </div>
