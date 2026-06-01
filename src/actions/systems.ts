@@ -1394,6 +1394,12 @@ function rtmCoverageOf(entries: { traceabilityStatus: string }[]): number {
 interface SignOffReadiness {
   allStagesComplete: boolean;
   outstandingStages: string[];
+  // RUNG 3A.2 — read-only per-stage detail derived from existing validationStages
+  // (no new columns / status words) so the Sign Off tab can surface every
+  // stage's blocker, not just a names-only summary.
+  stages: { name: string; status: string }[];
+  approvedCount: number;
+  stagesTotal: number;
   currentRtmCoverage: number;
   openFindings: number;
   openCriticalCAPAs: number;
@@ -1422,6 +1428,9 @@ async function computeReadiness(systemId: string, tenantId: string): Promise<Sig
   return {
     allStagesComplete,
     outstandingStages,
+    stages: system.validationStages.map((s) => ({ name: s.stageName, status: s.status })),
+    approvedCount: system.validationStages.filter((s) => s.status === "approved").length,
+    stagesTotal: system.validationStages.length,
     currentRtmCoverage: rtmCoverageOf(system.rtmEntries),
     openFindings,
     openCriticalCAPAs,

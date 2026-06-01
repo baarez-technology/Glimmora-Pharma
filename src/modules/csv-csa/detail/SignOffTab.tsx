@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Lock, AlertTriangle, CheckCircle2, Hash, RotateCcw } from "lucide-react";
+import { ShieldCheck, Lock, AlertTriangle, CheckCircle2, Circle, Hash, RotateCcw } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import type { GxPSystem } from "@/types/csv-csa";
+import { VALIDATION_STAGE_KEYS } from "@/types/csv-csa";
 import { Button } from "@/components/ui/Button";
 import { getSignOffReadiness, signValidation, unsignValidation } from "@/actions/systems";
 import type { WorkflowTab } from "@/modules/csv-csa/detail/workflow";
@@ -12,10 +13,36 @@ import type { WorkflowTab } from "@/modules/csv-csa/detail/workflow";
 interface Readiness {
   allStagesComplete: boolean;
   outstandingStages: string[];
+  stages: { name: string; status: string }[];
+  approvedCount: number;
+  stagesTotal: number;
   currentRtmCoverage: number;
   openFindings: number;
   openCriticalCAPAs: number;
   readyToSign: boolean;
+}
+
+// Stage status label — identical vocabulary to ValidationPanel's stageLabel
+// (Not Started / In Progress / Under Review / Approved / Rejected / Skipped).
+// No new status words.
+function stageStatusLabel(status: string): string {
+  if (status === "approved" || status === "complete") return "Approved";
+  if (status === "in_review") return "Under Review";
+  if (status === "in_progress" || status === "draft" || status === "in-progress") return "In Progress";
+  if (status === "rejected") return "Rejected";
+  if (status === "skipped") return "Skipped";
+  return "Not Started";
+}
+
+// Single next action per non-resolved stage — echoes computeNextStep's verbs
+// ("submit … for QA review", "awaiting QA approval", "Re-execute and resubmit")
+// plus "Upload evidence" for an empty stage. null = resolved (approved/skipped).
+function stageNextAction(status: string): string | null {
+  if (status === "approved" || status === "complete" || status === "skipped") return null;
+  if (status === "in_review") return "Awaiting QA approval";
+  if (status === "in_progress" || status === "draft" || status === "in-progress") return "Submit for QA review";
+  if (status === "rejected") return "Re-execute and resubmit";
+  return "Upload evidence"; // not_started
 }
 
 export interface SignOffTabProps {
@@ -206,6 +233,33 @@ export function SignOffTab({ system, role, timezone, dateFormat, onError, onOk, 
               </div>
             </div>
           ))}
+
+          {/* RUNG 3A.2 — read-only per-stage readiness breakdown. Surfaces
+              every stage's blocker (status + single next action), not just the
+              names-only summary above. Gating is unchanged. */}
+          <div className="pt-2 mt-1 border-t" style={{ borderColor: "var(--bg-border)" }}>
+            <p className="text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+              {readiness?.approvedCount ?? 0} of {readiness?.stagesTotal ?? VALIDATION_STAGE_KEYS.length} stages approved
+            </p>
+            <div className="space-y-1">
+              {VALIDATION_STAGE_KEYS.map((key) => {
+                const status = readiness?.stages.find((s) => s.name === key)?.status ?? "not_started";
+                const approved = status === "approved" || status === "complete";
+                const action = stageNextAction(status);
+                return (
+                  <div key={key} className="flex items-center gap-2 text-[11px]">
+                    {approved
+                      ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: "#10b981" }} aria-hidden="true" />
+                      : <Circle className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />}
+                    <span className="font-mono font-semibold w-9 shrink-0" style={{ color: "var(--text-primary)" }}>{key}</span>
+                    <span style={{ color: "var(--text-secondary)" }}>{stageStatusLabel(status)}</span>
+                    {action && <span style={{ color: "var(--text-muted)" }}>· {action}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <p className="text-[11px] pt-1" style={{ color: "var(--text-muted)" }}>RTM coverage: {readiness?.currentRtmCoverage ?? 0}% (informational)</p>
         </div>
       </div>
