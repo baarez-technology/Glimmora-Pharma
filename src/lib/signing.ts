@@ -410,6 +410,46 @@ export function canonicalizeChangeControlTransitionContent(
   });
 }
 
+/** Input shape for canonicalising a CSV/CSA validation sign-off (RUNG 2.6).
+ *  Deterministic from system identity + executed-stage tally + RTM coverage +
+ *  Part 11/Annex 11 posture + open-findings count + next requalification date
+ *  + signer/meaning/timestamp. Any later drift in these inputs changes the
+ *  hash, so an inspector can detect whether the signed-off state still holds. */
+export interface CSVValidationSignOffCanonicalInput {
+  systemId: string;
+  reference: string;
+  stagesApproved: number;
+  stagesTotal: number;
+  rtmCoverage: number;
+  part11Compliant: boolean;
+  annex11Compliant: boolean;
+  openFindings: number;
+  nextReviewIso: string;
+  signatureMeaning: string;
+  signerEmail: string;
+  signedAtIso: string;
+}
+
+export function canonicalizeCSVValidationSignOffContent(
+  input: CSVValidationSignOffCanonicalInput,
+): string {
+  return canonicalJson({
+    recordType: "CSV_VALIDATION_SIGNOFF",
+    annex11Compliant: input.annex11Compliant,
+    nextReview: input.nextReviewIso,
+    openFindings: input.openFindings,
+    part11Compliant: input.part11Compliant,
+    reference: input.reference,
+    rtmCoverage: input.rtmCoverage,
+    signatureMeaning: input.signatureMeaning,
+    signedAt: input.signedAtIso,
+    signerEmail: input.signerEmail,
+    stagesApproved: input.stagesApproved,
+    stagesTotal: input.stagesTotal,
+    systemId: input.systemId,
+  });
+}
+
 /** Options for createSignedRecord — every field is required at the
  *  signing-surface level (callers compute or default before calling).
  *  Used for the non-transactional case; transactional callers (e.g. the

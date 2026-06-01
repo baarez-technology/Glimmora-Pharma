@@ -8,7 +8,7 @@ import {
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
-import { createRTMEntry } from "@/actions/rtm";
+import { createRTMEntry, updateRTMEntry } from "@/actions/rtm";
 import type { RTMEntry, TraceabilityStatus, TestResult } from "@/types/csv-csa";
 import dayjs from "@/lib/dayjs";
 import { Button } from "@/components/ui/Button";
@@ -81,6 +81,20 @@ export function RTMTab({ entries: entriesProp, systemsOverride }: RTMTabProps = 
   const [addOpen, setAddOpen] = useState(false);
   const [successPopup, setSuccessPopup] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
+
+  // RUNG 1 (Finding #6) — per-requirement notes, the first wired updateRTMEntry
+  // field. Saved on blur (so we don't fire a write per keystroke).
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesRowId, setNotesRowId] = useState<string | null>(null);
+  if (selected && selected.id !== notesRowId) {
+    setNotesRowId(selected.id);
+    setNotesDraft(selected.notes ?? "");
+  }
+  async function saveNotes() {
+    if (!selected || (selected.notes ?? "") === notesDraft) return;
+    const result = await updateRTMEntry(selected.id, { notes: notesDraft });
+    if (result.success) { setSuccessMsg("Note saved."); setSuccessPopup(true); router.refresh(); }
+  }
 
   const sysEntries = useMemo(() => {
     let r = tenantEntries.filter((e) => !selectedSystem || e.systemId === selectedSystem);
@@ -297,6 +311,25 @@ export function RTMTab({ entries: entriesProp, systemsOverride }: RTMTabProps = 
                 <p style={{ color: "var(--text-muted)" }}>CAPA</p>
                 {selected.linkedCAPAId ? <button type="button" onClick={() => router.push("/capa")} className="font-mono text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer p-0">{selected.linkedCAPAId}</button> : <p style={{ color: "var(--text-muted)" }}>\u2014</p>}
               </div>
+            </div>
+
+            {/* Notes (RUNG 1 \u2014 first editable RTM field; saved on blur) */}
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Notes</p>
+              {canEdit ? (
+                <textarea
+                  rows={3}
+                  value={notesDraft}
+                  onChange={(e) => setNotesDraft(e.target.value)}
+                  onBlur={saveNotes}
+                  className="input text-[11px] resize-none w-full"
+                  placeholder="Add context for this requirement (saved when you leave the field)"
+                />
+              ) : selected.notes ? (
+                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{selected.notes}</p>
+              ) : (
+                <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No notes.</p>
+              )}
             </div>
           </aside>
         )}

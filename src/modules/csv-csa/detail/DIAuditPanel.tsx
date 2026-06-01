@@ -1,7 +1,6 @@
 import { useState } from "react";
 import clsx from "clsx";
 import { ShieldAlert, AlertCircle, CheckCircle2, Search, ClipboardCheck, Wrench, Pencil, X, Save } from "lucide-react";
-import dayjs from "@/lib/dayjs";
 import type { GxPSystem } from "@/types/csv-csa";
 import type { Finding } from "@/store/findings.slice";
 import type { CAPA } from "@/store/capa.slice";
@@ -18,32 +17,30 @@ export interface DIAuditPanelProps {
   capas: CAPA[];  role: string;
   onNavigateGap: (findingId: string) => void;
   onNavigateCapa: (capaId: string) => void;
-  onSaveRemediation: (patch: { remediationTargetDate?: string; remediationNotes?: string }) => void;
+  onSaveRemediation: (patch: { remediationPlan?: string; remediationStatus?: string }) => void;
 }
 
 export function DIAuditPanel({ system, findings, capas, role, onNavigateGap, onNavigateCapa, onSaveRemediation }: DIAuditPanelProps) {
   const [editingRem, setEditingRem] = useState(false);
-  const [remTargetDate, setRemTargetDate] = useState(
-    system.remediationTargetDate ? dayjs.utc(system.remediationTargetDate).format("YYYY-MM-DD") : "",
-  );
-  const [remNotes, setRemNotes] = useState(system.remediationNotes ?? "");
+  const [remPlan, setRemPlan] = useState(system.remediationPlan ?? "");
+  const [remStatus, setRemStatus] = useState(system.remediationStatus ?? "open");
 
   // Reset local form state when the drawer switches to a different system
   const [prevId, setPrevId] = useState(system.id);
   if (system.id !== prevId) {
     setPrevId(system.id);
     setEditingRem(false);
-    setRemTargetDate(system.remediationTargetDate ? dayjs.utc(system.remediationTargetDate).format("YYYY-MM-DD") : "");
-    setRemNotes(system.remediationNotes ?? "");
+    setRemPlan(system.remediationPlan ?? "");
+    setRemStatus(system.remediationStatus ?? "open");
   }
 
   const saveRem = () => {
-    onSaveRemediation({ remediationTargetDate: remTargetDate, remediationNotes: remNotes });
+    onSaveRemediation({ remediationPlan: remPlan, remediationStatus: remStatus });
     setEditingRem(false);
   };
   const cancelRem = () => {
-    setRemTargetDate(system.remediationTargetDate ? dayjs.utc(system.remediationTargetDate).format("YYYY-MM-DD") : "");
-    setRemNotes(system.remediationNotes ?? "");
+    setRemPlan(system.remediationPlan ?? "");
+    setRemStatus(system.remediationStatus ?? "open");
     setEditingRem(false);
   };
   const p11 = system.part11Status;
@@ -132,12 +129,16 @@ export function DIAuditPanel({ system, findings, capas, role, onNavigateGap, onN
             </p>
             <div className="grid grid-cols-1 gap-3">
               <div>
-                <label htmlFor="rem-target-inline" className="text-[10px] block mb-1" style={{ color: "var(--text-muted)" }}>Target date (optional)</label>
-                <input id="rem-target-inline" type="date" value={remTargetDate} onChange={(e) => setRemTargetDate(e.target.value)} className="input text-[11px]" />
+                <label htmlFor="rem-status-inline" className="text-[10px] block mb-1" style={{ color: "var(--text-muted)" }}>Status</label>
+                <select id="rem-status-inline" value={remStatus} onChange={(e) => setRemStatus(e.target.value)} className="input text-[11px]">
+                  <option value="open">Open</option>
+                  <option value="in-progress">In progress</option>
+                  <option value="closed">Closed</option>
+                </select>
               </div>
               <div>
-                <label htmlFor="rem-notes-inline" className="text-[10px] block mb-1" style={{ color: "var(--text-muted)" }}>Notes (optional)</label>
-                <textarea id="rem-notes-inline" rows={3} value={remNotes} onChange={(e) => setRemNotes(e.target.value)} className="input text-[11px] resize-none w-full" placeholder="Describe remediation actions in progress..." />
+                <label htmlFor="rem-plan-inline" className="text-[10px] block mb-1" style={{ color: "var(--text-muted)" }}>Remediation plan</label>
+                <textarea id="rem-plan-inline" rows={3} value={remPlan} onChange={(e) => setRemPlan(e.target.value)} className="input text-[11px] resize-none w-full" placeholder="Describe the remediation plan and actions..." />
               </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -145,7 +146,7 @@ export function DIAuditPanel({ system, findings, capas, role, onNavigateGap, onN
               <Button variant="primary" size="xs" icon={Save} type="button" onClick={saveRem}>Save</Button>
             </div>
           </div>
-        ) : (system.remediationTargetDate || system.remediationNotes) ? (
+        ) : (system.remediationPlan || system.remediationStatus) ? (
           <div
             className="flex items-start gap-2 p-3 rounded-lg"
             style={{ background: "var(--warning-bg)", border: "1px solid rgba(245,158,11,0.35)" }}
@@ -153,14 +154,11 @@ export function DIAuditPanel({ system, findings, capas, role, onNavigateGap, onN
           >
             <Wrench className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#854f0b" }} aria-hidden="true" />
             <div className="flex-1 text-[12px]">
-              <p className="font-semibold mb-1" style={{ color: "#854f0b" }}>Remediation in progress</p>
-              {system.remediationTargetDate && (
-                <p style={{ color: "var(--text-primary)" }}>
-                  <span className="font-medium">Target:</span> {dayjs.utc(system.remediationTargetDate).format("DD/MM/YYYY")}
-                </p>
-              )}
-              {system.remediationNotes && (
-                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>{system.remediationNotes}</p>
+              <p className="font-semibold mb-1 capitalize" style={{ color: "#854f0b" }}>
+                Remediation: {system.remediationStatus ?? "open"}
+              </p>
+              {system.remediationPlan && (
+                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>{system.remediationPlan}</p>
               )}
             </div>
           </div>

@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
-import { Database, GitBranch, Plus, Info, X, Link2 } from "lucide-react";
+import { Database, GitBranch, Plus, Info, Link2 } from "lucide-react";
 import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { NoSitesPopup, TabBar, PageHeader } from "@/components/shared";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
-import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
@@ -19,13 +18,11 @@ import {
   addRoadmapActivity,
   updateRoadmapActivity,
 } from "@/actions/systems";
-import type { GxPSystem, RoadmapActivity, ValidationStageKey, ValidationStage, SystemFromPrisma } from "@/types/csv-csa";
+import type { GxPSystem, RoadmapActivity, ValidationStageKey, SystemFromPrisma } from "@/types/csv-csa";
 import { VALIDATION_STAGE_LABELS, VALIDATION_STAGE_KEYS, adaptPrismaSystem, adaptPrismaRoadmap, adaptPrismaRTM } from "@/types/csv-csa";
-import { auditLog } from "@/lib/audit";
 import { Button } from "@/components/ui/Button";
 import { Popup } from "@/components/ui/Popup";
 import { SystemInventoryTab } from "./tabs/SystemInventoryTab";
-import { SystemDetailTab } from "./tabs/SystemDetailTab";
 import { CSVRoadmapTab } from "./tabs/CSVRoadmapTab";
 import { RTMTab } from "./tabs/RTMTab";
 import { AddSystemModal, type SystemForm } from "./modals/AddSystemModal";
@@ -35,8 +32,6 @@ import { AddActivityModal, type ActivityForm } from "./modals/AddActivityModal";
 /* ── Constants ── */
 
 type TabId = "inventory" | "roadmap" | "rtm";
-type DetailTab = "overview" | "risk" | "validation" | "di";
-
 const TABS: { id: TabId; label: string; Icon: typeof Database }[] = [
   { id: "inventory", label: "System Inventory", Icon: Database },
   { id: "roadmap", label: "CSV Roadmap", Icon: GitBranch },
@@ -92,7 +87,6 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
   const systems = useMemo(() => props.systems.map(adaptPrismaSystem), [props.systems]);
   const roadmap = useMemo(() => adaptPrismaRoadmap(props.systems), [props.systems]);
   const rtmEntries = useMemo(() => adaptPrismaRTM(props.systems), [props.systems]);
-  const { findings, capas } = useTenantData();
   const { org, sites, users } = useTenantConfig();
   const complianceUsers = useComplianceUsers();
   const timezone = org.timezone;
@@ -108,8 +102,8 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
 
   /* ── State ── */
   const [activeTab, setActiveTab] = useState<TabId>("inventory");
-  const [detailTab, setDetailTab] = useState<DetailTab>("overview");
-  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
+  // selectedSystem is retained only for the inventory Edit button → EditSystemModal.
+  // Detail viewing is now a routed page (/csv-csa/systems/[reference]).
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
   const selectedSystem = selectedSystemId ? systems.find((s) => s.id === selectedSystemId) ?? null : null;
   const setSelectedSystem = (sys: GxPSystem | null) => setSelectedSystemId(sys?.id ?? null);
@@ -129,21 +123,12 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
   const [systemToRemove, setSystemToRemove] = useState<string | null>(null);
   const [addActivityOpen, setAddActivityOpen] = useState(false);
   const [activityAddedPopup, setActivityAddedPopup] = useState(false);
-  const [riskFactorsSaved, setRiskFactorsSaved] = useState(false);
-  const [actionsSaved, setActionsSaved] = useState(false);
   const [noSitesOpen, setNoSitesOpen] = useState(false);
-  const [remediationSaved, setRemediationSaved] = useState(false);
+  // Error surface for add/edit-system failures (detail-field saves moved to the routed page).
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [roadmapSynced, setRoadmapSynced] = useState("");
   const [autoRoadmapPrompt, setAutoRoadmapPrompt] = useState<{ systemId: string; stageKey: ValidationStageKey } | null>(null);
 
-  useEffect(() => {
-    const sid = null /*migration: location.state removed*/;
-    if (sid) {
-      const found = systems.find((s) => s.id === sid);
-      if (found) { setSelectedSystemId(found.id); setDetailDrawerOpen(true); setDetailTab("overview"); }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const anyFilter = !!(siteFilter || typeFilter || riskFilter || valFilter || searchQ);
   function clearFilters() { setSiteFilter(""); setTypeFilter(""); setRiskFilter(""); setValFilter(""); setSearchQ(""); }
@@ -192,21 +177,23 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
 
   /* ── Handlers ── */
   async function onAddSave(data: SystemForm) {
+    // RUNG: the simplified Add modal collects only the 8 essential fields.
+    // Everything else is server-defaulted; createSystem auto-derives the 4
+    // risk classifications + riskLevel from gxpRelevance, defaults
+    // part11/annex11 to "N/A" and validationStatus to "Not Started". The rest
+    // (intended use, scope, dates, planning) is filled on the detail page.
     const result = await createSystem({
       name: data.name,
       type: data.type,
       vendor: data.vendor,
       version: data.version,
+      siteId: data.siteId,
+      owner: data.owner,
       gxpRelevance: data.gxpRelevance,
       gamp5Category: data.gamp5Category,
-      riskLevel: data.riskLevel,
-      siteId: data.siteId,
-      intendedUse: data.intendedUse,
-      gxpScope: data.gxpScope ?? "",
-      owner: data.owner,
     });
     if (!result.success) {
-      console.error("[csv-csa] createSystem failed:", result.error);
+      setErrorMsg(result.error || "Failed to add system.");
       return;
     }
     setAddOpen(false);
@@ -216,11 +203,10 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
 
   async function onEditSave(data: EditSystemForm) {
     if (!selectedSystem) return;
-    // Server action accepts only Prisma columns; the slice's richer
-    // patch fields (criticalFunctions / riskFactors / lastValidated /
-    // nextReview / patient/product/regulatory/DI risk classifications)
-    // have no schema columns yet — they're dropped here. Schema can be
-    // extended in a follow-up to persist them.
+    // RUNG 2.6: the edit modal now carries only the 8 essential identity /
+    // classification fields. Intended use, risk classification, compliance
+    // status, dates, planned actions and validation status are each edited on
+    // their own detail tab (Assess / Execute / Sign Off), never free-edited here.
     const result = await updateSystemServer(selectedSystem.id, {
       name: data.name,
       type: data.type,
@@ -228,14 +214,11 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
       version: data.version,
       gxpRelevance: data.gxpRelevance,
       gamp5Category: data.gamp5Category,
-      riskLevel: data.riskLevel,
       siteId: data.siteId,
-      intendedUse: data.intendedUse,
-      gxpScope: data.gxpScope ?? "",
       owner: data.owner,
     });
     if (!result.success) {
-      console.error("[csv-csa] updateSystem failed:", result.error);
+      setErrorMsg(result.error || "Failed to update system.");
       return;
     }
     setEditOpen(false);
@@ -262,66 +245,10 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
     router.refresh();
   }
 
-  function handleSaveRiskFactors(text: string) {
-    if (!selectedSystem) return;
-    // `riskFactors` not in Prisma schema — UI-only state until schema
-    // is extended. Audit log preserves the action.
-    auditLog({ action: "SYSTEM_RISK_FACTORS_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: { riskFactors: text } });
-    setRiskFactorsSaved(true);
-  }
-
-  async function handleSavePlannedActions(text: string) {
-    if (!selectedSystem) return;
-    const result = await updateSystemServer(selectedSystem.id, { plannedActions: text });
-    if (!result.success) {
-      console.error("[csv-csa] updateSystem (plannedActions) failed:", result.error);
-      return;
-    }
-    setActionsSaved(true);
-    router.refresh();
-  }
-
-  async function handleSaveStage(stage: ValidationStage) {
-    if (!selectedSystem) return;
-    const existing = selectedSystem.validationStages ?? [];
-    // Replace or append; preserve order based on VALIDATION_STAGE_KEYS
-    const others = existing.filter((s) => s.key !== stage.key);
-    const merged = [...others, stage];
-    const ORDER = VALIDATION_STAGE_KEYS;
-    merged.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
-
-    // Auto-update validationStatus based on aggregate stage state
-    const allDone = merged.length >= ORDER.length
-      && merged.every((s) => s.status === "complete" || s.status === "skipped");
-    const anyProgress = merged.some((s) => s.status === "complete" || s.status === "in-progress");
-
-    // `validationStages` (nested array) and `lastValidated` are slice-only
-    // — neither persists. The aggregate `validationStatus` IS in Prisma so
-    // we sync that via the server action when the per-stage server actions
-    // (submitStageForReview/approveStage etc.) haven't already.
-    if (allDone || (anyProgress && selectedSystem.validationStatus !== "Validated")) {
-      const newStatus = allDone ? "Validated" : "In Progress";
-      if (selectedSystem.validationStatus !== newStatus) {
-        await updateSystemServer(selectedSystem.id, { validationStatus: newStatus });
-      }
-    }
-    auditLog({ action: "SYSTEM_VALIDATION_STAGE_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: stage });
-
-    // Bidirectional sync with CSV Roadmap
-    if (stage.status === "complete") {
-      const matchingActivity = roadmap.find((a) => a.systemId === selectedSystem.id && a.type === stage.key);
-      if (matchingActivity && matchingActivity.status !== "Complete") {
-        await updateRoadmapActivity(matchingActivity.id, "Complete");
-        setRoadmapSynced(`${stage.key} roadmap activity marked Complete.`);
-        router.refresh();
-      }
-    } else if (stage.status === "in-progress") {
-      const matchingActivity = roadmap.find((a) => a.systemId === selectedSystem.id && a.type === stage.key);
-      if (!matchingActivity) {
-        setAutoRoadmapPrompt({ systemId: selectedSystem.id, stageKey: stage.key });
-      }
-    }
-  }
+  // RUNG 2: the per-field detail save handlers (risk factors, planned actions,
+  // next review, risk classification, remediation) moved to SystemDetailPage /
+  // its tab panels, which call the server actions directly. The drawer that
+  // used them here is removed (detail is now a routed page).
 
   async function handleConfirmAutoRoadmap() {
     if (!autoRoadmapPrompt) return;
@@ -368,31 +295,6 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
     router.refresh();
   }
 
-  function handleSaveNextReview(iso: string) {
-    if (!selectedSystem) return;
-    // `nextReview` not in Prisma schema — UI-only state. Audit log preserved.
-    auditLog({ action: "SYSTEM_NEXT_REVIEW_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: { nextReview: iso } });
-  }
-
-  function handleSaveRiskClassification(patch: import("@/modules/csv-csa/detail/RiskControlsPanel").RiskClassificationPatch) {
-    if (!selectedSystem) return;
-    // patientSafetyRisk / productQualityImpact / regulatoryExposure / diImpact
-    // are not in the Prisma schema — UI-only state. Audit log preserved.
-    auditLog({ action: "SYSTEM_RISK_CLASSIFICATION_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: patch });
-  }
-
-  function handleSaveRemediation(patch: { remediationTargetDate?: string; remediationNotes?: string }) {
-    if (!selectedSystem) return;
-    // remediationTargetDate / remediationNotes are not in the Prisma
-    // schema — UI-only state. Audit log preserved.
-    const normalized = {
-      remediationTargetDate: patch.remediationTargetDate?.trim() ? dayjs(patch.remediationTargetDate).utc().toISOString() : undefined,
-      remediationNotes: patch.remediationNotes?.trim() || undefined,
-    };
-    auditLog({ action: "SYSTEM_REMEDIATION_UPDATED", module: "csv-csa", recordId: selectedSystem.id, newValue: normalized });
-    setRemediationSaved(true);
-  }
-
   /* ══════════════════════════════════════ */
 
   return (
@@ -431,7 +333,7 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
           onSiteFilterChange={setSiteFilter} onTypeFilterChange={setTypeFilter} onRiskFilterChange={setRiskFilter} onValFilterChange={setValFilter} onSearchChange={setSearchQ}
           onClearFilters={clearFilters}
           onAddOpen={() => setAddOpen(true)}
-          onSelectSystem={(sys) => { setSelectedSystem(sys); setDetailDrawerOpen(true); setDetailTab("overview"); }}
+          onSelectSystem={(sys) => router.push(`/csv-csa/systems/${encodeURIComponent(sys.reference ?? sys.id)}`)}
           onEditSystem={(sys) => { setSelectedSystem(sys); setEditOpen(true); }}
           onRemoveSystem={(id) => { setSystemToRemove(id); setRemovePopup(true); }}
         />
@@ -456,70 +358,7 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
         <RTMTab entries={rtmEntries} systemsOverride={systems} />
       </div>
 
-      {/* ═══════════ SYSTEM DETAIL DRAWER ═══════════ */}
-      {detailDrawerOpen && selectedSystem && (
-        <div
-          className="fixed inset-0 z-50 flex"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${selectedSystem.name} detail`}
-          onClick={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
-        >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
-          {/* Drawer panel — slides in from right */}
-          <div
-            className="relative ml-auto w-full max-w-[720px] h-full flex flex-col shadow-2xl animate-[popupIn_0.2s_ease-out]"
-            style={{ background: "var(--bg-surface)", borderLeft: "1px solid var(--bg-border)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Close button */}
-            <button
-              type="button"
-              onClick={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
-              aria-label="Close system detail"
-              className="absolute top-3 right-3 w-8 h-8 rounded-md flex items-center justify-center bg-transparent hover:bg-(--bg-hover) border-none cursor-pointer transition-colors duration-150 z-10"
-            >
-              <X className="w-4 h-4 text-(--text-muted)" aria-hidden="true" />
-            </button>
-            {/* Drawer content — scrollable */}
-            <div className="flex-1 overflow-y-auto p-5">
-              {/* Breadcrumb */}
-              <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[13px] mb-3">
-                <button
-                  type="button"
-                  onClick={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
-                  className="bg-transparent border-none cursor-pointer p-0 hover:underline"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  CSV/CSA
-                </button>
-                <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>&rsaquo;</span>
-                <span className="font-medium truncate" style={{ color: "var(--text-primary)" }}>{selectedSystem.name}</span>
-              </nav>
-              <SystemDetailTab
-                selectedSystem={selectedSystem} systems={systems} roadmap={roadmap}
-                findings={findings} capas={capas}
-                sites={sites} users={users} timezone={timezone} dateFormat={dateFormat} isViewOnly={isViewOnly} role={role}
-                showPart11={showPart11} showAnnex11={showAnnex11} showGAMP5={showGAMP5}
-                detailTab={detailTab} onDetailTabChange={setDetailTab}
-                onBack={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
-                onEdit={() => setEditOpen(true)}
-                onGoToInventory={() => { setDetailDrawerOpen(false); setSelectedSystem(null); }}
-                onNavigateSettings={() => router.push("/settings")}
-                onNavigateGap={() => router.push("/gap-assessment")}
-                onNavigateCapa={() => router.push("/capa")}
-                onSaveRemediation={handleSaveRemediation}
-                onSaveRiskFactors={handleSaveRiskFactors}
-                onSavePlannedActions={handleSavePlannedActions}
-                onSaveStage={handleSaveStage}
-                onSaveNextReview={handleSaveNextReview}
-                onSaveRiskClassification={handleSaveRiskClassification}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* System detail is now a routed page: /csv-csa/systems/[reference]. */}
 
       {/* ── Modals ── */}
       <AddSystemModal open={addOpen} sites={sites} users={complianceUsers} onSave={onAddSave} onClose={() => setAddOpen(false)} lockedSiteId={selectedSiteId} />
@@ -529,11 +368,9 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
       {/* ── Popups ── */}
       <Popup isOpen={addedPopup} variant="success" title="System added" description="Added to the inventory. Part 11 / Annex 11 columns appear based on active frameworks in Settings." onDismiss={() => setAddedPopup(false)} />
       <Popup isOpen={editSavedPopup} variant="success" title="System updated" description="Changes saved to the system record." onDismiss={() => setEditSavedPopup(false)} />
-      <Popup isOpen={riskFactorsSaved} variant="success" title="Risk factors saved" description="Risk factors updated. Visible in system detail and inspector review." onDismiss={() => setRiskFactorsSaved(false)} />
-      <Popup isOpen={actionsSaved} variant="success" title="Planned actions saved" description="Validation plan updated." onDismiss={() => setActionsSaved(false)} />
       <Popup isOpen={removePopup} variant="confirmation" title="Remove this system?" description="The system will be removed from the inventory. Existing findings and CAPAs are not affected." onDismiss={() => { setRemovePopup(false); setSystemToRemove(null); }} actions={[{ label: "Cancel", style: "ghost", onClick: () => { setRemovePopup(false); setSystemToRemove(null); } }, { label: "Yes, remove", style: "primary", onClick: async () => { if (systemToRemove) { const r = await deleteSystemServer(systemToRemove); if (!r.success) console.error("[csv-csa] deleteSystem failed:", r.error); } if (selectedSystem?.id === systemToRemove) setSelectedSystemId(null); setRemovePopup(false); setSystemToRemove(null); router.refresh(); } }]} />
       <Popup isOpen={activityAddedPopup} variant="success" title="Activity added" description="Roadmap activity added. It will appear in the system's Validation tab and CSV Roadmap timeline." onDismiss={() => setActivityAddedPopup(false)} />
-      <Popup isOpen={remediationSaved} variant="success" title="Remediation details saved" description="Visible in the DI &amp; Audit Trail tab and inspector review." onDismiss={() => setRemediationSaved(false)} />
+      <Popup isOpen={!!errorMsg} variant="error" title="Action failed" description={errorMsg ?? ""} onDismiss={() => setErrorMsg(null)} />
       <Popup isOpen={!!roadmapSynced} variant="success" title="Roadmap synced" description={roadmapSynced} onDismiss={() => setRoadmapSynced("")} />
       <Popup
         isOpen={!!autoRoadmapPrompt}

@@ -8,6 +8,14 @@ import { requireAuth } from "@/lib/auth";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
+import { createCAPA } from "@/actions/capas/lifecycle";
+import { deriveSiteCode, isReferenceConflict } from "@/lib/reference";
+import {
+  verifyPasswordForSigning,
+  computeContentHash,
+  canonicalizeCSVValidationSignOffContent,
+} from "@/lib/signing";
+import { readSigningProvenance } from "@/actions/capas/_shared";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -49,23 +57,147 @@ const RemoveStageDocumentSchema = z.object({
     .max(2000, "Deletion reason must be 2000 characters or fewer"),
 });
 
-const CreateSystemSchema = z.object({
+const RiskEnum = z.enum(["HIGH", "MEDIUM", "LOW"]);
+
+// All persistable GxPSystem fields (RUNG 1 — was 10 fields, now the full set).
+// name/type required; everything else optional. Used by create (full) and
+// update (partial).
+const SystemWritableSchema = z.object({
   name: z.string().min(2),
   type: z.string().min(1),
   vendor: z.string().optional(),
   version: z.string().optional(),
-  gxpRelevance: z.string().default("Major"),
-  gamp5Category: z.string().default("4"),
-  riskLevel: z.string().default("MEDIUM"),
+  gxpRelevance: z.string().optional(),
+  part11Status: z.string().optional(),
+  annex11Status: z.string().optional(),
+  gamp5Category: z.string().optional(),
+  riskLevel: z.string().optional(),
+  validationStatus: z.string().optional(),
   siteId: z.string().optional(),
   intendedUse: z.string().optional(),
   gxpScope: z.string().optional(),
+  criticalFunctions: z.string().optional(),
+  riskFactors: z.string().optional(),
   plannedActions: z.string().optional(),
   owner: z.string().optional(),
-  validationStatus: z.string().optional(),
+  patientSafetyRisk: RiskEnum.optional(),
+  productQualityImpact: RiskEnum.optional(),
+  regulatoryExposure: RiskEnum.optional(),
+  diImpact: RiskEnum.optional(),
+  lastValidated: z.string().optional(), // ISO date string
+  nextReview: z.string().optional(), // ISO date string
 });
+const CreateSystemSchema = SystemWritableSchema;
+const UpdateSystemSchema = SystemWritableSchema.partial();
+
+/** Map validated writable input → Prisma data, converting ISO date strings to
+ *  Date (and "" → null so a cleared date persists as null). */
+function toSystemData(d: Partial<z.infer<typeof SystemWritableSchema>>) {
+  const { lastValidated, nextReview, ...rest } = d;
+  return {
+    ...rest,
+    ...(lastValidated !== undefined ? { lastValidated: lastValidated ? new Date(lastValidated) : null } : {}),
+    ...(nextReview !== undefined ? { nextReview: nextReview ? new Date(nextReview) : null } : {}),
+  };
+}
 
 const STANDARD_STAGES = ["URS", "FS", "DS", "IQ", "OQ", "PQ", "RTR"] as const;
+
+/**
+ * Next per-site system reference: SYS-<SITE_CODE>-<NNNN> (4-digit, zero-padded,
+ * sequential per site within the tenant). Reads the highest existing reference
+ * for the prefix — because the suffix is zero-padded to a fixed width, lexical
+ * desc equals numeric desc, so the top row carries the highest number. The
+ * caller wraps create() in a retry loop (reference is globally @unique, so a
+ * concurrent insert can collide and must re-derive). Throws past 9999.
+ */
+async function nextSystemReference(tenantId: string, prefix: string): Promise<string> {
+  const latest = await prisma.gxPSystem.findFirst({
+    where: { tenantId, reference: { startsWith: `${prefix}-` } },
+    orderBy: { reference: "desc" },
+    select: { reference: true },
+  });
+  let next = 1;
+  const m = latest?.reference?.match(/-(\d+)$/);
+  if (m) {
+    const n = Number.parseInt(m[1], 10);
+    if (Number.isFinite(n)) next = n + 1;
+  }
+  if (next > 9999) throw new Error(`System reference sequence exhausted for ${prefix} (>9999).`);
+  return `${prefix}-${String(next).padStart(4, "0")}`;
+}
+
+/* ══════════════════════════════════════
+ * Validation-status auto-derive (RUNG 1, Finding #2)
+ * ══════════════════════════════════════ */
+
+/**
+ * Derive a system's validationStatus from its stages' statuses.
+ * Precedence: Validated → Validation Failed → Under Review → In Progress →
+ * Not Started. "Validated" = every stage resolved to approved/skipped with at
+ * least one approved (covers all-7-approved and 6-approved+1-skipped).
+ */
+function deriveValidationStatus(stages: { status: string }[]): string {
+  if (stages.length === 0) return "Not Started";
+  const statuses = stages.map((s) => s.status);
+  const approved = statuses.filter((s) => s === "approved").length;
+  const skipped = statuses.filter((s) => s === "skipped").length;
+  if (approved + skipped === statuses.length && approved >= 1) return "Validated";
+  if (statuses.some((s) => s === "rejected")) return "Validation Failed";
+  if (statuses.some((s) => s === "in_review")) return "Under Review";
+  if (approved + skipped >= 1) return "In Progress";
+  // RUNG 2.8 — a stage carrying evidence (status "in_progress", set on first
+  // document upload) is honestly In Progress, never "Not Started".
+  if (statuses.some((s) => s === "in_progress" || s === "draft")) return "In Progress";
+  return "Not Started";
+}
+
+/** Recompute + persist a system's validationStatus from its stages, unless a
+ *  manual attestation is in force (statusManuallySet). Logs the transition. */
+async function syncValidationStatus(
+  systemId: string,
+  session: Awaited<ReturnType<typeof requireAuth>>,
+): Promise<void> {
+  const system = await prisma.gxPSystem.findUnique({
+    where: { id: systemId },
+    select: {
+      validationStatus: true,
+      statusManuallySet: true,
+      signedOffAt: true,
+      validationStages: { select: { status: true } },
+    },
+  });
+  // Respect a manual attestation, and never clobber a recorded Part 11
+  // sign-off — once signed off, the signature is the status authority
+  // (cleared only by unsignValidation). (RUNG 2.6)
+  if (!system || system.statusManuallySet || system.signedOffAt) return;
+  const derived = deriveValidationStatus(system.validationStages);
+  if (derived === system.validationStatus) return;
+  await prisma.gxPSystem.update({ where: { id: systemId }, data: { validationStatus: derived } });
+  await prisma.auditLog.create({
+    data: {
+      tenantId: session.user.tenantId,
+      userName: session.user.name,
+      userRole: session.user.role,
+      module: "CSV/CSA",
+      action: "SYSTEM_STATUS_AUTO_DERIVED",
+      recordId: systemId,
+      oldValue: system.validationStatus,
+      newValue: derived,
+    },
+  });
+}
+
+/**
+ * Auto-derive a risk level from GxP relevance. Moved here from the Add System
+ * modal so the same defaulting applies no matter how a system is created
+ * (modal, API, import). Critical → HIGH, Major → MEDIUM, Minor → LOW.
+ */
+function riskFromRelevance(gxpRelevance: string | undefined): "HIGH" | "MEDIUM" | "LOW" {
+  if (gxpRelevance === "Critical") return "HIGH";
+  if (gxpRelevance === "Minor") return "LOW";
+  return "MEDIUM"; // Major / unspecified (column also defaults to "Major")
+}
 
 export async function createSystem(
   input: z.input<typeof CreateSystemSchema>,
@@ -76,34 +208,75 @@ export async function createSystem(
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
   try {
-    const system = await prisma.gxPSystem.create({
-      data: {
-        ...parsed.data,
-        tenantId: session.user.tenantId,
-        validationStatus: "Not Started",
-        createdBy: session.user.name,
-      },
-    });
+    // Auto-derive the 4 risk classifications + riskLevel from gxpRelevance
+    // when the caller omits them (the simplified Add System modal does).
+    const derivedRisk = riskFromRelevance(parsed.data.gxpRelevance);
 
-    await prisma.validationStage.createMany({
-      data: STANDARD_STAGES.map((stageName) => ({
-        systemId: system.id,
-        stageName,
-        status: "not_started",
-      })),
-    });
+    // RUNG 2.7 — allocate a human-readable SYS-<SITE_CODE>-<NNNN> reference.
+    // Site.code is canonical (same source every other module's reference
+    // uses); a name-derived 3-letter code is the fallback for a misconfigured
+    // site so creation never blocks.
+    const site = parsed.data.siteId
+      ? await prisma.site.findFirst({
+          where: { id: parsed.data.siteId, tenantId: session.user.tenantId },
+          select: { code: true, name: true },
+        })
+      : null;
+    const siteCode = site?.code?.trim() || deriveSiteCode(site?.name);
+    const prefix = `SYS-${siteCode}`;
 
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
-        module: "CSV/CSA",
-        action: "SYSTEM_CREATED",
-        recordId: system.id,
-        recordTitle: parsed.data.name,
-      },
-    });
+    const MAX_REF_RETRIES = 5;
+    let system: Awaited<ReturnType<typeof prisma.gxPSystem.create>> | null = null;
+    for (let attempt = 0; attempt < MAX_REF_RETRIES; attempt++) {
+      const reference = await nextSystemReference(session.user.tenantId, prefix);
+      try {
+        system = await prisma.$transaction(async (tx) => {
+          const created = await tx.gxPSystem.create({
+            data: {
+              ...toSystemData(parsed.data),
+              // Re-assert required fields (toSystemData is typed Partial<>).
+              name: parsed.data.name,
+              type: parsed.data.type,
+              tenantId: session.user.tenantId,
+              reference,
+              // Fresh systems have all stages "not_started" → auto-derives to
+              // "Not Started"; respect an explicit input if one is provided.
+              validationStatus: parsed.data.validationStatus ?? "Not Started",
+              riskLevel: parsed.data.riskLevel ?? derivedRisk,
+              patientSafetyRisk: parsed.data.patientSafetyRisk ?? derivedRisk,
+              productQualityImpact: parsed.data.productQualityImpact ?? derivedRisk,
+              regulatoryExposure: parsed.data.regulatoryExposure ?? derivedRisk,
+              diImpact: parsed.data.diImpact ?? derivedRisk,
+              createdBy: session.user.name,
+            },
+          });
+          await tx.validationStage.createMany({
+            data: STANDARD_STAGES.map((stageName) => ({
+              systemId: created.id,
+              stageName,
+              status: "not_started",
+            })),
+          });
+          await tx.auditLog.create({
+            data: {
+              tenantId: session.user.tenantId,
+              userName: session.user.name,
+              userRole: session.user.role,
+              module: "CSV/CSA",
+              action: "SYSTEM_CREATED",
+              recordId: created.id,
+              recordTitle: created.reference ?? parsed.data.name,
+            },
+          });
+          return created;
+        });
+        break;
+      } catch (err) {
+        // Concurrent insert grabbed our sequence number — re-derive and retry.
+        if (isReferenceConflict(err) && attempt < MAX_REF_RETRIES - 1) continue;
+        throw err;
+      }
+    }
     revalidatePath("/csv-csa");
     return { success: true, data: system };
   } catch (err) {
@@ -114,13 +287,18 @@ export async function createSystem(
 
 export async function updateSystem(
   id: string,
-  input: Partial<z.input<typeof CreateSystemSchema>>,
+  input: z.input<typeof UpdateSystemSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  // RUNG 1: was unvalidated (audit Finding #7). Validate before write.
+  const parsed = UpdateSystemSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
   try {
     const system = await prisma.gxPSystem.update({
       where: { id, tenantId: session.user.tenantId },
-      data: input,
+      data: toSystemData(parsed.data),
     });
     await prisma.auditLog.create({
       data: {
@@ -130,6 +308,8 @@ export async function updateSystem(
         module: "CSV/CSA",
         action: "SYSTEM_UPDATED",
         recordId: id,
+        // RUNG 2.7 — show the human-readable reference in audit views.
+        recordTitle: system.reference ?? system.name,
       },
     });
     revalidatePath("/csv-csa");
@@ -142,6 +322,13 @@ export async function updateSystem(
 
 export async function submitStageForReview(stageId: string): Promise<ActionResult> {
   const session = await requireAuth();
+  // RUNG 2.7 — submit is open to all compliance roles (Validation Lead, QA
+  // Head, IT/CDO, admins). Read-only viewers are blocked. Granting QA Head
+  // submit weakens Part 11 SoD by design; the audit entry below still records
+  // the actor (userName + userRole) so every submission is attributable.
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot submit stages for review." };
+  }
   // Tenant scope check — prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.validationStage.findFirst({
@@ -156,7 +343,14 @@ export async function submitStageForReview(stageId: string): Promise<ActionResul
       data: {
         status: "in_review",
         submittedBy: session.user.name,
+        // RUNG 2.8 — stable principal id for the self-approval guardrail.
+        submittedById: session.user.id,
         submittedDate: new Date(),
+        // Resubmitting after a rejection clears the prior rejection record.
+        rejectedBy: null,
+        rejectedById: null,
+        rejectedDate: null,
+        rejectionReason: null,
       },
     });
     await prisma.auditLog.create({
@@ -170,6 +364,7 @@ export async function submitStageForReview(stageId: string): Promise<ActionResul
         newValue: stage.stageName,
       },
     });
+    await syncValidationStatus(stage.systemId, session);
     revalidatePath("/csv-csa");
     return { success: true, data: stage };
   } catch (err) {
@@ -183,13 +378,20 @@ export async function approveStage(stageId: string): Promise<ActionResult> {
   if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
     return { success: false, error: "Only QA Head can approve stages" };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
-  if (session.user.role !== "super_admin") {
-    const owned = await prisma.validationStage.findFirst({
-      where: { id: stageId, system: { tenantId: session.user.tenantId } },
-      select: { id: true },
-    });
-    if (!owned) return { success: false, error: "FORBIDDEN" };
+  // Load the stage for tenant scope (IDOR guard) AND the self-approval check.
+  const stage0 = await prisma.validationStage.findFirst({
+    where: session.user.role === "super_admin"
+      ? { id: stageId }
+      : { id: stageId, system: { tenantId: session.user.tenantId } },
+    select: { id: true, status: true, submittedById: true },
+  });
+  if (!stage0) return { success: false, error: "FORBIDDEN" };
+  // RUNG 2.8 — bright-line SoD: the user who submitted a stage may NOT approve
+  // it. Compared on session.user.id (a Tenant id for admins, a User id
+  // otherwise) — NOT resolveUserFk, which would null out admin identities and
+  // silently defeat the guardrail. Enforced here server-side, not just in UI.
+  if (stage0.submittedById && stage0.submittedById === session.user.id) {
+    return { success: false, error: "Segregation of duties: you cannot approve a stage you submitted. A different QA reviewer must approve it." };
   }
   try {
     const stage = await prisma.validationStage.update({
@@ -197,6 +399,7 @@ export async function approveStage(stageId: string): Promise<ActionResult> {
       data: {
         status: "approved",
         approvedBy: session.user.name,
+        approvedById: session.user.id,
         approvedDate: new Date(),
       },
     });
@@ -211,6 +414,7 @@ export async function approveStage(stageId: string): Promise<ActionResult> {
         newValue: `${stage.stageName} → approved`,
       },
     });
+    await syncValidationStatus(stage.systemId, session);
     revalidatePath("/csv-csa");
     return { success: true, data: stage };
   } catch (err) {
@@ -236,9 +440,16 @@ export async function rejectStage(stageId: string, reason: string): Promise<Acti
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
       data: {
-        status: "rejected",
+        // RUNG 2.8 — reject bounces the stage back to In Progress for rework
+        // (not a terminal "rejected"); the reason is retained + surfaced to the
+        // Validation Lead until the stage is resubmitted.
+        status: "in_progress",
         rejectedBy: session.user.name,
+        rejectedById: session.user.id,
+        rejectedDate: new Date(),
         rejectionReason: reason,
+        // Clear any stale submission marker — it must be resubmitted.
+        submittedById: null,
       },
     });
     await prisma.auditLog.create({
@@ -252,6 +463,7 @@ export async function rejectStage(stageId: string, reason: string): Promise<Acti
         newValue: reason.slice(0, 200),
       },
     });
+    await syncValidationStatus(stage.systemId, session);
     revalidatePath("/csv-csa");
     return { success: true, data: stage };
   } catch (err) {
@@ -296,13 +508,18 @@ export async function skipStage(stageId: string, reason: string): Promise<Action
   if (!reason.trim()) {
     return { success: false, error: "Skip reason required" };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
-  if (session.user.role !== "super_admin") {
-    const owned = await prisma.validationStage.findFirst({
-      where: { id: stageId, system: { tenantId: session.user.tenantId } },
-      select: { id: true },
-    });
-    if (!owned) return { success: false, error: "FORBIDDEN" };
+  // Load the stage to enforce tenant ownership AND the DS-only skip rule
+  // server-side (audit Finding #14 — was UI-only). super_admin bypasses the
+  // tenant clause but the DS rule applies to everyone.
+  const stage0 = await prisma.validationStage.findFirst({
+    where: session.user.role === "super_admin"
+      ? { id: stageId }
+      : { id: stageId, system: { tenantId: session.user.tenantId } },
+    select: { id: true, stageName: true },
+  });
+  if (!stage0) return { success: false, error: "FORBIDDEN" };
+  if (stage0.stageName !== "DS") {
+    return { success: false, error: "Only the DS (Design Specification) stage can be skipped." };
   }
   try {
     const stage = await prisma.validationStage.update({
@@ -325,6 +542,7 @@ export async function skipStage(stageId: string, reason: string): Promise<Action
         newValue: reason.slice(0, 200),
       },
     });
+    await syncValidationStatus(stage.systemId, session);
     revalidatePath("/csv-csa");
     return { success: true, data: stage };
   } catch (err) {
@@ -602,6 +820,17 @@ export async function addStageDocument(
       },
     });
 
+    // RUNG 2.8 — honest status: a stage that now carries evidence is no longer
+    // "Not Started". Move it to "in_progress" (and re-derive the system status)
+    // on the first upload; leave submitted/approved/etc. stages untouched.
+    if (stage.status === "not_started") {
+      await prisma.validationStage.update({
+        where: { id: stage.id },
+        data: { status: "in_progress" },
+      });
+      await syncValidationStatus(stage.systemId, session);
+    }
+
     revalidatePath("/csv-csa");
     return {
       success: true,
@@ -695,10 +924,700 @@ export async function removeStageDocument(
       });
     });
 
+    // RUNG 2.8 — honesty in reverse: if the last evidence is removed from a
+    // stage that was only "in_progress" (auto-set by upload, not yet submitted),
+    // return it to "Not Started" so the status never overstates progress.
+    if (doc.validationStage.status === "in_progress") {
+      const remaining = await prisma.stageDocument.count({
+        where: { validationStageId: doc.validationStageId, deletedAt: null },
+      });
+      if (remaining === 0) {
+        await prisma.validationStage.update({
+          where: { id: doc.validationStageId },
+          data: { status: "not_started" },
+        });
+        await syncValidationStatus(doc.validationStage.system.id, session);
+      }
+    }
+
     revalidatePath("/csv-csa");
     return { success: true, data: null };
   } catch (err) {
     console.error("[action] removeStageDocument failed:", err);
     return { success: false, error: "Failed to remove document" };
+  }
+}
+
+/* ══════════════════════════════════════
+ * RUNG 1 — real persistence for the former "false-success" editors.
+ * All tenant-scoped via where:{id,tenantId} (same pattern as updateSystem);
+ * none write a User FK, so resolveUserFk is not needed.
+ * ══════════════════════════════════════ */
+
+export async function saveRiskFactors(systemId: string, riskFactors: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  try {
+    const system = await prisma.gxPSystem.update({
+      where: { id: systemId, tenantId: session.user.tenantId },
+      data: { riskFactors },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_RISK_FACTORS_UPDATED",
+        recordId: systemId,
+      },
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: system };
+  } catch (err) {
+    console.error("[action] saveRiskFactors failed:", err);
+    return { success: false, error: "Failed to save risk factors" };
+  }
+}
+
+const RiskClassificationSchema = z.object({
+  patientSafetyRisk: RiskEnum.optional(),
+  productQualityImpact: RiskEnum.optional(),
+  regulatoryExposure: RiskEnum.optional(),
+  diImpact: RiskEnum.optional(),
+});
+
+export async function saveRiskClassification(
+  systemId: string,
+  input: z.input<typeof RiskClassificationSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = RiskClassificationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  try {
+    const system = await prisma.gxPSystem.update({
+      where: { id: systemId, tenantId: session.user.tenantId },
+      data: parsed.data,
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_RISK_CLASSIFICATION_UPDATED",
+        recordId: systemId,
+        newValue: JSON.stringify(parsed.data),
+      },
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: system };
+  } catch (err) {
+    console.error("[action] saveRiskClassification failed:", err);
+    return { success: false, error: "Failed to save risk classification" };
+  }
+}
+
+export async function saveNextReview(
+  systemId: string,
+  nextReview: string | null,
+  lastValidated?: string | null,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  try {
+    const system = await prisma.gxPSystem.update({
+      where: { id: systemId, tenantId: session.user.tenantId },
+      data: {
+        nextReview: nextReview ? new Date(nextReview) : null,
+        ...(lastValidated !== undefined ? { lastValidated: lastValidated ? new Date(lastValidated) : null } : {}),
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_REVIEW_DATES_UPDATED",
+        recordId: systemId,
+      },
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: system };
+  } catch (err) {
+    console.error("[action] saveNextReview failed:", err);
+    return { success: false, error: "Failed to save review dates" };
+  }
+}
+
+const RemediationSchema = z.object({
+  remediationPlan: z.string().optional(),
+  remediationStatus: z.enum(["open", "in-progress", "closed"]).optional(),
+});
+
+export async function saveRemediation(
+  systemId: string,
+  input: z.input<typeof RemediationSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = RemediationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  try {
+    const system = await prisma.gxPSystem.update({
+      where: { id: systemId, tenantId: session.user.tenantId },
+      data: {
+        remediationPlan: parsed.data.remediationPlan ?? null,
+        ...(parsed.data.remediationStatus !== undefined ? { remediationStatus: parsed.data.remediationStatus } : {}),
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_REMEDIATION_UPDATED",
+        recordId: systemId,
+      },
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: system };
+  } catch (err) {
+    console.error("[action] saveRemediation failed:", err);
+    return { success: false, error: "Failed to save remediation" };
+  }
+}
+
+/* ── Manual status attestation (QA Head / super_admin) ── */
+
+const AttestStatusSchema = z.object({
+  status: z.enum(["Validated", "In Progress", "Overdue", "Not Started", "Under Review", "Validation Failed"]),
+  reason: z.string().min(3, "A reason is required to attest a status manually"),
+});
+
+export async function attestValidationStatus(
+  systemId: string,
+  input: z.input<typeof AttestStatusSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+    return { success: false, error: "Only QA Head can manually attest validation status" };
+  }
+  const parsed = AttestStatusSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  try {
+    const system = await prisma.gxPSystem.update({
+      where: { id: systemId, tenantId: session.user.tenantId },
+      data: {
+        validationStatus: parsed.data.status,
+        statusManuallySet: true,
+        statusManualReason: parsed.data.reason,
+        statusManuallySetAt: new Date(),
+        statusManuallySetByName: session.user.name,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_STATUS_MANUALLY_ATTESTED",
+        recordId: systemId,
+        newValue: JSON.stringify({ status: parsed.data.status, reason: parsed.data.reason }),
+      },
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: system };
+  } catch (err) {
+    console.error("[action] attestValidationStatus failed:", err);
+    return { success: false, error: "Failed to attest status" };
+  }
+}
+
+export async function resetToAutoDerivedStatus(systemId: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+    return { success: false, error: "Only QA Head can reset to auto-derived status" };
+  }
+  try {
+    // Clear the manual flag first so syncValidationStatus will recompute.
+    await prisma.gxPSystem.update({
+      where: { id: systemId, tenantId: session.user.tenantId },
+      data: {
+        statusManuallySet: false,
+        statusManualReason: null,
+        statusManuallySetAt: null,
+        statusManuallySetByName: null,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_STATUS_AUTO_RESUMED",
+        recordId: systemId,
+      },
+    });
+    // Re-derive from current stage state (also logs SYSTEM_STATUS_AUTO_DERIVED
+    // if the value changes).
+    await syncValidationStatus(systemId, session);
+    revalidatePath("/csv-csa");
+    const system = await prisma.gxPSystem.findUnique({ where: { id: systemId } });
+    return { success: true, data: system };
+  } catch (err) {
+    console.error("[action] resetToAutoDerivedStatus failed:", err);
+    return { success: false, error: "Failed to reset status" };
+  }
+}
+
+/* ══════════════════════════════════════
+ * RUNG 2 — cross-module FK linking (Finding / CAPA ↔ system).
+ * Role-gated (qa_head / customer_admin / super_admin) + tenant-scoped on
+ * both sides (Phase 12 security hardening).
+ * ══════════════════════════════════════ */
+
+function canManageSystemLinks(role: string): boolean {
+  return role === "qa_head" || role === "customer_admin" || role === "super_admin";
+}
+
+async function assertSystemInTenant(systemId: string, tenantId: string): Promise<boolean> {
+  const sys = await prisma.gxPSystem.findFirst({ where: { id: systemId, tenantId }, select: { id: true } });
+  return !!sys;
+}
+
+export async function linkFindingToSystem(systemId: string, findingId: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (!canManageSystemLinks(session.user.role)) {
+    return { success: false, error: "You do not have permission to link findings." };
+  }
+  if (!(await assertSystemInTenant(systemId, session.user.tenantId))) {
+    return { success: false, error: "FORBIDDEN" };
+  }
+  // Scope the finding to the caller's tenant too (IDOR guard on both sides).
+  const finding = await prisma.finding.findFirst({ where: { id: findingId, tenantId: session.user.tenantId }, select: { id: true, reference: true } });
+  if (!finding) return { success: false, error: "FORBIDDEN" };
+  try {
+    await prisma.finding.update({ where: { id: findingId }, data: { systemId } });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_FINDING_LINKED",
+        recordId: systemId,
+        newValue: finding.reference ?? findingId,
+      },
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: { systemId, findingId } };
+  } catch (err) {
+    console.error("[action] linkFindingToSystem failed:", err);
+    return { success: false, error: "Failed to link finding" };
+  }
+}
+
+export async function unlinkFindingFromSystem(systemId: string, findingId: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (!canManageSystemLinks(session.user.role)) {
+    return { success: false, error: "You do not have permission to unlink findings." };
+  }
+  const finding = await prisma.finding.findFirst({ where: { id: findingId, tenantId: session.user.tenantId, systemId }, select: { id: true, reference: true } });
+  if (!finding) return { success: false, error: "FORBIDDEN" };
+  try {
+    await prisma.finding.update({ where: { id: findingId }, data: { systemId: null } });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_FINDING_UNLINKED",
+        recordId: systemId,
+        newValue: finding.reference ?? findingId,
+      },
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: { systemId, findingId } };
+  } catch (err) {
+    console.error("[action] unlinkFindingFromSystem failed:", err);
+    return { success: false, error: "Failed to unlink finding" };
+  }
+}
+
+const RaiseCAPAFromSystemSchema = z.object({
+  description: z.string().min(10, "Description must be at least 10 characters"),
+  risk: z.enum(["Critical", "High", "Medium", "Low"]),
+  owner: z.string().optional(),
+  dueDate: z.string().min(1, "Due date is required"),
+});
+
+export async function raiseCAPAFromSystem(
+  systemId: string,
+  input: z.input<typeof RaiseCAPAFromSystemSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (!canManageSystemLinks(session.user.role)) {
+    return { success: false, error: "You do not have permission to raise a CAPA." };
+  }
+  const parsed = RaiseCAPAFromSystemSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const system = await prisma.gxPSystem.findFirst({ where: { id: systemId, tenantId: session.user.tenantId }, select: { id: true, siteId: true, reference: true } });
+  if (!system) return { success: false, error: "FORBIDDEN" };
+  // Delegate to the canonical createCAPA (reference allocation, audit, etc.),
+  // tagging source = "CSV/CSA" and the new systemId FK.
+  const result = await createCAPA({
+    source: "CSV/CSA",
+    systemId,
+    description: parsed.data.description,
+    risk: parsed.data.risk,
+    owner: parsed.data.owner,
+    dueDate: parsed.data.dueDate,
+    siteId: system.siteId ?? undefined,
+  });
+  if (!result.success) return result;
+  try {
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CSV/CSA",
+        action: "SYSTEM_CAPA_RAISED",
+        recordId: systemId,
+        recordTitle: system.reference ?? undefined,
+      },
+    });
+  } catch (err) {
+    console.error("[action] raiseCAPAFromSystem audit failed:", err);
+  }
+  revalidatePath("/csv-csa");
+  return result;
+}
+
+/* ══════════════════════════════════════
+ * RUNG 2.6 — Part 11 validation sign-off
+ *
+ * signValidation: QA Head / super_admin signs off a fully-executed system.
+ *   Gates on every stage being approved/skipped + no open findings + no open
+ *   critical/high CAPAs, re-authenticates the signer's password (Part 11
+ *   §11.200), hashes the signed state, writes an immutable SignedRecord
+ *   (recordType "CSV_VALIDATION_SIGNOFF"), snapshots the state onto
+ *   GxPSystem, and forces validationStatus = "Validated".
+ * unsignValidation: super_admin only — clears the sign-off snapshot and
+ *   re-derives status from stages. The SignedRecord ledger row is left
+ *   intact (Part 11 immutability); a revocation audit entry is added.
+ * getSignOffReadiness: read-only gate computation for the Sign Off tab.
+ * ══════════════════════════════════════ */
+
+const COMPLETE_STAGE_STATUSES = new Set(["approved", "skipped"]);
+
+/** Resolve a session user id to a real User-table FK or null. Tenant-row
+ *  logins (super_admin / customer_admin) aren't User rows; signedOffById has
+ *  no DB FK but we still store a valid User id or null. Mirrors fda483. */
+async function resolveUserFk(userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  return u ? userId : null;
+}
+
+/** Part 11 / Annex 11 columns store free text ("Compliant" | "Partial" |
+ *  "N/A" | "Non-Compliant"). Only an explicit "Compliant" snapshots as a pass. */
+function isCompliantStatus(s: string | null | undefined): boolean {
+  return (s ?? "").trim().toLowerCase() === "compliant";
+}
+
+// RTM coverage = share of requirements whose FS/IQ/OQ/PQ trace is complete.
+// RTMEntry carries the derived `traceabilityStatus` ("complete"|"partial"|
+// "missing"/"broken") written by deriveRtmCoverage in src/actions/rtm.ts.
+function rtmCoverageOf(entries: { traceabilityStatus: string }[]): number {
+  const done = entries.filter((e) => e.traceabilityStatus.toLowerCase() === "complete").length;
+  return entries.length === 0 ? 0 : Math.round((done / entries.length) * 100);
+}
+
+interface SignOffReadiness {
+  allStagesComplete: boolean;
+  outstandingStages: string[];
+  currentRtmCoverage: number;
+  openFindings: number;
+  openCriticalCAPAs: number;
+  readyToSign: boolean;
+}
+
+async function computeReadiness(systemId: string, tenantId: string): Promise<SignOffReadiness | null> {
+  const system = await prisma.gxPSystem.findFirst({
+    where: { id: systemId, tenantId },
+    select: {
+      validationStages: { select: { stageName: true, status: true } },
+      rtmEntries: { select: { traceabilityStatus: true } },
+      findings: { select: { status: true } },
+      capas: { select: { status: true, risk: true } },
+    },
+  });
+  if (!system) return null;
+  const outstandingStages = system.validationStages
+    .filter((s) => !COMPLETE_STAGE_STATUSES.has(s.status))
+    .map((s) => s.stageName);
+  const allStagesComplete = system.validationStages.length > 0 && outstandingStages.length === 0;
+  const openFindings = system.findings.filter((f) => f.status.toLowerCase() !== "closed").length;
+  const openCriticalCAPAs = system.capas.filter(
+    (c) => c.status.toLowerCase() !== "closed" && ["critical", "high"].includes((c.risk ?? "").toLowerCase()),
+  ).length;
+  return {
+    allStagesComplete,
+    outstandingStages,
+    currentRtmCoverage: rtmCoverageOf(system.rtmEntries),
+    openFindings,
+    openCriticalCAPAs,
+    readyToSign: allStagesComplete && openFindings === 0 && openCriticalCAPAs === 0,
+  };
+}
+
+export async function getSignOffReadiness(systemId: string): Promise<ActionResult<SignOffReadiness>> {
+  const session = await requireAuth();
+  const readiness = await computeReadiness(systemId, session.user.tenantId);
+  if (!readiness) return { success: false, error: "System not found" };
+  return { success: true, data: readiness };
+}
+
+const SignValidationSchema = z.object({
+  nextReviewDate: z.string().min(1, "Next review date is required"),
+  reason: z.string().min(10, "Sign-off meaning must be at least 10 characters"),
+  password: z.string().min(1, "Password is required to sign"),
+});
+
+export async function signValidation(
+  systemId: string,
+  input: z.input<typeof SignValidationSchema>,
+): Promise<ActionResult<{ signatureId: string; contentHash: string }>> {
+  const session = await requireAuth();
+  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+    return { success: false, error: "Only QA Head can sign off validation." };
+  }
+  const parsed = SignValidationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+
+  const system = await prisma.gxPSystem.findFirst({
+    where: { id: systemId, tenantId: session.user.tenantId },
+    select: {
+      id: true, name: true, reference: true, signedOffAt: true,
+      part11Status: true, annex11Status: true,
+      validationStages: { select: { stageName: true, status: true } },
+      rtmEntries: { select: { traceabilityStatus: true } },
+      findings: { select: { status: true } },
+      capas: { select: { status: true, risk: true } },
+    },
+  });
+  if (!system) return { success: false, error: "System not found" };
+  if (system.signedOffAt) {
+    return { success: false, error: "This system is already signed off. Revoke the existing sign-off before re-signing." };
+  }
+
+  // Gate 1 — every stage approved or skipped.
+  const outstanding = system.validationStages.filter((s) => !COMPLETE_STAGE_STATUSES.has(s.status));
+  if (system.validationStages.length === 0 || outstanding.length > 0) {
+    const detail = outstanding.map((s) => s.stageName).join(", ") || "no stages exist";
+    return { success: false, error: `Cannot sign off — outstanding stage(s): ${detail}.` };
+  }
+  // Gate 2 — no open findings.
+  const openFindings = system.findings.filter((f) => f.status.toLowerCase() !== "closed").length;
+  if (openFindings > 0) {
+    return { success: false, error: `Cannot sign off — ${openFindings} open finding(s) require remediation first.` };
+  }
+  // Gate 3 — no open critical/high CAPAs.
+  const openCriticalCAPAs = system.capas.filter(
+    (c) => c.status.toLowerCase() !== "closed" && ["critical", "high"].includes((c.risk ?? "").toLowerCase()),
+  ).length;
+  if (openCriticalCAPAs > 0) {
+    return { success: false, error: `Cannot sign off — ${openCriticalCAPAs} open critical/high CAPA(s) must be closed first.` };
+  }
+
+  // Part 11 §11.200 — re-authenticate the signer's password.
+  const passwordOk = await verifyPasswordForSigning(session.user.id, parsed.data.password);
+  if (!passwordOk) {
+    return {
+      success: false,
+      error: "Password verification failed. Sign-off not recorded.",
+      fieldErrors: { password: ["Incorrect password"] },
+    };
+  }
+
+  // Snapshot the signed state + compute the deterministic content hash.
+  const stagesApproved = system.validationStages.filter((s) => s.status === "approved").length;
+  const stagesTotal = system.validationStages.length;
+  const rtmCoverage = rtmCoverageOf(system.rtmEntries);
+  const part11Compliant = isCompliantStatus(system.part11Status);
+  const annex11Compliant = isCompliantStatus(system.annex11Status);
+  const nextReviewDate = new Date(parsed.data.nextReviewDate);
+  const signedAt = new Date();
+  const reference = system.reference ?? system.id.slice(0, 8);
+
+  const contentHash = computeContentHash(
+    canonicalizeCSVValidationSignOffContent({
+      systemId: system.id,
+      reference,
+      stagesApproved,
+      stagesTotal,
+      rtmCoverage,
+      part11Compliant,
+      annex11Compliant,
+      openFindings,
+      nextReviewIso: nextReviewDate.toISOString(),
+      signatureMeaning: parsed.data.reason,
+      signerEmail: session.user.email,
+      signedAtIso: signedAt.toISOString(),
+    }),
+  );
+  const provenance = await readSigningProvenance();
+  const signedOffById = await resolveUserFk(session.user.id);
+
+  try {
+    const sig = await prisma.$transaction(async (tx) => {
+      const signed = await tx.signedRecord.create({
+        data: {
+          tenantId: session.user.tenantId,
+          recordType: "CSV_VALIDATION_SIGNOFF",
+          recordId: system.id,
+          signerId: session.user.id,
+          signerName: session.user.name,
+          signerRole: session.user.role,
+          signerEmail: session.user.email,
+          signatureMeaning: parsed.data.reason,
+          contentHash,
+          contentSummary: `CSV/CSA validation sign-off — ${reference} (${system.name}) by ${session.user.name} (${session.user.role}); ${stagesApproved}/${stagesTotal} stages approved, RTM ${rtmCoverage}%`,
+          passwordVerifiedAt: signedAt,
+          ipAddress: provenance.ipAddress,
+          userAgent: provenance.userAgent,
+        },
+      });
+      await tx.gxPSystem.update({
+        where: { id: system.id },
+        data: {
+          validationStatus: "Validated",
+          nextReview: nextReviewDate,
+          lastValidated: signedAt,
+          signedOffAt: signedAt,
+          signedOffById,
+          signedOffByName: session.user.name,
+          signedOffReason: parsed.data.reason,
+          signedOffContentHash: contentHash,
+          signedOffSignatureId: signed.id,
+          signedOffPart11Compliant: part11Compliant,
+          signedOffAnnex11Compliant: annex11Compliant,
+          signedOffRtmCoverage: rtmCoverage,
+          signedOffStagesApproved: stagesApproved,
+          signedOffStagesTotal: stagesTotal,
+          // A sign-off supersedes any manual attestation; signedOffAt is now
+          // the status authority (syncValidationStatus bails while it's set).
+          statusManuallySet: false,
+          statusManualReason: null,
+          statusManuallySetAt: null,
+          statusManuallySetByName: null,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: signedOffById,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "CSV/CSA",
+          action: "SYSTEM_VALIDATION_SIGNED",
+          recordId: system.id,
+          recordTitle: reference,
+          newValue: JSON.stringify({
+            stagesApproved, stagesTotal, rtmCoverage, part11Compliant, annex11Compliant,
+            nextReview: nextReviewDate.toISOString(), contentHashPrefix: contentHash.slice(0, 16), signatureId: signed.id,
+          }),
+        },
+      });
+      return signed;
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: { signatureId: sig.id, contentHash } };
+  } catch (err) {
+    console.error("[action] signValidation failed:", err);
+    return { success: false, error: "Failed to record sign-off" };
+  }
+}
+
+const UnsignValidationSchema = z.object({
+  reason: z.string().min(10, "A reason (≥10 chars) is required to revoke a sign-off"),
+});
+
+export async function unsignValidation(
+  systemId: string,
+  input: z.input<typeof UnsignValidationSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  // Revoking a Part 11 sign-off is a privileged correction — super_admin only.
+  if (session.user.role !== "super_admin") {
+    return { success: false, error: "Only a super admin can revoke a validation sign-off." };
+  }
+  const parsed = UnsignValidationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const system = await prisma.gxPSystem.findFirst({
+    where: { id: systemId, tenantId: session.user.tenantId },
+    select: { id: true, reference: true, signedOffAt: true, signedOffContentHash: true, signedOffSignatureId: true },
+  });
+  if (!system) return { success: false, error: "System not found" };
+  if (!system.signedOffAt) return { success: false, error: "This system is not signed off." };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.gxPSystem.update({
+        where: { id: system.id },
+        data: {
+          signedOffAt: null,
+          signedOffById: null,
+          signedOffByName: null,
+          signedOffReason: null,
+          signedOffContentHash: null,
+          signedOffSignatureId: null,
+          signedOffPart11Compliant: null,
+          signedOffAnnex11Compliant: null,
+          signedOffRtmCoverage: null,
+          signedOffStagesApproved: null,
+          signedOffStagesTotal: null,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: await resolveUserFk(session.user.id),
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "CSV/CSA",
+          action: "SYSTEM_VALIDATION_UNSIGNED",
+          recordId: system.id,
+          recordTitle: system.reference ?? system.id.slice(0, 8),
+          oldValue: system.signedOffContentHash ?? undefined,
+          newValue: JSON.stringify({ reason: parsed.data.reason, revokedSignatureId: system.signedOffSignatureId }),
+        },
+      });
+    });
+    // signedOffAt is now null → re-derive status from current stage state.
+    await syncValidationStatus(system.id, session);
+    revalidatePath("/csv-csa");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] unsignValidation failed:", err);
+    return { success: false, error: "Failed to revoke sign-off" };
   }
 }

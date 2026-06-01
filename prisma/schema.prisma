@@ -154,12 +154,17 @@ model Finding {
   // SME Section 1, Stage 6 (FULL) — recurrence linkage. Same shape as
   // Deviation.previousCAPAId. Nullable; onDelete: SetNull.
   previousCAPAId String?
+  // RUNG 2 — real FK to the GxP system this finding is raised against
+  // (replaces the former Redux-only linkedSystemId soft reference).
+  systemId       String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   site   Site?  @relation(fields: [siteId], references: [id])
   capa   CAPA?
+  system    GxPSystem? @relation(fields: [systemId], references: [id], onDelete: SetNull)
+  rtmEntries RTMEntry[]
   // SME Section 1, Stage 6 (FULL) — FK to the prior CAPA whose
   // recurrence this Finding represents.
   previousCAPA CAPA? @relation("FindingRecurrenceOf", fields: [previousCAPAId], references: [id], onDelete: SetNull)
@@ -180,6 +185,9 @@ model CAPA {
   tenantId           String
   siteId             String?
   findingId          String?   @unique
+  // RUNG 2 — real FK to the GxP system this CAPA is raised against
+  // (replaces the former Redux-only soft match in DIAuditPanel).
+  systemId           String?
   source             String
   description        String
   risk               String
@@ -321,6 +329,9 @@ model CAPA {
   recurringFindings      Finding[]                    @relation("FindingRecurrenceOf")
   // FDA 483 commitments that cite this CAPA as their source.
   sourcedCommitments     FDA483Commitment[]           @relation("FDA483CommitmentSourceCAPA")
+  // RUNG 2 — GxP system this CAPA is raised against + RTM rows that cite it.
+  system                 GxPSystem?                   @relation(fields: [systemId], references: [id], onDelete: SetNull)
+  rtmEntriesViaCapa      RTMEntry[]
 }
 
 // ── SME Section 1, Stage 4 (FULL) — Structured CAPA Action Plan items ──
@@ -628,6 +639,50 @@ model GxPSystem {
   plannedActions   String?
   owner            String?
   createdBy        String
+  // ── RUNG 1 "Stop Lying" — persistence-integrity fields ──
+  // ICH Q9 risk classification (was orphaned UI-only; now persisted).
+  // "Low" | "Medium" | "High"; null = fall back to gxpRelevance-derived.
+  patientSafetyRisk    String?
+  productQualityImpact String?
+  regulatoryExposure   String?
+  diImpact             String?
+  // Free-text detail fields (adapter previously hardcoded "").
+  criticalFunctions    String?
+  riskFactors          String?
+  // Requalification dates (nextReview may be auto-derived on stage approval).
+  lastValidated        DateTime?
+  nextReview           DateTime?
+  // Data-integrity remediation tracking (DI tab). status: open|in-progress|closed.
+  remediationPlan      String?
+  remediationStatus    String?
+  // Soft-delete (columns added now for parity with StageDocument; UI wired in Rung 3).
+  deletedAt            DateTime?
+  deletedById          String?
+  deletionReason       String?
+  // Manual status attestation — lets auto-derive respect a manual sign-off.
+  statusManuallySet       Boolean   @default(false)
+  statusManualReason      String?
+  statusManuallySetAt     DateTime?
+  statusManuallySetByName String?
+  // Human-readable reference (generation wired in Rung 3; column added now).
+  reference            String?   @unique
+  // ── RUNG 2.6 — Part 11 validation sign-off snapshot ──
+  // Set by signValidation() when QA signs off a fully-executed system; cleared
+  // by unsignValidation(). The immutable e-signature itself lives in a
+  // SignedRecord row (recordType "CSV_VALIDATION_SIGNOFF"); these denormalized
+  // columns snapshot the system's state at the moment of sign-off for fast
+  // display on the Sign Off / Inspect tabs without re-deriving history.
+  signedOffAt               DateTime?
+  signedOffById             String?   // resolveUserFk(session.user.id) or null for Tenant logins
+  signedOffByName           String?
+  signedOffReason           String?
+  signedOffContentHash      String?
+  signedOffSignatureId      String?   // SignedRecord.id of the sign-off signature
+  signedOffPart11Compliant  Boolean?
+  signedOffAnnex11Compliant Boolean?
+  signedOffRtmCoverage      Float?
+  signedOffStagesApproved   Int?
+  signedOffStagesTotal      Int?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -635,6 +690,9 @@ model GxPSystem {
   validationStages  ValidationStage[]
   rtmEntries        RTMEntry[]
   roadmapActivities RoadmapActivity[]
+  // RUNG 2 — real cross-module FKs (replacing the former Redux-only soft links).
+  findings          Finding[]
+  capas             CAPA[]
 }
 
 model ValidationStage {
@@ -648,7 +706,15 @@ model ValidationStage {
   approvedBy      String?
   approvedDate    DateTime?
   rejectedBy      String?
+  rejectedDate    DateTime?
   rejectionReason String?
+  // RUNG 2.8 — stable principal ids (session.user.id: a Tenant id for admins,
+  // a User id otherwise) backing the server-side self-approval SoD guardrail.
+  // Plain columns (no FK relation) so an admin's Tenant id is storable; used
+  // for identity comparison only, never as a relational FK.
+  submittedById   String?
+  approvedById    String?
+  rejectedById    String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -697,6 +763,10 @@ model RTMEntry {
   id                 String   @id @default(cuid())
   systemId           String
   ursId              String
+  // RUNG 2.8 — generated human-readable reference URS-<SITE_CODE>-<NNNN>.
+  // ursId stays the free-text tag the author types; reference is allocated
+  // per-site by createRTMEntry. Globally @unique (same convention as SYS/CAPA).
+  reference          String?  @unique
   ursRequirement     String
   ursRegulation      String?
   ursPriority        String   @default("high")
@@ -713,10 +783,21 @@ model RTMEntry {
   evidenceStatus     String   @default("missing")
   traceabilityStatus String   @default("broken")
   linkedFindingId    String?
+  // RUNG 1 (Finding #6 minimal fix) — free-text per-requirement note; the
+  // first editable RTM field, proving updateRTMEntry works. Full RTM
+  // editability is Rung 2.
+  notes              String?
+  // RUNG 2 — real FKs to a linked Finding and/or CAPA (replacing the
+  // never-written linkedFindingId soft column). onDelete SetNull preserves
+  // the RTM row if the linked record is deleted.
+  findingId          String?
+  capaId             String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  system GxPSystem @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  system  GxPSystem @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  finding Finding?  @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  capa    CAPA?     @relation(fields: [capaId], references: [id], onDelete: SetNull)
 }
 
 model RoadmapActivity {

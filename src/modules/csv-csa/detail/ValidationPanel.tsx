@@ -27,6 +27,8 @@ import {
   updateStageNotes as updateStageNotesServer,
   addStageDocument as addStageDocumentServer,
   removeStageDocument as removeStageDocumentServer,
+  attestValidationStatus as attestValidationStatusServer,
+  resetToAutoDerivedStatus as resetToAutoDerivedStatusServer,
 } from "@/actions/systems";
 import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
@@ -37,7 +39,7 @@ import { Popup } from "@/components/ui/Popup";
 /* ── Helpers ── */
 
 function validationBadge(s: ValidationStatus) {
-  const m: Record<ValidationStatus, "green" | "amber" | "red" | "gray"> = { Validated: "green", "In Progress": "amber", Overdue: "red", "Not Started": "gray" };
+  const m: Record<ValidationStatus, "green" | "amber" | "red" | "gray"> = { Validated: "green", "In Progress": "amber", Overdue: "red", "Not Started": "gray", "Under Review": "amber", "Validation Failed": "red" };
   return <Badge variant={m[s]}>{s}</Badge>;
 }
 function actStatusBadge(s: RoadmapActivity["status"]) {
@@ -51,19 +53,21 @@ function getStages(system: GxPSystem): ValidationStage[] {
 }
 
 type StageColor = "green" | "blue" | "red" | "amber" | "gray";
+// RUNG 2.8 \u2014 "in_progress" (evidence uploaded, not yet submitted) reads as
+// In Progress (amber); "in_review" reads as Under Review (blue).
 function stageVariant(status: ValidationStage["status"]): StageColor {
   if (status === "approved" || status === "complete") return "green";
   if (status === "in_review" || status === "in-progress") return "blue";
   if (status === "rejected") return "red";
-  if (status === "draft") return "amber";
+  if (status === "draft" || status === "in_progress") return "amber";
   if (status === "skipped") return "gray";
   return "gray";
 }
 function stageLabel(status: ValidationStage["status"]): string {
   if (status === "approved" || status === "complete") return "Approved";
-  if (status === "in_review" || status === "in-progress") return "In Review";
+  if (status === "in_review") return "Under Review";
+  if (status === "in_progress" || status === "draft" || status === "in-progress") return "In Progress";
   if (status === "rejected") return "Rejected";
-  if (status === "draft") return "Draft";
   if (status === "skipped") return "Skipped";
   return "Not Started";
 }
@@ -72,14 +76,14 @@ function stageGlyph(status: ValidationStage["status"]): string {
   if (status === "in_review" || status === "in-progress") return "\u223C";
   if (status === "skipped") return "\u23ED";
   if (status === "rejected") return "\u2717";
-  if (status === "draft") return "\u270E";
+  if (status === "draft" || status === "in_progress") return "\u25D0";
   return "\u25CB";
 }
 function stageBorderColor(status: ValidationStage["status"]): string {
   if (status === "approved" || status === "complete") return "#10b981";
   if (status === "in_review" || status === "in-progress") return "#0ea5e9";
   if (status === "rejected") return "#ef4444";
-  if (status === "draft") return "#f59e0b";
+  if (status === "draft" || status === "in_progress") return "#f59e0b";
   return "var(--bg-border)";
 }
 
@@ -99,28 +103,50 @@ export interface ValidationPanelProps {
   dateFormat: string;
   role: string;
   onSavePlannedActions: (text: string) => void;
-  onSaveStage: (stage: ValidationStage) => void;
   onSaveNextReview: (iso: string) => void;
 }
 
 export function ValidationPanel({
   system, roadmapActivities, users, timezone, dateFormat, role,
-  onSavePlannedActions, onSaveStage: _onSaveStage, onSaveNextReview,
+  onSavePlannedActions, onSaveNextReview,
 }: ValidationPanelProps) {
-  void _onSaveStage; // kept for interface compat; stage saves now use dispatch directly
   const router = useRouter();
   const { isQAHead } = usePermissions();
   // session user id used to gate per-document delete buttons — uploaders
   // can always delete their own files even if they don't carry the broader
   // canSubmitStages permission set. The server enforces the same rule.
   const sessionUserId = useAppSelector((s) => s.auth.user?.id ?? null);
-  const canSubmitStages = role === "csv_val_lead" || role === "it_cdo" || isQAHead;
+  // RUNG 2.7 — submit (upload + submit-for-review) is open to all compliance
+  // roles: Validation Lead, IT/CDO, QA Head, and admins. Granting QA Head
+  // submit is a documented SoD relaxation; the audit log still records the
+  // actor on every action. Read-only viewers are blocked here and server-side.
+  const canSubmitStages = role === "csv_val_lead" || role === "it_cdo" || role === "customer_admin" || role === "super_admin" || isQAHead;
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
 
   const [editingActions, setEditingActions] = useState(false);
   const [actionsText, setActionsText] = useState(system.plannedActions ?? "");
   const [editingNextReview, setEditingNextReview] = useState(false);
   const [draftNextReview, setDraftNextReview] = useState("");
+  // Manual status attestation (RUNG 1) — QA can override the auto-derived
+  // status, or reset back to auto-derive. Calls the server actions directly.
+  const [editingAttest, setEditingAttest] = useState(false);
+  const [attestStatus, setAttestStatus] = useState<ValidationStatus>(system.validationStatus);
+  const [attestReason, setAttestReason] = useState("");
+  const [statusBusy, setStatusBusy] = useState(false);
+
+  async function handleAttest() {
+    if (attestReason.trim().length < 3) return;
+    setStatusBusy(true);
+    const result = await attestValidationStatusServer(system.id, { status: attestStatus, reason: attestReason.trim() });
+    setStatusBusy(false);
+    if (result.success) { setEditingAttest(false); setAttestReason(""); router.refresh(); }
+  }
+  async function handleResetStatus() {
+    setStatusBusy(true);
+    const result = await resetToAutoDerivedStatusServer(system.id);
+    setStatusBusy(false);
+    if (result.success) router.refresh();
+  }
   const [editingNotes, setEditingNotes] = useState<ValidationStageKey | null>(null);
   const [notesText, setNotesText] = useState("");
   const [approveModal, setApproveModal] = useState<ValidationStageKey | null>(null);
@@ -159,7 +185,7 @@ export function ValidationPanel({
   const progressPct = denominator > 0 ? Math.round((approvedCount / denominator) * 100) : 0;
 
   // Dual-track completion
-  const executedCount = stages.filter((s) => ["draft", "in_review", "approved", "complete", "in-progress"].includes(s.status) && (s.documents?.length ?? 0) > 0).length;
+  const executedCount = stages.filter((s) => ["in_progress", "draft", "in_review", "approved", "complete", "in-progress"].includes(s.status) && (s.documents?.length ?? 0) > 0).length;
   const executionPct = denominator > 0 ? Math.round((executedCount / denominator) * 100) : 0;
   const approvalPct = progressPct;
   const hasRejected = stages.some((s) => s.status === "rejected");
@@ -337,7 +363,7 @@ export function ValidationPanel({
             <th scope="col" className="text-center py-1 font-semibold" style={{ color: "#8B5CF6" }}>Approval</th>
           </tr></thead>
           <tbody>{stages.map((s) => {
-            const isExec = s.status === "skipped" ? "\u23ED" : ["approved", "complete", "in_review", "in-progress"].includes(s.status) && (s.documents?.length ?? 0) > 0 ? "\u2713" : (s.documents?.length ?? 0) > 0 ? "\uD83D\uDCCE" : s.status === "draft" ? "\u270E" : "\u25CB";
+            const isExec = s.status === "skipped" ? "\u23ED" : ["approved", "complete", "in_review", "in-progress"].includes(s.status) && (s.documents?.length ?? 0) > 0 ? "\u2713" : (s.documents?.length ?? 0) > 0 ? "\uD83D\uDCCE" : s.status === "draft" || s.status === "in_progress" ? "\u270E" : "\u25CB";
             const isAppr = s.status === "skipped" ? "\u23ED" : s.status === "approved" || s.status === "complete" ? "\u2713" : s.status === "in_review" || s.status === "in-progress" ? "\u223C" : s.status === "rejected" ? "\u2717" : "\u25CB";
             const execCol = isExec === "\u2713" ? "#10b981" : isExec === "\u270E" ? "#f59e0b" : "#64748b";
             const apprCol = isAppr === "\u2713" ? "#10b981" : isAppr === "\u223C" ? "#8B5CF6" : isAppr === "\u2717" ? "#ef4444" : "#64748b";
@@ -486,7 +512,7 @@ export function ValidationPanel({
                   the bottom of the panel is shared across all stages; the
                   button records uploadStageKey before clicking it so the
                   onChange handler knows which stage to attach to. */}
-              {canSubmitStages && s.status !== "approved" && s.status !== "complete" && s.status !== "skipped" && (
+              {canSubmitStages && s.status !== "approved" && s.status !== "complete" && s.status !== "skipped" && s.status !== "in_review" && (
                 <div>
                   <button
                     type="button"
@@ -538,7 +564,7 @@ export function ValidationPanel({
                     <Button variant="primary" size="xs" icon={Save} onClick={() => handleSaveNotes(s.key)}>Save</Button>
                   </div>
                 </div>
-              ) : canSubmitStages && s.status !== "approved" && s.status !== "complete" && s.status !== "skipped" && (
+              ) : canSubmitStages && s.status !== "approved" && s.status !== "complete" && s.status !== "skipped" && s.status !== "in_review" && (
                 <button type="button" onClick={() => { setEditingNotes(s.key); setNotesText(s.notes ?? ""); }} className="flex items-center gap-1 text-[10px] cursor-pointer border-none bg-transparent" style={{ color: "var(--text-muted)" }}>
                   <Pencil className="w-3 h-3" aria-hidden="true" /> {s.notes ? "Edit notes" : "Add notes"}
                 </button>
@@ -556,34 +582,55 @@ export function ValidationPanel({
                 </p>
               )}
 
-              {/* Rejection info */}
-              {s.status === "rejected" && s.rejectedBy && (
+              {/* Rejection info — surfaced to the Val Lead after a QA reject
+                  bounces the stage back to In Progress for rework. */}
+              {(s.status === "in_progress" || s.status === "rejected") && s.rejectedBy && s.rejectionReason && (
                 <div className={clsx("rounded-lg p-2.5 text-[11px]", isDark ? "bg-[rgba(239,68,68,0.06)] border border-[rgba(239,68,68,0.2)]" : "bg-[#fef2f2] border border-[#fecaca]")}>
-                  <p className="font-semibold text-[#ef4444] mb-1">Rejected by {s.rejectedBy}{s.rejectedDate ? ` · ${dayjs.utc(s.rejectedDate).tz(timezone).format(dateFormat)}` : ""}</p>
-                  {s.rejectionReason && <p style={{ color: "var(--text-secondary)" }}>{s.rejectionReason}</p>}
+                  <p className="font-semibold text-[#ef4444] mb-1">Returned by {s.rejectedBy}{s.rejectedDate ? ` · ${dayjs.utc(s.rejectedDate).tz(timezone).format(dateFormat)}` : ""} — address and resubmit</p>
+                  <p style={{ color: "var(--text-secondary)" }}>{s.rejectionReason}</p>
                 </div>
               )}
 
-              {/* Actions */}
-              <div className="flex items-center gap-2 flex-wrap pt-1">
-                {/* CSV/Val Lead: submit for review */}
-                {canSubmitStages && (s.status === "draft" || s.status === "rejected") && docs.length > 0 && (
-                  <Button variant="primary" size="xs" icon={ShieldCheck} onClick={() => handleSubmitForReview(s.key)}>Submit for Review</Button>
-                )}
-                {canSubmitStages && s.status === "rejected" && (
-                  <p className="text-[10px]" style={{ color: "#f59e0b" }}>Please review and resubmit</p>
-                )}
+              {/* QA REVIEW PANEL — stage is Under Review. Evidence (docs +
+                  notes) is shown read-only above; uploads are locked. QA
+                  approves/rejects here. Self-approval is blocked (UI hint +
+                  server guardrail in approveStage). */}
+              {s.status === "in_review" && (
+                <div className="rounded-lg p-3 space-y-2" style={{ background: "var(--brand-muted)", border: "1px solid var(--brand-border)" }}>
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4" style={{ color: "var(--brand)" }} aria-hidden="true" />
+                    <span className="text-[12px] font-semibold" style={{ color: "var(--brand)" }}>Under QA review</span>
+                  </div>
+                  <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                    Submitted by {s.submittedBy ?? "—"}{s.submittedDate ? ` · ${dayjs.utc(s.submittedDate).tz(timezone).format(dateFormat)}` : ""}. Review the evidence and notes above before deciding.
+                  </p>
+                  {isQAHead ? (
+                    s.submittedById && s.submittedById === sessionUserId ? (
+                      <p className="text-[11px] flex items-start gap-1.5" style={{ color: "#f59e0b" }}>
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+                        You submitted this stage — a different QA reviewer must approve it (segregation of duties).
+                      </p>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Button variant="primary" size="xs" icon={CheckCircle2} onClick={() => setApproveModal(s.key)}>Approve Stage</Button>
+                        <Button variant="ghost" size="xs" icon={AlertCircle} onClick={() => { setRejectModal(s.key); setRejectReason(""); }}>Reject</Button>
+                      </div>
+                    )
+                  ) : (
+                    <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>Awaiting QA Head approval.</p>
+                  )}
+                </div>
+              )}
 
-                {/* QA Head: approve / reject */}
-                {isQAHead && s.status === "in_review" && (
-                  <>
-                    <Button variant="primary" size="xs" icon={CheckCircle2} onClick={() => setApproveModal(s.key)}>Approve Stage</Button>
-                    <Button variant="ghost" size="xs" icon={AlertCircle} onClick={() => { setRejectModal(s.key); setRejectReason(""); }}>Reject</Button>
-                  </>
+              {/* Actions — submit (Val Lead/QA) + skip DS (QA). Hidden while
+                  Under Review (handled by the panel above). */}
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                {canSubmitStages && (s.status === "in_progress" || s.status === "draft" || s.status === "rejected") && docs.length > 0 && (
+                  <Button variant="primary" size="xs" icon={ShieldCheck} onClick={() => handleSubmitForReview(s.key)}>Submit for QA Review</Button>
                 )}
 
                 {/* QA Head: skip DS */}
-                {isQAHead && s.key === "DS" && s.status !== "approved" && s.status !== "complete" && s.status !== "skipped" && (
+                {isQAHead && s.key === "DS" && s.status !== "approved" && s.status !== "complete" && s.status !== "skipped" && s.status !== "in_review" && (
                   <Button variant="ghost" size="xs" icon={SkipForward} onClick={() => { setSkipModal(s.key); setSkipReason(""); }}>Mark as Skipped</Button>
                 )}
               </div>
@@ -593,9 +640,48 @@ export function ValidationPanel({
       })}
 
       {/* Validation status + next review */}
-      <div className="card"><div className="card-header"><span className="card-title">Validation status</span></div><div className="card-body">
-        <div className="flex items-center gap-4 flex-wrap">
+      <div className="card"><div className="card-header"><span className="card-title">Validation status</span></div><div className="card-body space-y-2">
+        {/* Status source (RUNG 1): auto-derived from stages vs manually attested. */}
+        <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: "var(--text-muted)" }}>
           {validationBadge(system.validationStatus)}
+          {system.statusManuallySet ? (
+            <span>· manually attested{system.statusManuallySetByName ? ` by ${system.statusManuallySetByName}` : ""}{system.statusManuallySetAt ? ` on ${dayjs.utc(system.statusManuallySetAt).tz(timezone).format(dateFormat)}` : ""}</span>
+          ) : (
+            <span>· auto-derived from stages</span>
+          )}
+          {isQAHead && !editingAttest && (
+            <>
+              <button type="button" onClick={() => { setAttestStatus(system.validationStatus); setEditingAttest(true); }} className="text-[10px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer">Override</button>
+              {system.statusManuallySet && (
+                <button type="button" disabled={statusBusy} onClick={handleResetStatus} className="text-[10px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer">Reset to auto-derived</button>
+              )}
+            </>
+          )}
+        </div>
+        {system.statusManuallySet && system.statusManualReason && (
+          <p className="text-[10px] italic" style={{ color: "var(--text-muted)" }}>Reason: {system.statusManualReason}</p>
+        )}
+        {editingAttest && (
+          <div className="p-3 rounded-lg space-y-2" style={{ background: "var(--bg-surface)", border: "1px solid var(--bg-border)" }}>
+            <div className="flex items-end gap-2 flex-wrap">
+              <div>
+                <label className="text-[10px] block mb-0.5" style={{ color: "var(--text-muted)" }}>Attest status</label>
+                <select value={attestStatus} onChange={(e) => setAttestStatus(e.target.value as ValidationStatus)} className="input text-[11px]">
+                  {["Validated", "In Progress", "Overdue", "Not Started", "Under Review", "Validation Failed"].map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] block mb-0.5" style={{ color: "var(--text-muted)" }}>Reason (required)</label>
+              <textarea rows={2} value={attestReason} onChange={(e) => setAttestReason(e.target.value)} className="input text-[11px] resize-none w-full" placeholder="e.g. Legacy paper validation, see scanned binder" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="xs" onClick={() => { setEditingAttest(false); setAttestReason(""); }}>Cancel</Button>
+              <Button variant="primary" size="xs" icon={Save} loading={statusBusy} disabled={statusBusy || attestReason.trim().length < 3} onClick={handleAttest}>Save attestation</Button>
+            </div>
+          </div>
+        )}
+        <div className="flex items-center gap-4 flex-wrap">
           <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>Last validated: {system.lastValidated ? dayjs.utc(system.lastValidated).tz(timezone).format(dateFormat) : "Not yet"}</span>
           {editingNextReview ? (
             <div className="flex items-end gap-2">

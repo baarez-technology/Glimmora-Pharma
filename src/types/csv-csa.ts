@@ -24,7 +24,15 @@ import type {
 
 export type SystemType = "QMS" | "LIMS" | "ERP" | "CDS" | "SCADA" | "MES" | "CMMS" | "Other";
 export type GxPRelevance = "Critical" | "Major" | "Minor";
-export type ValidationStatus = "Validated" | "In Progress" | "Overdue" | "Not Started";
+// "Under Review" + "Validation Failed" added in RUNG 1 for the auto-derive
+// state machine (deriveValidationStatus in src/actions/systems.ts).
+export type ValidationStatus =
+  | "Validated"
+  | "In Progress"
+  | "Overdue"
+  | "Not Started"
+  | "Under Review"
+  | "Validation Failed";
 export type ComplianceStatus = "Compliant" | "Non-Compliant" | "In Progress" | "N/A";
 export type GAMP5Category = "1" | "3" | "4" | "5";
 export type RiskLevel = "HIGH" | "MEDIUM" | "LOW";
@@ -33,6 +41,10 @@ export type ValidationStageKey = "URS" | "FS" | "DS" | "IQ" | "OQ" | "PQ" | "RTR
 export type ValidationStageStatus =
   | "not_started"
   | "draft"
+  // RUNG 2.8 — "in_progress": stage carries evidence (≥1 uploaded doc) but is
+  // not yet submitted for QA review. Set by addStageDocument; the honest
+  // replacement for "not_started while a document exists".
+  | "in_progress"
   | "in_review"
   | "approved"
   | "rejected"
@@ -85,6 +97,8 @@ export interface ValidationStage {
   documents?: StageDocument[];
   notes?: string;
   submittedBy?: string;
+  // RUNG 2.8 — stable submitter principal id (for the self-approval SoD hint).
+  submittedById?: string;
   submittedDate?: string;
   reviewedBy?: string;
   reviewedDate?: string;
@@ -134,6 +148,27 @@ export interface GxPSystem {
   remediationCapaId?: string;
   remediationTargetDate?: string;
   remediationNotes?: string;
+  // ── RUNG 1 persistence fields ──
+  remediationPlan?: string;
+  remediationStatus?: string;
+  statusManuallySet?: boolean;
+  statusManualReason?: string;
+  statusManuallySetAt?: string;
+  statusManuallySetByName?: string;
+  // RUNG 2.6 — Part 11 validation sign-off snapshot (null until signed off).
+  signedOffAt?: string | null;
+  signedOffByName?: string | null;
+  signedOffReason?: string | null;
+  signedOffContentHash?: string | null;
+  signedOffPart11Compliant?: boolean | null;
+  signedOffAnnex11Compliant?: boolean | null;
+  signedOffRtmCoverage?: number | null;
+  signedOffStagesApproved?: number | null;
+  signedOffStagesTotal?: number | null;
+  reference?: string;
+  // RUNG 2 — real FK-hydrated linked findings/CAPAs (system detail page).
+  findings?: SystemFinding[];
+  capas?: SystemCapa[];
   createdAt: string;
 }
 
@@ -169,6 +204,8 @@ export interface RTMEntry {
   systemId: string;
   systemName: string;
   ursId: string;
+  // RUNG 2.8 — generated read-only reference (URS-<SITE_CODE>-<NNNN>).
+  reference?: string;
   ursRequirement: string;
   ursRegulation: string;
   ursPriority: RTMPriority;
@@ -195,6 +232,12 @@ export interface RTMEntry {
   traceabilityStatus: TraceabilityStatus;
   linkedFindingId?: string;
   linkedCAPAId?: string;
+  notes?: string;
+  // RUNG 2 — real FK links + hydrated refs for deep-linking from the panel.
+  findingId?: string;
+  capaId?: string;
+  findingRef?: { id: string; reference?: string; status: string };
+  capaRef?: { id: string; reference?: string; status: string };
 }
 
 /* ══════════════════════════════════════
@@ -208,11 +251,27 @@ type ValidationStageWithDocs = PrismaValidationStage & {
   documents: PrismaStageDocument[];
 };
 
+/** RUNG 2 — compact ref to a linked Finding/CAPA (matches the query selects). */
+type LinkRef = { id: string; reference: string | null; status: string };
+type RTMEntryWithLinks = PrismaRTMEntry & {
+  finding: LinkRef | null;
+  capa: LinkRef | null;
+};
+type SystemFindingRow = { id: string; reference: string | null; status: string; requirement: string; severity: string; targetDate: Date | null; createdAt: Date };
+type SystemCapaRow = { id: string; reference: string | null; status: string; description: string; risk: string; owner: string; dueDate: Date | null; createdAt: Date };
+
 export type SystemFromPrisma = PrismaGxPSystem & {
   validationStages: ValidationStageWithDocs[];
-  rtmEntries: PrismaRTMEntry[];
+  rtmEntries: RTMEntryWithLinks[];
   roadmapActivities: PrismaRoadmapActivity[];
+  // RUNG 2 — real FK-hydrated linked findings/CAPAs (minimal selects).
+  findings: SystemFindingRow[];
+  capas: SystemCapaRow[];
 };
+
+/** Linked-record shapes surfaced on the system detail page (RUNG 2). */
+export interface SystemFinding { id: string; reference?: string; status: string; requirement: string; severity: string; targetDate?: string; createdAt: string; }
+export interface SystemCapa { id: string; reference?: string; status: string; description: string; risk: string; owner: string; dueDate?: string; createdAt: string; }
 
 /**
  * Adapt a Prisma GxPSystem (with relations) into the slice `GxPSystem`
@@ -246,10 +305,48 @@ export function adaptPrismaSystem(s: SystemFromPrisma): GxPSystem {
     siteId: s.siteId ?? "",
     intendedUse: s.intendedUse ?? "",
     gxpScope: s.gxpScope ?? "",
-    criticalFunctions: "",
-    riskFactors: "",
+    // RUNG 1: read from DB (was hardcoded "" — Finding #2).
+    criticalFunctions: s.criticalFunctions ?? "",
+    riskFactors: s.riskFactors ?? "",
     plannedActions: s.plannedActions ?? "",
     owner: s.owner ?? "",
+    // RUNG 1: persisted risk classifications + requalification dates +
+    // remediation + manual-attestation metadata + reference.
+    patientSafetyRisk: (s.patientSafetyRisk as RiskLevel | null) ?? undefined,
+    productQualityImpact: (s.productQualityImpact as RiskLevel | null) ?? undefined,
+    regulatoryExposure: (s.regulatoryExposure as RiskLevel | null) ?? undefined,
+    diImpact: (s.diImpact as RiskLevel | null) ?? undefined,
+    lastValidated: s.lastValidated ? s.lastValidated.toISOString() : undefined,
+    nextReview: s.nextReview ? s.nextReview.toISOString() : undefined,
+    remediationPlan: s.remediationPlan ?? undefined,
+    remediationStatus: s.remediationStatus ?? undefined,
+    statusManuallySet: s.statusManuallySet,
+    statusManualReason: s.statusManualReason ?? undefined,
+    statusManuallySetAt: s.statusManuallySetAt ? s.statusManuallySetAt.toISOString() : undefined,
+    statusManuallySetByName: s.statusManuallySetByName ?? undefined,
+    signedOffAt: s.signedOffAt ? s.signedOffAt.toISOString() : null,
+    signedOffByName: s.signedOffByName,
+    signedOffReason: s.signedOffReason,
+    signedOffContentHash: s.signedOffContentHash,
+    signedOffPart11Compliant: s.signedOffPart11Compliant,
+    signedOffAnnex11Compliant: s.signedOffAnnex11Compliant,
+    signedOffRtmCoverage: s.signedOffRtmCoverage,
+    signedOffStagesApproved: s.signedOffStagesApproved,
+    signedOffStagesTotal: s.signedOffStagesTotal,
+    reference: s.reference ?? undefined,
+    // RUNG 2 — FK-hydrated linked findings / CAPAs.
+    findings: s.findings.map((f) => ({
+      id: f.id, reference: f.reference ?? undefined, status: f.status,
+      requirement: f.requirement, severity: f.severity,
+      targetDate: f.targetDate ? f.targetDate.toISOString() : undefined,
+      createdAt: f.createdAt.toISOString(),
+    })),
+    capas: s.capas.map((c) => ({
+      id: c.id, reference: c.reference ?? undefined, status: c.status,
+      description: c.description, risk: c.risk, owner: c.owner,
+      dueDate: c.dueDate ? c.dueDate.toISOString() : undefined,
+      createdAt: c.createdAt.toISOString(),
+    })),
     validationStages: s.validationStages.map(adaptPrismaStage),
     createdAt: s.createdAt.toISOString(),
   };
@@ -267,10 +364,12 @@ function adaptPrismaStage(s: ValidationStageWithDocs): ValidationStage {
     status: (s.status as ValidationStageStatus) ?? "not_started",
     notes: s.notes ?? undefined,
     submittedBy: s.submittedBy ?? undefined,
+    submittedById: s.submittedById ?? undefined,
     submittedDate: s.submittedDate ? s.submittedDate.toISOString() : undefined,
     approvedBy: s.approvedBy ?? undefined,
     approvedDate: s.approvedDate ? s.approvedDate.toISOString() : undefined,
     rejectedBy: s.rejectedBy ?? undefined,
+    rejectedDate: s.rejectedDate ? s.rejectedDate.toISOString() : undefined,
     rejectionReason: s.rejectionReason ?? undefined,
     documents: s.documents.map((d) => adaptPrismaStageDocument(d, isLocked)),
     prismaId: s.id,
@@ -349,6 +448,7 @@ export function adaptPrismaRTM(systems: SystemFromPrisma[]): RTMEntry[] {
       systemId: r.systemId,
       systemName: s.name,
       ursId: r.ursId,
+      reference: r.reference ?? undefined,
       ursRequirement: r.ursRequirement,
       ursRegulation: r.ursRegulation ?? "",
       ursPriority: (r.ursPriority as RTMPriority) ?? "high",
@@ -365,6 +465,11 @@ export function adaptPrismaRTM(systems: SystemFromPrisma[]): RTMEntry[] {
       evidenceStatus: (r.evidenceStatus as EvidenceStatus) ?? "missing",
       traceabilityStatus: (r.traceabilityStatus as TraceabilityStatus) ?? "broken",
       linkedFindingId: r.linkedFindingId ?? undefined,
+      notes: r.notes ?? undefined,
+      findingId: r.findingId ?? undefined,
+      capaId: r.capaId ?? undefined,
+      findingRef: r.finding ? { id: r.finding.id, reference: r.finding.reference ?? undefined, status: r.finding.status } : undefined,
+      capaRef: r.capa ? { id: r.capa.id, reference: r.capa.reference ?? undefined, status: r.capa.status } : undefined,
     })),
   );
 }

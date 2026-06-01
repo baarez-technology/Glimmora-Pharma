@@ -74,3 +74,17 @@ export function buildReferencePrefix(
 ): string {
   return siteCode ? `${moduleCode}-${siteCode}` : moduleCode;
 }
+
+/**
+ * Derive a 3-letter SITE_CODE fallback from a site name when Site.code is
+ * unset. Strips accents/non-ASCII, takes the first three letters uppercased,
+ * pads with "X" if the name has fewer than three letters. Site.code is the
+ * canonical source (used by every module's reference); this only covers a
+ * misconfigured site so reference generation never blocks record creation.
+ */
+export function deriveSiteCode(name: string | null | undefined): string {
+  if (!name) return "XXX";
+  const letters = name.normalize("NFKD").replace(/[^a-zA-Z]/g, "");
+  if (!letters) return "XXX";
+  return letters.slice(0, 3).toUpperCase().padEnd(3, "X");
+}

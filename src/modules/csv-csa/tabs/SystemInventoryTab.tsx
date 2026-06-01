@@ -34,7 +34,7 @@ function getSystemIcon(type: SystemType) {
 }
 
 function validationBadge(s: ValidationStatus) {
-  const m: Record<ValidationStatus, "green" | "amber" | "red" | "gray"> = { Validated: "green", "In Progress": "amber", Overdue: "red", "Not Started": "gray" };
+  const m: Record<ValidationStatus, "green" | "amber" | "red" | "gray"> = { Validated: "green", "In Progress": "amber", Overdue: "red", "Not Started": "gray", "Under Review": "amber", "Validation Failed": "red" };
   return <Badge variant={m[s]}>{s}</Badge>;
 }
 
@@ -205,6 +205,7 @@ export function SystemInventoryTab({
                         </div>
                         <div>
                           <div className="flex items-center gap-1.5">
+                            {sys.reference && <span className="font-mono text-[11px] font-semibold" style={{ color: "var(--brand)" }}>{sys.reference}</span>}
                             <span className="font-medium text-[12px]" style={{ color: "var(--text-primary)" }}>{sys.name}</span>
                             {isReviewOverdue(sys) && <Badge variant="red">Review overdue</Badge>}
                           </div>
