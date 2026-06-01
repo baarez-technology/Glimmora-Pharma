@@ -90,8 +90,11 @@ export async function assertTenantOwnsParent<T>(
       });
       break;
     case "gxpSystem":
+      // RUNG 3B — never treat an archived (soft-deleted) system as a valid
+      // parent, so children (RTM entries, roadmap activities) can't be added
+      // to a system that has been removed from the inventory.
       result = await prisma.gxPSystem.findFirst({
-        where: baseWhere,
+        where: { ...baseWhere, deletedAt: null },
         select: finalSelect,
       });
       break;

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
-import { Database, GitBranch, Plus, Info, Link2 } from "lucide-react";
+import { Database, GitBranch, Plus, Info, Link2, Archive, RotateCcw } from "lucide-react";
 import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { NoSitesPopup, TabBar, PageHeader } from "@/components/shared";
 import dayjs from "@/lib/dayjs";
@@ -15,6 +15,7 @@ import {
   createSystem,
   updateSystem as updateSystemServer,
   deleteSystem as deleteSystemServer,
+  restoreSystem as restoreSystemServer,
   addRoadmapActivity,
   updateRoadmapActivity,
 } from "@/actions/systems";
@@ -22,6 +23,7 @@ import type { GxPSystem, RoadmapActivity, ValidationStageKey, SystemFromPrisma }
 import { VALIDATION_STAGE_LABELS, VALIDATION_STAGE_KEYS, adaptPrismaSystem, adaptPrismaRoadmap, adaptPrismaRTM } from "@/types/csv-csa";
 import { Button } from "@/components/ui/Button";
 import { Popup } from "@/components/ui/Popup";
+import { Modal } from "@/components/ui/Modal";
 import { SystemInventoryTab } from "./tabs/SystemInventoryTab";
 import { CSVRoadmapTab } from "./tabs/CSVRoadmapTab";
 import { RTMTab } from "./tabs/RTMTab";
@@ -65,6 +67,9 @@ export interface CSVPageRTMStats {
 export interface CSVPageProps {
   /** Server-fetched GxP systems (with stages/RTM/roadmap relations). */
   systems: PrismaSystemWithRelations[];
+  /** RUNG 3B — soft-deleted systems for the admin archive view. Empty [] for
+   *  non-admins (the route only fetches them for customer_admin/super_admin). */
+  deletedSystems: PrismaSystemWithRelations[];
   /** Server-computed system stats for KPI surface. */
   stats: CSVPageStats;
   /** Server-computed RTM traceability stats. */
@@ -73,9 +78,13 @@ export interface CSVPageProps {
 
 /* ══════════════════════════════════════ */
 
-export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, validated: 0, inProgress: 0, notStarted: 0, overdue: 0, auditTrailEnabled: 0 }, rtmStats: { total: 0, complete: 0, partial: 0, broken: 0 } }) {
+export function CSVPage(props: CSVPageProps = { systems: [], deletedSystems: [], stats: { total: 0, validated: 0, inProgress: 0, notStarted: 0, overdue: 0, auditTrailEnabled: 0 }, rtmStats: { total: 0, complete: 0, partial: 0, broken: 0 } }) {
   const router = useRouter();
-  const { isViewOnly, role } = useRole();
+  const searchParams = useSearchParams();
+  const { isViewOnly, role, isSuperAdmin, isCustomerAdmin } = useRole();
+  const isAdmin = isSuperAdmin || isCustomerAdmin;
+  // RUNG 3B — admin-only archive view at /csv-csa?view=deleted.
+  const showArchive = (searchParams?.get("view") ?? null) === "deleted" && isAdmin;
 
   /* ── Server-fetched systems → adapted to slice shape ──
    * The page is built around the slice's richer `GxPSystem`
@@ -119,8 +128,15 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
   const [editOpen, setEditOpen] = useState(false);
   const [addedPopup, setAddedPopup] = useState(false);
   const [editSavedPopup, setEditSavedPopup] = useState(false);
-  const [removePopup, setRemovePopup] = useState(false);
+  // RUNG 3B — archive (soft-delete) + restore, both require a reason (≥10 chars).
   const [systemToRemove, setSystemToRemove] = useState<string | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
+  const [restoreReason, setRestoreReason] = useState("");
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const [addActivityOpen, setAddActivityOpen] = useState(false);
   const [activityAddedPopup, setActivityAddedPopup] = useState(false);
   const [noSitesOpen, setNoSitesOpen] = useState(false);
@@ -295,6 +311,33 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
     router.refresh();
   }
 
+  // RUNG 3B — archive / restore handlers. GxPSystem has deletedById (no name
+  // column), so resolve the actor via the tenant users map for the archive view.
+  const resolveUserName = (id: string | null) => (id ? users.find((u) => u.id === id)?.name ?? id : "—");
+
+  function closeDeleteModal() { setSystemToRemove(null); setDeleteReason(""); setDeleteError(null); }
+  async function handleConfirmDelete() {
+    if (!systemToRemove || deleteReason.trim().length < 10) return;
+    setDeleteBusy(true); setDeleteError(null);
+    const r = await deleteSystemServer(systemToRemove, { reason: deleteReason.trim() });
+    setDeleteBusy(false);
+    if (!r.success) { setDeleteError(r.error || "Failed to archive system."); return; }
+    if (selectedSystem?.id === systemToRemove) setSelectedSystemId(null);
+    closeDeleteModal();
+    router.refresh();
+  }
+
+  function closeRestoreModal() { setRestoreTarget(null); setRestoreReason(""); setRestoreError(null); }
+  async function handleConfirmRestore() {
+    if (!restoreTarget || restoreReason.trim().length < 10) return;
+    setRestoreBusy(true); setRestoreError(null);
+    const r = await restoreSystemServer(restoreTarget, { reason: restoreReason.trim() });
+    setRestoreBusy(false);
+    if (!r.success) { setRestoreError(r.error || "Failed to restore system."); return; }
+    closeRestoreModal();
+    router.refresh();
+  }
+
   /* ══════════════════════════════════════ */
 
   return (
@@ -303,8 +346,43 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
       <PageHeader
         title="CSV/CSA Validation"
         subtitle={systems.length === 0 ? "No systems registered yet" : `${systems.length} systems \u00b7 ${highRisk} high risk \u00b7 ${valOverdue} validation overdue`}
-        actions={!isViewOnly ? <Button variant="primary" icon={Plus} onClick={() => { if (!hasSites) { setNoSitesOpen(true); return; } setAddOpen(true); }}>Add system</Button> : undefined}
+        actions={
+          <div className="flex items-center gap-2">
+            {showArchive && <Button variant="ghost" onClick={() => router.push("/csv-csa")}>← Back to inventory</Button>}
+            {isAdmin && !showArchive && props.deletedSystems.length > 0 && (
+              <Button variant="ghost" icon={Archive} onClick={() => router.push("/csv-csa?view=deleted")}>View archived ({props.deletedSystems.length})</Button>
+            )}
+            {!isViewOnly && !showArchive && <Button variant="primary" icon={Plus} onClick={() => { if (!hasSites) { setNoSitesOpen(true); return; } setAddOpen(true); }}>Add system</Button>}
+          </div>
+        }
       />
+
+      {/* RUNG 3B — admin archive view (soft-deleted systems + restore) */}
+      {showArchive ? (
+        <div className="card overflow-hidden">
+          <div className="card-header"><div className="flex items-center gap-2"><Archive className="w-4 h-4" style={{ color: "var(--text-muted)" }} aria-hidden="true" /><span className="card-title">Archived systems ({props.deletedSystems.length})</span></div></div>
+          <div className="overflow-x-auto">
+            <table className="data-table" aria-label="Archived systems">
+              <thead><tr><th scope="col">Reference</th><th scope="col">System</th><th scope="col">Archived</th><th scope="col">By</th><th scope="col">Reason</th><th scope="col"><span className="sr-only">Restore</span></th></tr></thead>
+              <tbody>
+                {props.deletedSystems.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center py-6 text-[12px]" style={{ color: "var(--text-muted)" }}>No archived systems.</td></tr>
+                ) : props.deletedSystems.map((s) => (
+                  <tr key={s.id}>
+                    <td className="font-mono text-[11px] font-semibold" style={{ color: "var(--brand)" }}>{s.reference ?? s.id.slice(0, 8)}</td>
+                    <td className="text-[12px]" style={{ color: "var(--text-primary)" }}>{s.name}</td>
+                    <td className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{s.deletedAt ? dayjs.utc(s.deletedAt).tz(timezone).format(dateFormat) : "—"}</td>
+                    <td className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{resolveUserName(s.deletedById)}</td>
+                    <td className="text-[11px] max-w-[280px]" style={{ color: "var(--text-secondary)" }}>{s.deletionReason ?? "—"}</td>
+                    <td><Button variant="ghost" size="xs" icon={RotateCcw} onClick={() => { setRestoreTarget(s.id); setRestoreReason(""); setRestoreError(null); }}>Restore</Button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+      <>
 
       {/* Framework banner */}
       {!showPart11 && !showAnnex11 && !showGAMP5 && (
@@ -335,7 +413,7 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
           onAddOpen={() => setAddOpen(true)}
           onSelectSystem={(sys) => router.push(`/csv-csa/systems/${encodeURIComponent(sys.reference ?? sys.id)}`)}
           onEditSystem={(sys) => { setSelectedSystem(sys); setEditOpen(true); }}
-          onRemoveSystem={(id) => { setSystemToRemove(id); setRemovePopup(true); }}
+          onRemoveSystem={(id) => { setSystemToRemove(id); setDeleteReason(""); setDeleteError(null); }}
         />
       </div>
 
@@ -357,6 +435,8 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
       <div role="tabpanel" id="panel-rtm" aria-labelledby="tab-rtm" tabIndex={0} hidden={activeTab !== "rtm"}>
         <RTMTab entries={rtmEntries} systemsOverride={systems} />
       </div>
+      </>
+      )}
 
       {/* System detail is now a routed page: /csv-csa/systems/[reference]. */}
 
@@ -368,7 +448,53 @@ export function CSVPage(props: CSVPageProps = { systems: [], stats: { total: 0, 
       {/* ── Popups ── */}
       <Popup isOpen={addedPopup} variant="success" title="System added" description="Added to the inventory. Part 11 / Annex 11 columns appear based on active frameworks in Settings." onDismiss={() => setAddedPopup(false)} />
       <Popup isOpen={editSavedPopup} variant="success" title="System updated" description="Changes saved to the system record." onDismiss={() => setEditSavedPopup(false)} />
-      <Popup isOpen={removePopup} variant="confirmation" title="Remove this system?" description="The system will be removed from the inventory. Existing findings and CAPAs are not affected." onDismiss={() => { setRemovePopup(false); setSystemToRemove(null); }} actions={[{ label: "Cancel", style: "ghost", onClick: () => { setRemovePopup(false); setSystemToRemove(null); } }, { label: "Yes, remove", style: "primary", onClick: async () => { if (systemToRemove) { const r = await deleteSystemServer(systemToRemove); if (!r.success) console.error("[csv-csa] deleteSystem failed:", r.error); } if (selectedSystem?.id === systemToRemove) setSelectedSystemId(null); setRemovePopup(false); setSystemToRemove(null); router.refresh(); } }]} />
+      {/* RUNG 3B — archive (soft-delete) with required reason */}
+      <Modal
+        open={!!systemToRemove}
+        onClose={deleteBusy ? () => undefined : closeDeleteModal}
+        title="Archive this system?"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" disabled={deleteBusy} onClick={closeDeleteModal}>Cancel</Button>
+            <Button variant="danger" size="sm" icon={Archive} loading={deleteBusy} disabled={deleteBusy || deleteReason.trim().length < 10} onClick={handleConfirmDelete}>Archive system</Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+            This system will be archived for 7 years. An administrator can restore it. All validation stages, evidence, RTM entries, and the audit trail are retained — nothing is destroyed.
+          </p>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>Reason for archiving *</label>
+            <textarea rows={3} className="input text-[12px] resize-none w-full" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Why is this system being archived? (min 10 characters)" maxLength={2000} disabled={deleteBusy} aria-label="Archive reason" />
+          </div>
+          {deleteError && <p role="alert" className="text-[11px]" style={{ color: "var(--danger)" }}>{deleteError}</p>}
+        </div>
+      </Modal>
+
+      {/* RUNG 3B — restore an archived system (admin), required reason */}
+      <Modal
+        open={!!restoreTarget}
+        onClose={restoreBusy ? () => undefined : closeRestoreModal}
+        title="Restore this system?"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" disabled={restoreBusy} onClick={closeRestoreModal}>Cancel</Button>
+            <Button variant="primary" size="sm" icon={RotateCcw} loading={restoreBusy} disabled={restoreBusy || restoreReason.trim().length < 10} onClick={handleConfirmRestore}>Restore system</Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+            The system and its child records will reappear in the active inventory.
+          </p>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>Reason for restoring *</label>
+            <textarea rows={3} className="input text-[12px] resize-none w-full" value={restoreReason} onChange={(e) => setRestoreReason(e.target.value)} placeholder="Why is this system being restored? (min 10 characters)" maxLength={2000} disabled={restoreBusy} aria-label="Restore reason" />
+          </div>
+          {restoreError && <p role="alert" className="text-[11px]" style={{ color: "var(--danger)" }}>{restoreError}</p>}
+        </div>
+      </Modal>
       <Popup isOpen={activityAddedPopup} variant="success" title="Activity added" description="Roadmap activity added. It will appear in the system's Validation tab and CSV Roadmap timeline." onDismiss={() => setActivityAddedPopup(false)} />
       <Popup isOpen={!!errorMsg} variant="error" title="Action failed" description={errorMsg ?? ""} onDismiss={() => setErrorMsg(null)} />
       <Popup isOpen={!!roadmapSynced} variant="success" title="Roadmap synced" description={roadmapSynced} onDismiss={() => setRoadmapSynced("")} />

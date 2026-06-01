@@ -518,32 +518,115 @@ export async function rejectStage(stageId: string, reason: string): Promise<Acti
   }
 }
 
-export async function deleteSystem(id: string): Promise<ActionResult> {
+// RUNG 3B — a reason (≥10 chars) is required to archive or restore a system,
+// mirroring removeStageDocument. Recorded in deletionReason + the audit log.
+const SystemDeletionSchema = z.object({
+  reason: z
+    .string()
+    .min(10, "A reason of at least 10 characters is required")
+    .max(2000, "Reason must be 2000 characters or fewer"),
+});
+
+/**
+ * RUNG 3B — SOFT-delete a system. Was a hard cascade delete that destroyed
+ * every ValidationStage + StageDocument + RTMEntry + RoadmapActivity tied to
+ * the system, contradicting the Part 11 StageDocument retention discipline
+ * (contentHashSha256 + retainUntil + 7-year floor). Now sets deletedAt; the
+ * children stay attached to the archived row and are hidden by the
+ * `deletedAt: null` read filters. The schema cascade relations are left
+ * unchanged (they simply never fire, since the row is never hard-deleted).
+ * Role gate (customer_admin / super_admin) preserved from Rung 3A.
+ */
+export async function deleteSystem(
+  id: string,
+  input: z.input<typeof SystemDeletionSchema>,
+): Promise<ActionResult> {
   const session = await requireAuth();
-  // RUNG 3A — deletion is an admin-tier destructive act (cascade unchanged;
-  // soft-delete is Rung 3B). Narrower gate than create/update.
   if (!SYSTEM_DELETE_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only an admin can delete systems." };
   }
+  const parsed = SystemDeletionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const existing = await prisma.gxPSystem.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: { id: true, reference: true, name: true, deletedAt: true },
+  });
+  if (!existing) return { success: false, error: "System not found" };
+  if (existing.deletedAt) return { success: false, error: "System is already archived." };
+  const deletedById = await resolveUserFk(session.user.id);
   try {
-    await prisma.gxPSystem.delete({
+    await prisma.gxPSystem.update({
       where: { id, tenantId: session.user.tenantId },
+      data: { deletedAt: new Date(), deletedById, deletionReason: parsed.data.reason },
     });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
+        userId: deletedById,
         userName: session.user.name,
         userRole: session.user.role,
         module: CSV_AUDIT_MODULE,
-        action: "SYSTEM_DELETED",
+        action: "SYSTEM_SOFT_DELETED",
         recordId: id,
+        recordTitle: existing.reference ?? existing.name,
+        newValue: parsed.data.reason.slice(0, 200),
       },
     });
     revalidatePath("/csv-csa");
     return { success: true, data: null };
   } catch (err) {
     console.error("[action] deleteSystem failed:", err);
-    return { success: false, error: "Failed to delete system" };
+    return { success: false, error: "Failed to archive system" };
+  }
+}
+
+/**
+ * RUNG 3B — restore a soft-deleted system. Admin-only (same gate as delete);
+ * clears the soft-delete metadata and re-surfaces the row + its children.
+ */
+export async function restoreSystem(
+  id: string,
+  input: z.input<typeof SystemDeletionSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (!SYSTEM_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only an admin can restore systems." };
+  }
+  const parsed = SystemDeletionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const existing = await prisma.gxPSystem.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: { id: true, reference: true, name: true, deletedAt: true },
+  });
+  if (!existing) return { success: false, error: "System not found" };
+  if (!existing.deletedAt) return { success: false, error: "System is not archived." };
+  try {
+    await prisma.gxPSystem.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: { deletedAt: null, deletedById: null, deletionReason: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: await resolveUserFk(session.user.id),
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: CSV_AUDIT_MODULE,
+        action: "SYSTEM_RESTORED",
+        recordId: id,
+        recordTitle: existing.reference ?? existing.name,
+        newValue: parsed.data.reason.slice(0, 200),
+      },
+    });
+    revalidatePath("/csv-csa");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] restoreSystem failed:", err);
+    return { success: false, error: "Failed to restore system" };
   }
 }
 

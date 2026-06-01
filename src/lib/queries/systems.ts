@@ -29,25 +29,37 @@ const SYSTEM_INCLUDE = {
   capas: { select: CAPA_SELECT, orderBy: { createdAt: "desc" as const } },
 } as const;
 
+// RUNG 3B — read paths return ACTIVE systems only (deletedAt: null). Archived
+// systems are surfaced exclusively via getDeletedSystems (admin archive view).
 export const getSystems = cache(async (tenantId: string) => {
   return prisma.gxPSystem.findMany({
-    where: { tenantId },
+    where: { tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
+    include: SYSTEM_INCLUDE,
+  });
+});
+
+/** RUNG 3B — soft-deleted (archived) systems for the admin archive view. */
+export const getDeletedSystems = cache(async (tenantId: string) => {
+  return prisma.gxPSystem.findMany({
+    where: { tenantId, deletedAt: { not: null } },
+    orderBy: { deletedAt: "desc" },
     include: SYSTEM_INCLUDE,
   });
 });
 
 export const getSystem = cache(async (id: string, tenantId: string) => {
   return prisma.gxPSystem.findFirst({
-    where: { id, tenantId },
+    where: { id, tenantId, deletedAt: null },
     include: SYSTEM_INCLUDE,
   });
 });
 
-/** RUNG 2 — routed detail lookup by human reference OR raw cuid. */
+/** RUNG 2 — routed detail lookup by human reference OR raw cuid.
+ *  RUNG 3B — archived systems 404 (deletedAt: null). */
 export const getSystemByRef = cache(async (refOrId: string, tenantId: string) => {
   return prisma.gxPSystem.findFirst({
-    where: { tenantId, OR: [{ reference: refOrId }, { id: refOrId }] },
+    where: { tenantId, deletedAt: null, OR: [{ reference: refOrId }, { id: refOrId }] },
     include: SYSTEM_INCLUDE,
   });
 });
