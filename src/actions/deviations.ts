@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import {
   canonicalizeDeviationClosureContent,
   computeContentHash,
@@ -14,6 +14,14 @@ import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { FDA_SEVERITY, coerceSeverityCasing, normalizeSeverityForDisplay } from "@/lib/severity";
 import { sanitizeServerError } from "@/lib/errors";
+
+// NOTE — actor identity (AUDIT Finding #2 / Rung 3E): never write
+// `session.user.id` into a User FK column (createdById /
+// investigationCompletedById / capaDecisionById). Admin logins are Tenant
+// rows, so session.user.id is a Tenant id → FK violation. Resolve the actor
+// via resolveUserFk() and gate authorship with requireGxPAuthor() (blocks
+// super_admin). `session.user.id` is still correct for plain identity
+// comparisons (SoD: reporter/investigator checks below).
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -73,6 +81,14 @@ export async function createDeviation(
   const parsed = CreateDeviationSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  // Rung 3E — resolve the authoring identity to a real User FK (admins are
+  // Tenant rows; super_admin is blocked from GxP authorship). See @/lib/auth.
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
   // SME Section 1, Stage 6 (FULL) â€” if previousCAPAId is supplied,
   // verify it exists in the caller's tenant before persisting the
@@ -151,7 +167,7 @@ export async function createDeviation(
             // SME Section 1, Stage 5 (FULL) â€” dual-write the denormalised
             // display-name cache + the authoritative userId FK.
             createdBy: session.user.name,
-            createdById: session.user.id,
+            createdById: actor.userId,
             // SME Section 1, Stage 6 (FULL) â€” recurrence link.
             previousCAPAId: parsed.data.previousCAPAId ?? null,
           },
@@ -630,6 +646,13 @@ export async function completeInvestigation(
   if (existing.createdById && existing.createdById === session.user.id) {
     return { success: false, error: "Investigation must be performed by someone other than the reporter." };
   }
+  // Rung 3E — resolve actor to a real User FK; block super_admin authorship.
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const deviation = await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
@@ -638,7 +661,7 @@ export async function completeInvestigation(
         rcaData: parsed.data.rcaData ?? null,
         rootCause: parsed.data.rootCause,
         investigationCompletedAt: new Date(),
-        investigationCompletedById: session.user.id,
+        investigationCompletedById: actor.userId,
       },
     });
     await prisma.auditLog.create({
@@ -778,6 +801,13 @@ export async function saveCAPADecision(
   }
   const guard = await guardCapaDecision(id, session);
   if (!guard.ok) return { success: false, error: guard.error };
+  // Rung 3E — resolve actor to a real User FK; block super_admin authorship.
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const deviation = await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
@@ -786,7 +816,7 @@ export async function saveCAPADecision(
         capaDecisionRequired: parsed.data.capaRequired,
         capaDecisionReason: parsed.data.reason,
         capaDecisionAt: new Date(),
-        capaDecisionById: session.user.id,
+        capaDecisionById: actor.userId,
       },
     });
     await prisma.auditLog.create({
@@ -824,6 +854,13 @@ export async function editCAPADecision(
   if (!guard.existing.capaDecisionMade) {
     return { success: false, error: "No existing CAPA decision to edit. Use Save Decision first." };
   }
+  // Rung 3E — resolve actor to a real User FK; block super_admin authorship.
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const deviation = await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
@@ -831,7 +868,7 @@ export async function editCAPADecision(
         capaDecisionRequired: parsed.data.capaRequired,
         capaDecisionReason: parsed.data.reason,
         capaDecisionAt: new Date(),
-        capaDecisionById: session.user.id,
+        capaDecisionById: actor.userId,
       },
     });
     await prisma.auditLog.create({

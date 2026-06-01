@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import {
   canonicalizeFDA483ResponseContent,
   computeContentHash,
@@ -259,22 +259,9 @@ export async function addObservation(
   }
 }
 
-/**
- * Resolve a session user id to a valid User FK, or null.
- *
- * super_admin / customer_admin accounts authenticate against the Tenant
- * table (see authorize() in the NextAuth route), so `session.user.id` is a
- * Tenant id for them — NOT a row in User. Writing it to a `*ById` User
- * foreign key (createdById / completedById / uploadedById) violates the
- * constraint. Resolve to the id only when it really is a User; otherwise the
- * (nullable) FK column is left null — matching the rest of the FDA 483
- * module, which records the actor via the FK-free `userName` audit field.
- */
-async function resolveUserFk(userId: string | null | undefined): Promise<string | null> {
-  if (!userId) return null;
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-  return u ? userId : null;
-}
+// NOTE — actor identity: never write `session.user.id` into a User FK column.
+// Admin logins are Tenant rows (session.user.id is a Tenant id) → FK violation.
+// Resolve via resolveUserFk() from @/lib/auth (AUDIT Finding #2 / Rung 3E).
 
 export async function addCommitment(
   input: z.input<typeof CreateCommitmentSchema>,
@@ -325,7 +312,7 @@ export async function addCommitment(
 
   // session.user.id may be a Tenant-row id (super_admin / customer_admin) —
   // resolve to a real User FK or null so createdById never violates its FK.
-  const createdById = await resolveUserFk(session.user.id);
+  const createdById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
 
   const MAX_REF_RETRIES = 5;
   let commitment: Awaited<ReturnType<typeof prisma.fDA483Commitment.create>> | null = null;
@@ -792,7 +779,7 @@ export async function markObservationResponseDrafted(id: string): Promise<Action
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: await resolveUserFk(session.user.id),
+        userId: (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "FDA 483",
@@ -847,7 +834,7 @@ export async function closeObservation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: await resolveUserFk(session.user.id),
+        userId: (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId,
         userName: session.user.name,
         userRole: session.user.role,
         module: "FDA 483",
@@ -1072,7 +1059,7 @@ export async function completeCommitment(
   if (!owned) return { success: false, error: "FORBIDDEN" };
   // Tenant-row logins (super_admin / customer_admin) aren't User rows —
   // resolve to a valid User FK or null for completedById / uploadedById.
-  const userFk = await resolveUserFk(session.user.id);
+  const userFk = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
   try {
     const commitment = await prisma.$transaction(async (tx) => {
       const updated = await tx.fDA483Commitment.update({

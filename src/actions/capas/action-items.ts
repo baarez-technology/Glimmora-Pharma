@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import {
   ACTION_ITEMS_AUDIT_MODULE,
@@ -15,6 +15,12 @@ import {
   type ActionResult,
 } from "./_types";
 import { sanitizeServerError } from "@/lib/errors";
+
+// NOTE — actor identity (AUDIT Finding #2 / Rung 3E): completedByUser is a
+// real User FK (completedById). Never connect `session.user.id` (a Tenant id
+// for admin logins) → FK violation. Resolve via resolveUserFk() + gate with
+// requireGxPAuthor(). (createdById here is a plain String, no FK — its
+// admin-identity correctness is a separate non-crashing follow-up.)
 
 /* â”€â”€ SME Section 1, Stage 4 (FULL) â€” Structured CAPA Action Plan items â”€â”€
  *
@@ -312,8 +318,17 @@ export async function updateActionItem(
   if (parsed.data.status !== undefined) {
     data.status = parsed.data.status;
     if (targetIsCompleteOrSkipped) {
+      // Rung 3E — completing an action item authors a GxP completion record.
+      // Resolve to a real User FK (admins are Tenant rows) and block
+      // super_admin authorship. customer_admin completes with a null FK + name.
+      const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+      try {
+        requireGxPAuthor(actor);
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+      }
       data.completedBy = session.user.name;
-      data.completedByUser = { connect: { id: session.user.id } };
+      data.completedByUser = actor.userId ? { connect: { id: actor.userId } } : { disconnect: true };
       data.completedAt = new Date();
       data.completionNotes = parsed.data.completionNotes!.trim();
     } else {

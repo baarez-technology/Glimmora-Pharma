@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
@@ -563,7 +563,7 @@ export async function deleteSystem(
   });
   if (!existing) return { success: false, error: "System not found" };
   if (existing.deletedAt) return { success: false, error: "System is already archived." };
-  const deletedById = await resolveUserFk(session.user.id);
+  const deletedById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
   try {
     await prisma.gxPSystem.update({
       where: { id, tenantId: session.user.tenantId },
@@ -620,7 +620,7 @@ export async function restoreSystem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: await resolveUserFk(session.user.id),
+        userId: (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId,
         userName: session.user.name,
         userRole: session.user.role,
         module: CSV_AUDIT_MODULE,
@@ -1466,14 +1466,10 @@ export async function raiseCAPAFromSystem(
 
 const COMPLETE_STAGE_STATUSES = new Set(["approved", "skipped"]);
 
-/** Resolve a session user id to a real User-table FK or null. Tenant-row
- *  logins (super_admin / customer_admin) aren't User rows; signedOffById has
- *  no DB FK but we still store a valid User id or null. Mirrors fda483. */
-async function resolveUserFk(userId: string | null | undefined): Promise<string | null> {
-  if (!userId) return null;
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-  return u ? userId : null;
-}
+// NOTE — actor identity: resolveUserFk() (from @/lib/auth) maps a session
+// principal to a real User.id or null. signedOffById / deletedById here are
+// stored as a valid User id or null (admin Tenant ids must never leak in).
+// See AUDIT Finding #2 / Rung 3E.
 
 /** Part 11 / Annex 11 columns store free text ("Compliant" | "Partial" |
  *  "N/A" | "Non-Compliant"). Only an explicit "Compliant" snapshots as a pass. */
@@ -1634,7 +1630,7 @@ export async function signValidation(
     }),
   );
   const provenance = await readSigningProvenance();
-  const signedOffById = await resolveUserFk(session.user.id);
+  const signedOffById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
 
   try {
     const sig = await prisma.$transaction(async (tx) => {
@@ -1751,7 +1747,7 @@ export async function unsignValidation(
       await tx.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: await resolveUserFk(session.user.id),
+          userId: (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId,
           userName: session.user.name,
           userRole: session.user.role,
           module: CSV_AUDIT_MODULE,
