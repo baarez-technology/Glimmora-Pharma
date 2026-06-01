@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { generateReference, isReferenceConflict } from "@/lib/reference";
 import {
   CHANGE_CONTROL_RISKS,
@@ -337,6 +337,12 @@ export async function createChangeControl(
     };
   }
 
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
+
   try {
     const MAX_RETRIES = 5;
     let cc: Awaited<ReturnType<typeof prisma.changeControl.create>> | null = null;
@@ -397,9 +403,9 @@ export async function createChangeControl(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_CREATED",
         recordId: cc.id,
@@ -455,6 +461,12 @@ export async function updateChangeControl(
     };
   }
 
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
+
   try {
     const before = {
       description: existing.description,
@@ -489,9 +501,9 @@ export async function updateChangeControl(
     await prisma.auditLog.create({
       data: {
         tenantId: existing.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_UPDATED",
         recordId: id,
@@ -607,6 +619,12 @@ export async function transitionChangeControlStatus(
   // require a Part 11 e-signature. Administrative transitions stay
   // unsigned. The signing block runs BEFORE the state change so a wrong
   // password yields zero side effects beyond the failed-attempt audit row.
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
+
   const isSignedTransition = SIGNED_TRANSITION_TARGETS.has(toStatus);
   if (isSignedTransition) {
     if (!parsed.data.password || parsed.data.password.length === 0) {
@@ -623,9 +641,9 @@ export async function transitionChangeControlStatus(
       await prisma.auditLog.create({
         data: {
           tenantId: existing.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: SIGNING_AUDIT_MODULE,
           action: "SIGNING_PASSWORD_FAILED",
           recordId: id,
@@ -741,9 +759,9 @@ export async function transitionChangeControlStatus(
       await prisma.auditLog.create({
         data: {
           tenantId: existing.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: AUDIT_MODULE_CC,
           action: "CHANGE_CONTROL_STATUS_CHANGED",
           recordId: id,
@@ -769,9 +787,9 @@ export async function transitionChangeControlStatus(
         await prisma.auditLog.create({
           data: {
             tenantId: existing.tenantId,
-            userId: session.user.id,
-            userName: session.user.name,
-            userRole: session.user.role,
+            userId: actor.userId,
+            userName: actor.displayName,
+            userRole: actor.role,
             module: SIGNING_AUDIT_MODULE,
             action: "CHANGE_CONTROL_TRANSITION_SIGNED",
             recordId: signedRecordId,
@@ -846,6 +864,12 @@ export async function softDeleteChangeControl(
     };
   }
 
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
+
   try {
     const updated = await prisma.changeControl.update({
       where: { id },
@@ -859,9 +883,9 @@ export async function softDeleteChangeControl(
     await prisma.auditLog.create({
       data: {
         tenantId: existing.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_SOFT_DELETED",
         recordId: id,
@@ -945,6 +969,12 @@ export async function linkCAPAToChangeControl(
     };
   }
 
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
+
   try {
     const link = await prisma.cAPAChangeControlLink.create({
       data: {
@@ -960,9 +990,9 @@ export async function linkCAPAToChangeControl(
     await prisma.auditLog.create({
       data: {
         tenantId: capa.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE_LINK,
         action: "CAPA_CC_LINKED",
         recordId: link.id,
@@ -1024,6 +1054,12 @@ export async function unlinkCAPAFromChangeControl(
   });
   if (!link) return { success: false, error: "Link not found" };
 
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
+
   try {
     const snapshot = {
       capaId: link.capaId,
@@ -1039,9 +1075,9 @@ export async function unlinkCAPAFromChangeControl(
     await prisma.auditLog.create({
       data: {
         tenantId: link.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE_LINK,
         action: "CAPA_CC_UNLINKED",
         recordId: linkId,

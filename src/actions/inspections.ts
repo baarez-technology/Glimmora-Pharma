@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
 
 type ActionResult<T = unknown> =
@@ -52,6 +52,11 @@ export async function createInspection(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     const inspection = await prisma.inspection.create({
       data: {
@@ -82,8 +87,9 @@ export async function createInspection(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "INSPECTION_CREATED",
         recordId: inspection.id,
@@ -108,6 +114,11 @@ export async function markActionComplete(actionId: string): Promise<ActionResult
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     const action = await prisma.readinessAction.update({
       where: { id: actionId },
@@ -120,8 +131,9 @@ export async function markActionComplete(actionId: string): Promise<ActionResult
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "ACTION_MARKED_COMPLETE",
         recordId: actionId,
@@ -145,6 +157,11 @@ export async function completeInspection(
   if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
     return { success: false, error: "Only QA Head can complete inspections" };
   }
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     const inspection = await prisma.inspection.update({
       where: { id, tenantId: session.user.tenantId },
@@ -158,8 +175,9 @@ export async function completeInspection(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "INSPECTION_COMPLETED",
         recordId: id,
@@ -206,6 +224,11 @@ export async function createTrainingRecord(
     tenantId: string;
   }>(session, "inspection", parsed.data.inspectionId);
   if (!parent) return { success: false, error: "FORBIDDEN" };
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     const record = await prisma.trainingRecord.create({
       data: {
@@ -217,8 +240,9 @@ export async function createTrainingRecord(
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "TRAINING_RECORD_CREATED",
         recordId: record.id,
@@ -247,6 +271,11 @@ export async function completeTrainingRecord(
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     const record = await prisma.trainingRecord.update({
       where: { id },
@@ -260,8 +289,9 @@ export async function completeTrainingRecord(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "TRAINING_COMPLETED",
         recordId: id,
@@ -307,6 +337,11 @@ export async function createSimulation(
     tenantId: string;
   }>(session, "inspection", parsed.data.inspectionId);
   if (!parent) return { success: false, error: "FORBIDDEN" };
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     const sim = await prisma.simulation.create({
       data: {
@@ -323,8 +358,9 @@ export async function createSimulation(
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "SIMULATION_SCHEDULED",
         recordId: sim.id,
@@ -353,6 +389,11 @@ export async function completeSimulation(
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     const sim = await prisma.simulation.update({
       where: { id },
@@ -365,8 +406,9 @@ export async function completeSimulation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "SIMULATION_COMPLETED",
         recordId: id,
@@ -403,6 +445,11 @@ export async function createPlaybook(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     const playbook = await prisma.playbook.create({
       data: {
@@ -414,8 +461,9 @@ export async function createPlaybook(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "PLAYBOOK_CREATED",
         recordId: playbook.id,
@@ -440,13 +488,19 @@ export async function deletePlaybook(id: string): Promise<ActionResult> {
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(
+    session.user.id,
+    session.user.tenantId,
+    session.user.role,
+  );
   try {
     await prisma.playbook.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Inspection Readiness",
         action: "PLAYBOOK_DELETED",
         recordId: id,
