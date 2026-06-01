@@ -110,6 +110,14 @@ const STAGE_REVIEW_ROLES: readonly string[] = ["qa_head", "customer_admin", "sup
 // legacy value — reject now lands a stage in "in_progress").
 const SUBMITTABLE_STAGE_STATUSES: readonly string[] = ["not_started", "in_progress", "draft", "rejected"];
 
+// RUNG 3A — server-side authorization for system inventory writes. Editing the
+// inventory is validation work (Validation Lead + QA + admins); deleting a
+// (possibly validated) system is an admin-tier destructive act, so delete is
+// the narrower set. Raw session role (NOT resolveUserFk). The Validation Lead
+// role key is "csv_val_lead" (see src/hooks/useRole.ts ROLE_LABELS).
+const SYSTEM_WRITE_ROLES: readonly string[] = ["csv_val_lead", "qa_head", "customer_admin", "super_admin"];
+const SYSTEM_DELETE_ROLES: readonly string[] = ["customer_admin", "super_admin"];
+
 /**
  * Next per-site system reference: SYS-<SITE_CODE>-<NNNN> (4-digit, zero-padded,
  * sequential per site within the tenant). Reads the highest existing reference
@@ -210,6 +218,10 @@ export async function createSystem(
   input: z.input<typeof CreateSystemSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  // RUNG 3A — gate creation to system-write roles (server-side, not just UI).
+  if (!SYSTEM_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "You do not have permission to create systems." };
+  }
   const parsed = CreateSystemSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
@@ -297,6 +309,10 @@ export async function updateSystem(
   input: z.input<typeof UpdateSystemSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  // RUNG 3A — gate edits to system-write roles (server-side, not just UI).
+  if (!SYSTEM_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "You do not have permission to edit systems." };
+  }
   // RUNG 1: was unvalidated (audit Finding #7). Validate before write.
   const parsed = UpdateSystemSchema.safeParse(input);
   if (!parsed.success) {
@@ -497,6 +513,11 @@ export async function rejectStage(stageId: string, reason: string): Promise<Acti
 
 export async function deleteSystem(id: string): Promise<ActionResult> {
   const session = await requireAuth();
+  // RUNG 3A — deletion is an admin-tier destructive act (cascade unchanged;
+  // soft-delete is Rung 3B). Narrower gate than create/update.
+  if (!SYSTEM_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only an admin can delete systems." };
+  }
   try {
     await prisma.gxPSystem.delete({
       where: { id, tenantId: session.user.tenantId },
