@@ -103,6 +103,13 @@ function toSystemData(d: Partial<z.infer<typeof SystemWritableSchema>>) {
 
 const STANDARD_STAGES = ["URS", "FS", "DS", "IQ", "OQ", "PQ", "RTR"] as const;
 
+// RUNG 2.8-verify — roles permitted to approve/reject a stage under review.
+// (Submit is open to all compliance roles; only viewers are blocked there.)
+const STAGE_REVIEW_ROLES: readonly string[] = ["qa_head", "customer_admin", "super_admin"];
+// Statuses a stage may be submitted FROM (pre-review states; "rejected" is a
+// legacy value — reject now lands a stage in "in_progress").
+const SUBMITTABLE_STAGE_STATUSES: readonly string[] = ["not_started", "in_progress", "draft", "rejected"];
+
 /**
  * Next per-site system reference: SYS-<SITE_CODE>-<NNNN> (4-digit, zero-padded,
  * sequential per site within the tenant). Reads the highest existing reference
@@ -329,13 +336,18 @@ export async function submitStageForReview(stageId: string): Promise<ActionResul
   if (session.user.role === "viewer") {
     return { success: false, error: "Viewers cannot submit stages for review." };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
-  if (session.user.role !== "super_admin") {
-    const owned = await prisma.validationStage.findFirst({
-      where: { id: stageId, system: { tenantId: session.user.tenantId } },
-      select: { id: true },
-    });
-    if (!owned) return { success: false, error: "FORBIDDEN" };
+  // Load for tenant scope (IDOR guard) + status precondition (all roles).
+  const stage0 = await prisma.validationStage.findFirst({
+    where: session.user.role === "super_admin"
+      ? { id: stageId }
+      : { id: stageId, system: { tenantId: session.user.tenantId } },
+    select: { id: true, status: true },
+  });
+  if (!stage0) return { success: false, error: "FORBIDDEN" };
+  // RUNG 2.8-verify — a stage can only be submitted from a pre-review state;
+  // blocks re-submitting one that is already under review or approved/skipped.
+  if (!SUBMITTABLE_STAGE_STATUSES.includes(stage0.status)) {
+    return { success: false, error: "This stage cannot be submitted — it is already under review or completed." };
   }
   try {
     const stage = await prisma.validationStage.update({
@@ -375,7 +387,7 @@ export async function submitStageForReview(stageId: string): Promise<ActionResul
 
 export async function approveStage(stageId: string): Promise<ActionResult> {
   const session = await requireAuth();
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!STAGE_REVIEW_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can approve stages" };
   }
   // Load the stage for tenant scope (IDOR guard) AND the self-approval check.
@@ -386,6 +398,13 @@ export async function approveStage(stageId: string): Promise<ActionResult> {
     select: { id: true, status: true, submittedById: true },
   });
   if (!stage0) return { success: false, error: "FORBIDDEN" };
+  // RUNG 2.8-verify — a stage can only be approved while Under Review. This is
+  // also the null-submitter guard: only submitStageForReview sets "in_review"
+  // (and a submittedById), so an in_review stage always carries a submitter to
+  // compare against below — a never-submitted (null) stage can never reach here.
+  if (stage0.status !== "in_review") {
+    return { success: false, error: "This stage is not under review — it must be submitted for QA review before it can be approved." };
+  }
   // RUNG 2.8 — bright-line SoD: the user who submitted a stage may NOT approve
   // it. Compared on session.user.id (a Tenant id for admins, a User id
   // otherwise) — NOT resolveUserFk, which would null out admin identities and
@@ -425,16 +444,20 @@ export async function approveStage(stageId: string): Promise<ActionResult> {
 
 export async function rejectStage(stageId: string, reason: string): Promise<ActionResult> {
   const session = await requireAuth();
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!STAGE_REVIEW_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can reject stages" };
   }
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
-  if (session.user.role !== "super_admin") {
-    const owned = await prisma.validationStage.findFirst({
-      where: { id: stageId, system: { tenantId: session.user.tenantId } },
-      select: { id: true },
-    });
-    if (!owned) return { success: false, error: "FORBIDDEN" };
+  // Load for tenant scope (IDOR guard) + status precondition.
+  const stage0 = await prisma.validationStage.findFirst({
+    where: session.user.role === "super_admin"
+      ? { id: stageId }
+      : { id: stageId, system: { tenantId: session.user.tenantId } },
+    select: { id: true, status: true },
+  });
+  if (!stage0) return { success: false, error: "FORBIDDEN" };
+  // RUNG 2.8-verify — only a stage Under Review can be rejected.
+  if (stage0.status !== "in_review") {
+    return { success: false, error: "This stage is not under review — only a stage submitted for QA review can be rejected." };
   }
   try {
     const stage = await prisma.validationStage.update({
