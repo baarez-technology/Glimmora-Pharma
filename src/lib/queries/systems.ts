@@ -12,32 +12,71 @@ const STAGE_INCLUDE = {
   },
 };
 
+// RUNG 2 — minimal selects for the cross-module FK relations surfaced in the
+// system detail page (linked findings / CAPAs, and per-RTM linkage).
+const FINDING_SELECT = { id: true, reference: true, status: true, requirement: true, severity: true, targetDate: true, createdAt: true } as const;
+const CAPA_SELECT = { id: true, reference: true, status: true, description: true, risk: true, owner: true, dueDate: true, createdAt: true } as const;
+const RTM_LINK_INCLUDE = {
+  finding: { select: { id: true, reference: true, status: true } },
+  capa: { select: { id: true, reference: true, status: true } },
+} as const;
+
+const SYSTEM_INCLUDE = {
+  validationStages: { orderBy: { stageName: "asc" as const }, include: STAGE_INCLUDE },
+  rtmEntries: { orderBy: { ursId: "asc" as const }, include: RTM_LINK_INCLUDE },
+  roadmapActivities: { orderBy: { startDate: "asc" as const } },
+  findings: { select: FINDING_SELECT, orderBy: { createdAt: "desc" as const } },
+  capas: { select: CAPA_SELECT, orderBy: { createdAt: "desc" as const } },
+} as const;
+
 export const getSystems = cache(async (tenantId: string) => {
   return prisma.gxPSystem.findMany({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
-    include: {
-      validationStages: {
-        orderBy: { stageName: "asc" },
-        include: STAGE_INCLUDE,
-      },
-      rtmEntries: { orderBy: { ursId: "asc" } },
-      roadmapActivities: { orderBy: { startDate: "asc" } },
-    },
+    include: SYSTEM_INCLUDE,
   });
 });
 
 export const getSystem = cache(async (id: string, tenantId: string) => {
   return prisma.gxPSystem.findFirst({
     where: { id, tenantId },
-    include: {
-      validationStages: {
-        orderBy: { stageName: "asc" },
-        include: STAGE_INCLUDE,
-      },
-      rtmEntries: { orderBy: { ursId: "asc" } },
-      roadmapActivities: { orderBy: { startDate: "asc" } },
-    },
+    include: SYSTEM_INCLUDE,
+  });
+});
+
+/** RUNG 2 — routed detail lookup by human reference OR raw cuid. */
+export const getSystemByRef = cache(async (refOrId: string, tenantId: string) => {
+  return prisma.gxPSystem.findFirst({
+    where: { tenantId, OR: [{ reference: refOrId }, { id: refOrId }] },
+    include: SYSTEM_INCLUDE,
+  });
+});
+
+/** Tenant findings not yet linked to any system — candidates for the
+ *  "Link finding" picker on the system detail page. */
+export const getLinkableFindings = cache(async (tenantId: string) => {
+  return prisma.finding.findMany({
+    where: { tenantId, systemId: null },
+    select: { id: true, reference: true, requirement: true, status: true },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+});
+
+/** 3 most-recent audit entries for a system + its child records. */
+export const getSystemRecentActivity = cache(async (systemId: string, tenantId: string) => {
+  const sys = await prisma.gxPSystem.findFirst({
+    where: { id: systemId, tenantId },
+    select: { id: true, validationStages: { select: { id: true } }, rtmEntries: { select: { id: true } } },
+  });
+  if (!sys) return [];
+  const ids = [sys.id, ...sys.validationStages.map((s) => s.id), ...sys.rtmEntries.map((r) => r.id)];
+  return prisma.auditLog.findMany({
+    // RUNG 3C — module string unified to "CSV/CSA" (the legacy "CSV / Validation"
+    // split is backfilled away). Single value now matches all CSV/CSA entries.
+    where: { tenantId, recordId: { in: ids }, module: "CSV/CSA" },
+    orderBy: { createdAt: "desc" },
+    take: 3,
   });
 });
 
