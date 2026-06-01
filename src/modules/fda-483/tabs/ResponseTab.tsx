@@ -20,7 +20,7 @@ import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
-import { daysUntil, getEffectiveEventStatus } from "../_shared";
+import { daysUntil, getEffectiveEventStatus, FDA483_AUDIT_MODULE } from "../_shared";
 
 /* ── Helpers ──
  * Inline daysLeft + getEffectiveStatus extracted to ../_shared.ts.
@@ -361,7 +361,7 @@ export function ResponseTab({
           <DocumentUpload
             recordId={liveEvent.id + "_response"}
             recordTitle="Response Package"
-            module="FDA 483 Response"
+            module={FDA483_AUDIT_MODULE}
             existingDocs={liveEvent.responseDocuments ?? []}
             onUpload={async (doc) => {
               // <DocumentUpload> hands us a fully-formed LinkedDocument; map

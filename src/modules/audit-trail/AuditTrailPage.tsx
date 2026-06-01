@@ -30,19 +30,36 @@ import { AuditEventRow, type Severity } from "./_components/AuditEventRow";
    would just be churn. The CRITICAL/STATUS/CREATE sets back the severity
    dot in the row AND the "Critical only" quick-filter chip. */
 
-const MODULES = [
-  "all",
-  "Gap Assessment",
-  "CAPA",
-  "Deviation Management",
-  "FDA 483",
-  "CSV/CSA",
-  "Evidence & Documents",
-  "Governance",
-  "Inspection Readiness",
-  "Settings",
-  "Admin",
-  "AGI Console",
+// Module filter options. The filter is strict-equality (e.module === value),
+// so each `value` MUST exactly match a `module` string written by an
+// auditLog.create / auditAuthEvent call — `label` is display-only. Rung 3G
+// expanded this to cover every module string the code writes today (incl. the
+// CAPA sub-area strings and the login-path "auth" rows, previously
+// unfilterable) and unified "FDA 483 Response" into "FDA 483".
+const MODULES: { value: string; label: string }[] = [
+  { value: "all", label: "All modules" },
+  { value: "Gap Assessment", label: "Gap Assessment" },
+  { value: "CAPA", label: "CAPA" },
+  { value: "CAPA / Action Items", label: "CAPA / Action Items" },
+  { value: "CAPA / Alignment", label: "CAPA / Alignment" },
+  { value: "CAPA / Approvals", label: "CAPA / Approvals" },
+  { value: "CAPA / Change Control", label: "CAPA / Change Control" },
+  { value: "CAPA / Discussion", label: "CAPA / Discussion" },
+  { value: "CAPA / Effectiveness", label: "CAPA / Effectiveness" },
+  { value: "CAPA / Evidence", label: "CAPA / Evidence" },
+  { value: "CAPA / RCA Review", label: "CAPA / RCA Review" },
+  { value: "CAPA / Verification", label: "CAPA / Verification" },
+  { value: "Change Control", label: "Change Control" },
+  { value: "Deviation Management", label: "Deviation Management" },
+  { value: "FDA 483", label: "FDA 483" },
+  { value: "CSV/CSA", label: "CSV/CSA" },
+  { value: "Evidence & Documents", label: "Evidence & Documents" },
+  { value: "Governance", label: "Governance" },
+  { value: "Inspection Readiness", label: "Inspection Readiness" },
+  { value: "Settings", label: "Settings" },
+  { value: "Admin", label: "Admin" },
+  { value: "auth", label: "Authentication" },
+  { value: "AGI Console", label: "AGI Console" },
 ];
 
 const ACTION_GROUPS = [
@@ -406,7 +423,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
             <Dropdown
               value={filters.module}
               onChange={(v) => setFilter("module", v)}
-              options={MODULES.map((m) => ({ value: m, label: m === "all" ? "All modules" : m }))}
+              options={MODULES}
               width="w-40"
             />
             <Dropdown

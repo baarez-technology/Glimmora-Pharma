@@ -49,7 +49,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { computeReadinessRows, getEffectiveEventStatus } from "../_shared";
+import { computeReadinessRows, getEffectiveEventStatus, FDA483_AUDIT_MODULE } from "../_shared";
 import type { DetailTab } from "../useEventDetailUrlState";
 
 export interface ResponseDetailTabProps {
@@ -684,7 +684,7 @@ export function ResponseDetailTab({
             <DocumentUpload
               recordId={liveEvent.id + "_response"}
               recordTitle="Response Package"
-              module="FDA 483 Response"
+              module={FDA483_AUDIT_MODULE}
               existingDocs={liveEvent.responseDocuments ?? []}
               onUpload={async (doc) => {
                 // Server Actions throw — they don't return { success: false }

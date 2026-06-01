@@ -35,7 +35,7 @@ import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import type { FDA483Event, EventStatus, Observation, Commitment } from "@/types/fda483";
-import { daysUntil, eventStatusBadge, getEffectiveEventStatus } from "./_shared";
+import { daysUntil, eventStatusBadge, getEffectiveEventStatus, FDA483_AUDIT_MODULE } from "./_shared";
 import {
   createFDA483Event,
   addObservation as addObservationServer,
@@ -233,7 +233,7 @@ function adaptEvent(p: PrismaEventWithRelations): FDA483Event {
       uploadedAt: d.createdAt.toISOString(),
       version: "v1.0",
       status: "current" as const,
-      linkedTo: { module: "FDA 483 Response", recordId: p.id, recordTitle: p.referenceNumber },
+      linkedTo: { module: FDA483_AUDIT_MODULE, recordId: p.id, recordTitle: p.referenceNumber },
       dataUrl: d.fileUrl,
     })),
     linkedCapas: [],

@@ -33,6 +33,12 @@ import {
 
 export type { EventStatus, EventType, ObservationStatus, ObservationSeverity };
 
+/** Canonical audit-log module string for the FDA 483 module — the single
+ *  source of truth shared by server actions (fda483.ts) and the response-tab
+ *  DocumentUpload writers. Rung 3G unified the prior "FDA 483" / "FDA 483
+ *  Response" split onto this one value (mirrors CSV_AUDIT_MODULE). */
+export const FDA483_AUDIT_MODULE = "FDA 483" as const;
+
 /* ── Variant maps — exhaustive Records (TS enforces all keys present) ── */
 
 export const FDA483_EVENT_STATUS_VARIANT: Record<EventStatus, BadgeVariant> = {
