@@ -249,6 +249,11 @@ export async function updateDeviation(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const { dueDate, detectedDate, ...rest } = parsed.data;
     const deviation = await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
@@ -307,6 +312,11 @@ export async function closeDeviation(
   if (!existing) return { success: false, error: "Deviation not found" };
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   // SME Section 1, Stage 1 â€” CAPA Decision Gate.
   // A Critical deviation cannot be closed until a CAPA exists and is linked.
@@ -518,6 +528,11 @@ export async function rejectDeviation(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const deviation = await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
       data: { status: "rejected" },
@@ -605,6 +620,11 @@ export async function saveInvestigationProgress(
     return { success: false, error: "Investigation must be performed by someone other than the reporter." };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const deviation = await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
@@ -706,6 +726,12 @@ export async function startInvestigation(id: string): Promise<ActionResult> {
   if (session.user.role === "viewer") {
     return { success: false, error: "Viewers cannot start an investigation." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   const updated = await prisma.deviation.updateMany({
     where: { id, tenantId: session.user.tenantId, status: "open" },
     data: { status: "under_investigation" },
@@ -713,7 +739,6 @@ export async function startInvestigation(id: string): Promise<ActionResult> {
   if (updated.count === 0) {
     return { success: false, error: "Only an open deviation can be moved into investigation." };
   }
-  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   await prisma.auditLog.create({
     data: {
       tenantId: session.user.tenantId,
@@ -742,6 +767,12 @@ export async function submitDeviationForReview(id: string): Promise<ActionResult
   if (session.user.role === "viewer") {
     return { success: false, error: "Viewers cannot submit a deviation for review." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   const updated = await prisma.deviation.updateMany({
     where: { id, tenantId: session.user.tenantId, status: "under_investigation" },
     data: { status: "pending_qa_review" },
@@ -749,7 +780,6 @@ export async function submitDeviationForReview(id: string): Promise<ActionResult
   if (updated.count === 0) {
     return { success: false, error: "Only a deviation under investigation can be submitted for QA review." };
   }
-  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   await prisma.auditLog.create({
     data: {
       tenantId: session.user.tenantId,
@@ -910,6 +940,11 @@ export async function editCAPADecision(
 export async function deleteDeviation(id: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.deviation.delete({
       where: { id, tenantId: session.user.tenantId },

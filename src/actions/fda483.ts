@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import {
   canonicalizeFDA483ResponseContent,
   computeContentHash,
@@ -97,6 +97,11 @@ export async function createFDA483Event(
   }
   try {
     const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+    try {
+      requireGxPAuthor(actor);
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    }
     const d = parsed.data;
     // Resolve the internal owner's name for the audit trail (best-effort).
     const owner = await prisma.user.findUnique({
@@ -147,6 +152,11 @@ export async function updateFDA483Event(
   const session = await requireAuth();
   try {
     const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+    try {
+      requireGxPAuthor(actor);
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    }
     const event = await prisma.fDA483Event.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
@@ -197,6 +207,11 @@ export async function addObservation(
   if (!parent) return { success: false, error: "FORBIDDEN" };
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   // SME final rung â€” site-scoped reference. FDA483Observation has no
   // siteId of its own; the site is resolved via the parent FDA483Event's
@@ -322,6 +337,11 @@ export async function addCommitment(
   // resolve to a real User FK or null so createdById never violates its FK.
   const createdById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   const MAX_REF_RETRIES = 5;
   let commitment: Awaited<ReturnType<typeof prisma.fDA483Commitment.create>> | null = null;
@@ -392,6 +412,11 @@ export async function deleteFDA483Event(id: string): Promise<ActionResult> {
   const session = await requireAuth();
   try {
     const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+    try {
+      requireGxPAuthor(actor);
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    }
     await prisma.fDA483Event.delete({
       where: { id, tenantId: session.user.tenantId },
     });
@@ -425,6 +450,11 @@ export async function saveResponseDraft(
   const session = await requireAuth();
   try {
     const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+    try {
+      requireGxPAuthor(actor);
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    }
     const event = await prisma.fDA483Event.update({
       where: { id: eventId, tenantId: session.user.tenantId },
       data: {
@@ -461,6 +491,11 @@ export async function saveAGIDraft(
   const session = await requireAuth();
   try {
     const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+    try {
+      requireGxPAuthor(actor);
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    }
     const event = await prisma.fDA483Event.update({
       where: { id: eventId, tenantId: session.user.tenantId },
       data: { agiDraft },
@@ -518,6 +553,11 @@ export async function signSubmitFDA483Response(
   if (!existing) return { success: false, error: "FDA 483 event not found" };
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   // Â§11.200(a)(1)(ii) â€” re-authenticate at the moment of signing.
   const passwordOk = await verifyPasswordForSigning(
@@ -699,6 +739,11 @@ export async function updateObservation(
     rcaChanged && existing.capaId ? existing.capaId : null;
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const obs = await prisma.$transaction(async (tx) => {
@@ -797,6 +842,11 @@ export async function markObservationResponseDrafted(id: string): Promise<Action
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const obs = await prisma.fDA483Observation.update({ where: { id }, data: { status: "Response Drafted" } });
     await prisma.auditLog.create({
       data: {
@@ -853,6 +903,11 @@ export async function closeObservation(
   if (existing.status === "Closed") return { success: false, error: "Observation is already closed." };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const obs = await prisma.fDA483Observation.update({ where: { id }, data: { status: "Closed" } });
     await prisma.auditLog.create({
       data: {
@@ -892,6 +947,11 @@ export async function linkCAPAToEvent(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     await prisma.fDA483Observation.update({
       where: { id: observationId },
       data: { capaId, status: "CAPA Linked" },
@@ -928,6 +988,11 @@ export async function deleteObservation(id: string): Promise<ActionResult> {
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.fDA483Observation.delete({ where: { id } });
     await prisma.auditLog.create({
@@ -987,6 +1052,11 @@ export async function updateCommitment(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const commitment = await prisma.fDA483Commitment.update({
       where: { id },
       data: {
@@ -1025,6 +1095,11 @@ export async function deleteCommitment(id: string): Promise<ActionResult> {
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.fDA483Commitment.delete({ where: { id } });
     await prisma.auditLog.create({
@@ -1093,6 +1168,11 @@ export async function completeCommitment(
   const userFk = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const commitment = await prisma.$transaction(async (tx) => {
       const updated = await tx.fDA483Commitment.update({
         where: { id },
@@ -1158,6 +1238,11 @@ export async function reopenCommitment(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const commitment = await prisma.fDA483Commitment.update({
       where: { id },
       data: { status: "Pending", completedAt: null, completedById: null },
@@ -1213,6 +1298,11 @@ export async function addResponseDocument(
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   // IDOR guard - verify the caller's tenant owns the parent event before
   // inserting the document (canonical pattern: same assertTenantOwnsParent
   // helper addObservation uses). Returns null for a missing event OR one
@@ -1289,6 +1379,11 @@ export async function removeResponseDocument(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     await prisma.fDA483Document.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
@@ -1362,6 +1457,11 @@ export async function raiseCAPAFromObservation(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     // 1) Create the CAPA via the canonical createCAPA so it gets a real
