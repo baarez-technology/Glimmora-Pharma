@@ -52,7 +52,7 @@ function isReviewOverdue(sys: GxPSystem): boolean {
 }
 
 function complianceBadge(s: ComplianceStatus) {
-  const m: Record<ComplianceStatus, "green" | "red" | "amber" | "gray"> = { Compliant: "green", "Non-Compliant": "red", "In Progress": "amber", "N/A": "gray" };
+  const m: Record<ComplianceStatus, "green" | "red" | "amber" | "gray"> = { Compliant: "green", "Non-Compliant": "red", Partial: "amber", "In Progress": "amber", "N/A": "gray" };
   return <Badge variant={m[s]}>{s}</Badge>;
 }
 

@@ -73,8 +73,10 @@ const SystemWritableSchema = z.object({
   vendor: z.string().optional(),
   version: z.string().optional(),
   gxpRelevance: z.string().optional(),
-  part11Status: z.string().optional(),
-  annex11Status: z.string().optional(),
+  // RUNG 3K — closed value space (was z.string()): only canonical
+  // ComplianceStatus values are accepted at the server-action boundary.
+  part11Status: z.enum(["Compliant", "Non-Compliant", "Partial", "In Progress", "N/A"]).optional(),
+  annex11Status: z.enum(["Compliant", "Non-Compliant", "Partial", "In Progress", "N/A"]).optional(),
   gamp5Category: z.string().optional(),
   riskLevel: z.string().optional(),
   validationStatus: z.string().optional(),

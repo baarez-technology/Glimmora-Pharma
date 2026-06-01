@@ -3,6 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Save, Info } from "lucide-react";
 import type { SystemType } from "@/types/csv-csa";
+import { GAMP5_CATEGORIES } from "@/types/csv-csa";
 import type { UserConfig, SiteConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -113,7 +114,7 @@ export function AddSystemModal({ open, sites, users, onSave, onClose, lockedSite
           </div>
           <div>
             <label className={lbl} style={{ color: "var(--text-muted)" }}>GAMP 5 category *</label>
-            <Controller name="gamp5Category" control={control} render={({ field }) => (<Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[{ value: "1", label: "Cat 1 — Infrastructure" }, { value: "3", label: "Cat 3 — Non-configured" }, { value: "4", label: "Cat 4 — Configured software" }, { value: "5", label: "Cat 5 — Custom software" }]} />)} />
+            <Controller name="gamp5Category" control={control} render={({ field }) => (<Dropdown value={field.value} onChange={field.onChange} width="w-full" options={GAMP5_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))} />)} />
             <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>Cat 5 requires full IQ/OQ/PQ</p>
           </div>
         </div>

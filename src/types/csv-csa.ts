@@ -33,8 +33,21 @@ export type ValidationStatus =
   | "Not Started"
   | "Under Review"
   | "Validation Failed";
-export type ComplianceStatus = "Compliant" | "Non-Compliant" | "In Progress" | "N/A";
+// RUNG 3K — "Partial" added to close the audit gap (the DB carried a real
+// partial-compliance value, formerly "Gaps Identified", backfilled to
+// "Partial"). Server-side enforced via a zod enum in src/actions/systems.ts.
+export type ComplianceStatus = "Compliant" | "Non-Compliant" | "Partial" | "In Progress" | "N/A";
 export type GAMP5Category = "1" | "3" | "4" | "5";
+
+// RUNG 3K — single source of truth for GAMP 5 category dropdown options
+// (was duplicated verbatim in AddSystemModal + EditSystemModal). Labels are
+// the exact strings those modals used.
+export const GAMP5_CATEGORIES = [
+  { value: "1", label: "Cat 1 — Infrastructure" },
+  { value: "3", label: "Cat 3 — Non-configured" },
+  { value: "4", label: "Cat 4 — Configured software" },
+  { value: "5", label: "Cat 5 — Custom software" },
+] as const;
 export type RiskLevel = "HIGH" | "MEDIUM" | "LOW";
 
 export type ValidationStageKey = "URS" | "FS" | "DS" | "IQ" | "OQ" | "PQ" | "RTR";
