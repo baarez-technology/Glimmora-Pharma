@@ -15,6 +15,7 @@ import { assertTenantOwnsParent } from "@/lib/tenantScope";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { GENERIC_SEVERITY } from "@/lib/severity";
 import { sanitizeServerError } from "@/lib/errors";
+import { createCAPA } from "@/actions/capas/lifecycle";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -1231,30 +1232,25 @@ export async function raiseCAPAFromObservation(
   }
 
   try {
-    // 1) Create the CAPA. The slice previously stamped a custom ID like
-    //    "CAPA-1234" â€” we let cuid() handle it for consistency with the
-    //    rest of the schema.
-    const capa = await prisma.cAPA.create({
-      data: {
-        tenantId: session.user.tenantId,
-        source: "FDA 483",
-        description,
-        risk,
-        owner: d.owner,
-        siteId: d.siteId ?? null,
-        dueDate: new Date(d.dueDate),
-        status: "open",
-        rca: d.rootCause ?? null,
-        rcaMethod: d.rcaMethod ?? null,
-        // DI gate auto-required for IT / CSV Lead origins.
-        diGate: session.user.role === "it_cdo" || session.user.role === "csv_val_lead",
-        diGateStatus:
-          session.user.role === "it_cdo" || session.user.role === "csv_val_lead"
-            ? "pending"
-            : null,
-        createdBy: session.user.name,
-      },
+    // 1) Create the CAPA via the canonical createCAPA so it gets a real
+    //    CAPA-<SITE>-<YEAR>-<NNN> reference + the shared role gate + audit,
+    //    exactly like Gap / Deviation / CSV/CSA (was a direct prisma.cAPA.create
+    //    with no reference). Full field parity preserved: rca/rcaMethod flow
+    //    through, and diGate/diGateStatus are reproduced via diGateRequired
+    //    (auto-required for IT / CSV Lead origins).
+    const created = await createCAPA({
+      source: "FDA 483",
+      description,
+      risk,
+      owner: d.owner,
+      siteId: d.siteId ?? undefined,
+      dueDate: d.dueDate,
+      rca: d.rootCause ?? undefined,
+      rcaMethod: d.rcaMethod ?? undefined,
+      diGateRequired: session.user.role === "it_cdo" || session.user.role === "csv_val_lead",
     });
+    if (!created.success) return created;
+    const capa = created.data as { id: string; reference: string | null };
 
     // 2) Link the CAPA back to the observation + advance its status.
     await prisma.fDA483Observation.update({
@@ -1262,7 +1258,8 @@ export async function raiseCAPAFromObservation(
       data: { capaId: capa.id, status: "CAPA Linked" },
     });
 
-    // 3) Audit trail in both modules.
+    // 3) FDA 483-side audit. The CAPA-module CAPA_CREATED entry is written by
+    //    createCAPA itself, so we no longer duplicate it here.
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -1273,18 +1270,6 @@ export async function raiseCAPAFromObservation(
         recordId: d.eventId,
         recordTitle: d.referenceNumber ?? null,
         newValue: capa.id,
-      },
-    });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
-        module: "CAPA",
-        action: "CAPA_CREATED",
-        recordId: capa.id,
-        recordTitle: description.slice(0, 80),
-        newValue: "from FDA 483 Observation",
       },
     });
 

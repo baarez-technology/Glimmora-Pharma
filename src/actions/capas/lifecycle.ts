@@ -33,6 +33,7 @@ const CreateCAPASchema = z.object({
     "Internal Audit",
     "External Audit",
     "Customer Complaint",
+    "CSV/CSA",
     "Other",
   ]),
   risk: z.enum(["Critical", "High", "Medium", "Low"]),
@@ -41,7 +42,15 @@ const CreateCAPASchema = z.object({
   siteId: z.string().optional(),
   linkedFindingId: z.string().optional(),
   linkedDeviationId: z.string().optional(),
+  // RUNG 2 — optional GxP system this CAPA is raised against (CSV/CSA).
+  // Flows through `...rest` into the create; persisted as CAPA.systemId.
+  systemId: z.string().optional(),
   diGateRequired: z.boolean().optional(),
+  // FDA 483 raise carries the RCA captured at the observation. Additive —
+  // these columns already exist on CAPA (the old FDA 483 direct create wrote
+  // them, and updateCAPA edits them); they flow into the create via `...rest`.
+  rca: z.string().optional(),
+  rcaMethod: z.string().optional(),
 });
 
 const UpdateCAPASchema = z.object({
@@ -73,10 +82,20 @@ const RejectSchema = z.object({
 
 // â”€â”€ Actions â”€â”€
 
+// Roles permitted to create a CAPA (server-side authz; mirrors the Rung 3A
+// SYSTEM_WRITE_ROLES pattern). Every module's "raise CAPA" path funnels
+// through createCAPA, so this single gate covers Gap / Deviation / CSV/CSA /
+// FDA 483 / manual / AI at once. regulatory_affairs is included because FDA
+// 483 + CAPA work is their domain. Raw session role (not resolveUserFk).
+const CAPA_WRITE_ROLES: readonly string[] = ["csv_val_lead", "qa_head", "regulatory_affairs", "customer_admin", "super_admin"];
+
 export async function createCAPA(
   input: z.input<typeof CreateCAPASchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  if (!CAPA_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "You do not have permission to create CAPAs." };
+  }
   const parsed = CreateCAPASchema.safeParse(input);
   if (!parsed.success) {
     return {
