@@ -646,10 +646,17 @@ const UpdateObservationSchema = z.object({
   rcaMethod: z.string().optional(),
   rootCause: z.string().optional(),
   responseText: z.string().optional(),
-  status: z.string().optional(),
+  // RUNG 3D-FDA — status removed (was the arbitrary-status bypass, Finding #4).
+  // Transitions go through dedicated guarded actions (see NOTE on updateObservation).
   capaId: z.string().optional(),
 });
 
+// NOTE: status field intentionally NOT accepted (Rung 3D-FDA). Status changes
+// route through dedicated guarded transitions:
+//   → Response Drafted: markObservationResponseDrafted (after RCA is saved)
+//   → CAPA Linked:      linkCAPAToEvent / raiseCAPAFromObservation (existing)
+//   → Closed:           closeObservation (QA/admin, reason required)
+// See AUDIT-GLOBAL-PATTERNS.md Finding #4.
 export async function updateObservation(
   id: string,
   input: z.input<typeof UpdateObservationSchema>,
@@ -745,7 +752,7 @@ export async function updateObservation(
           module: "FDA 483",
           action: "OBSERVATION_UPDATED",
           recordId: id,
-          newValue: parsed.data.status ?? parsed.data.rcaMethod ?? "updated",
+          newValue: parsed.data.rcaMethod ?? "updated",
         },
       });
 
@@ -757,6 +764,105 @@ export async function updateObservation(
   } catch (err) {
     console.error("[action] updateObservation failed:", err);
     return { success: false, error: "Failed to update observation" };
+  }
+}
+
+/**
+ * RUNG 3D-FDA — guarded transition to "Response Drafted" (the state the RCA-save
+ * UI used to set via the updateObservation status bypass). The RCA content
+ * itself (rootCause / rcaMethod, plus the linked-CAPA RCA invalidation) is still
+ * written through updateObservation; this only advances the status. Open to all
+ * compliance roles (matches who could save RCA before); viewers blocked.
+ */
+export async function markObservationResponseDrafted(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot update observations." };
+  }
+  const existing = await prisma.fDA483Observation.findFirst({
+    where: session.user.role === "super_admin" ? { id } : { id, event: { tenantId: session.user.tenantId } },
+    select: { id: true, status: true, reference: true },
+  });
+  if (!existing) return { success: false, error: "FORBIDDEN" };
+  if (existing.status === "Closed") {
+    return { success: false, error: "Cannot draft a response on a closed observation." };
+  }
+  try {
+    const obs = await prisma.fDA483Observation.update({ where: { id }, data: { status: "Response Drafted" } });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: await resolveUserFk(session.user.id),
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "FDA 483",
+        action: "OBSERVATION_RESPONSE_DRAFTED",
+        recordId: id,
+        recordTitle: existing.reference ?? undefined,
+        oldValue: existing.status,
+        newValue: "Response Drafted",
+      },
+    });
+    revalidatePath("/fda-483");
+    return { success: true, data: obs };
+  } catch (err) {
+    console.error("[action] markObservationResponseDrafted failed:", err);
+    return { success: false, error: "Failed to advance observation" };
+  }
+}
+
+const CloseObservationSchema = z.object({
+  reason: z.string().min(10, "A reason of at least 10 characters is required to close").max(2000),
+});
+
+/**
+ * RUNG 3D-FDA — guarded close of an observation. Closure is final, so it is
+ * QA Head / admin only and requires a reason. (No e-signature in this rung —
+ * a signed close could be a future enhancement, mirroring signValidation.)
+ */
+export async function closeObservation(
+  id: string,
+  input: z.input<typeof CloseObservationSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (
+    session.user.role !== "qa_head" &&
+    session.user.role !== "customer_admin" &&
+    session.user.role !== "super_admin"
+  ) {
+    return { success: false, error: "Only a QA Head or an admin can close an observation." };
+  }
+  const parsed = CloseObservationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const existing = await prisma.fDA483Observation.findFirst({
+    where: session.user.role === "super_admin" ? { id } : { id, event: { tenantId: session.user.tenantId } },
+    select: { id: true, status: true, reference: true },
+  });
+  if (!existing) return { success: false, error: "FORBIDDEN" };
+  if (existing.status === "Closed") return { success: false, error: "Observation is already closed." };
+  try {
+    const obs = await prisma.fDA483Observation.update({ where: { id }, data: { status: "Closed" } });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: await resolveUserFk(session.user.id),
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "FDA 483",
+        action: "OBSERVATION_CLOSED",
+        recordId: id,
+        recordTitle: existing.reference ?? undefined,
+        oldValue: existing.status,
+        newValue: JSON.stringify({ status: "Closed", reason: parsed.data.reason }),
+      },
+    });
+    revalidatePath("/fda-483");
+    return { success: true, data: obs };
+  } catch (err) {
+    console.error("[action] closeObservation failed:", err);
+    return { success: false, error: "Failed to close observation" };
   }
 }
 

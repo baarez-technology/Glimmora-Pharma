@@ -40,6 +40,7 @@ import {
   createFDA483Event,
   addObservation as addObservationServer,
   updateObservation as updateObservationServer,
+  markObservationResponseDrafted as markObservationResponseDraftedServer,
   addCommitment as addCommitmentServer,
   saveResponseDraft as saveResponseDraftServer,
   saveAGIDraft as saveAGIDraftServer,
@@ -825,10 +826,14 @@ export function FDA483Page({
                     const result = await updateObservationServer(selectedObs.id, {
                       rootCause: text,
                       rcaMethod: "5 Why",
-                      status: "Response Drafted",
                     });
                     if (!result.success) {
                       toast.error(`Could not complete action: ${result.error || "Failed to save 5-Why RCA. Please try again."}`);
+                      return;
+                    }
+                    const adv = await markObservationResponseDraftedServer(selectedObs.id);
+                    if (!adv.success) {
+                      toast.error(`Could not complete action: ${adv.error || "Saved RCA, but could not advance the observation."}`);
                       return;
                     }
                     toast.success("RCA saved.");
@@ -841,10 +846,14 @@ export function FDA483Page({
                     const result = await updateObservationServer(selectedObs.id, {
                       rootCause: text,
                       rcaMethod: "Fishbone",
-                      status: "Response Drafted",
                     });
                     if (!result.success) {
                       toast.error(`Could not complete action: ${result.error || "Failed to save Fishbone RCA. Please try again."}`);
+                      return;
+                    }
+                    const adv = await markObservationResponseDraftedServer(selectedObs.id);
+                    if (!adv.success) {
+                      toast.error(`Could not complete action: ${adv.error || "Saved RCA, but could not advance the observation."}`);
                       return;
                     }
                     toast.success("RCA saved.");
@@ -855,10 +864,14 @@ export function FDA483Page({
                     if (liveEvent.status === "Response Submitted" || liveEvent.status === "Closed") return;
                     const result = await updateObservationServer(selectedObs.id, {
                       rootCause: freeformRCA.trim(),
-                      status: "Response Drafted",
                     });
                     if (!result.success) {
                       toast.error(`Could not complete action: ${result.error || "Failed to save RCA. Please try again."}`);
+                      return;
+                    }
+                    const adv = await markObservationResponseDraftedServer(selectedObs.id);
+                    if (!adv.success) {
+                      toast.error(`Could not complete action: ${adv.error || "Saved RCA, but could not advance the observation."}`);
                       return;
                     }
                     toast.success("RCA saved.");

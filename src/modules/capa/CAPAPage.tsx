@@ -24,7 +24,7 @@ import {
 import { isOverdue } from "@/types/capa";
 import { mapCAPAFromPrisma } from "@/lib/mappers/capaMapper";
 import { closeFinding } from "@/store/findings.slice";
-import { updateObservation } from "@/actions/fda483";
+import { closeObservation } from "@/actions/fda483";
 import { auditLog } from "@/lib/audit";
 import {
   createCAPA as createCAPAServer,
@@ -380,10 +380,18 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
       for (const ev of fda483Events) {
         const matchingObs = ev.observations.find((o) => o.capaId === capaId);
         if (matchingObs) {
-          // Cross-module: when a CAPA from a 483 source closes, mark the
-          // linked observation Closed too. Only safe to run after the
-          // signature has committed.
-          await updateObservation(matchingObs.id, { status: "Closed" });
+          // Cross-module: when a CAPA from a 483 source closes, close the
+          // linked observation too — via the guarded closeObservation action
+          // (Rung 3D-FDA; was a status bypass through updateObservation). The
+          // QA Head who signed the CAPA closure satisfies closeObservation's
+          // role gate. Best-effort: a failure here (e.g. already closed) must
+          // not undo the committed CAPA closure.
+          const obsClose = await closeObservation(matchingObs.id, {
+            reason: `Auto-closed on closure of linked CAPA ${selectedCAPA?.reference ?? capaId}.`,
+          });
+          if (!obsClose.success) {
+            console.warn("[capa] linked observation close skipped:", obsClose.error);
+          }
           break;
         }
       }
