@@ -79,7 +79,11 @@ const SystemWritableSchema = z.object({
   annex11Status: z.enum(["Compliant", "Non-Compliant", "Partial", "In Progress", "N/A"]).optional(),
   gamp5Category: z.string().optional(),
   riskLevel: z.string().optional(),
-  validationStatus: z.string().optional(),
+  // RUNG 3D — validationStatus is intentionally NOT accepted here. It is
+  // auto-derived from stages (deriveValidationStatus/syncValidationStatus),
+  // manually overridden only via attestValidationStatus, and set on sign-off
+  // only via signValidation. Accepting it on create/update would bypass that
+  // provenance. See AUDIT-GLOBAL-PATTERNS.md Finding #3.
   siteId: z.string().optional(),
   intendedUse: z.string().optional(),
   gxpScope: z.string().optional(),
@@ -265,9 +269,9 @@ export async function createSystem(
               type: parsed.data.type,
               tenantId: session.user.tenantId,
               reference,
-              // Fresh systems have all stages "not_started" → auto-derives to
-              // "Not Started"; respect an explicit input if one is provided.
-              validationStatus: parsed.data.validationStatus ?? "Not Started",
+              // Fresh systems have all stages "not_started"; status is always
+              // "Not Started" at create (RUNG 3D — no caller-supplied override).
+              validationStatus: "Not Started",
               riskLevel: parsed.data.riskLevel ?? derivedRisk,
               patientSafetyRisk: parsed.data.patientSafetyRisk ?? derivedRisk,
               productQualityImpact: parsed.data.productQualityImpact ?? derivedRisk,
@@ -311,6 +315,10 @@ export async function createSystem(
   }
 }
 
+// NOTE: validationStatus is intentionally NOT accepted here (Rung 3D). All
+// status changes route through dedicated paths — auto-derive (syncValidationStatus),
+// manual attestation (attestValidationStatus), or sign-off (signValidation).
+// Do not re-add it to SystemWritableSchema. See AUDIT-GLOBAL-PATTERNS.md Finding #3.
 export async function updateSystem(
   id: string,
   input: z.input<typeof UpdateSystemSchema>,
