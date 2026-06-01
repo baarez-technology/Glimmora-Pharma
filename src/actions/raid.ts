@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -31,6 +31,11 @@ export async function createRAIDItem(
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const item = await prisma.rAIDItem.create({
       data: {
@@ -73,6 +78,11 @@ export async function updateRAIDItem(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const { dueDate, ...rest } = parsed.data;
     const item = await prisma.rAIDItem.update({
       where: { id, tenantId: session.user.tenantId },
@@ -103,6 +113,11 @@ export async function updateRAIDItem(
 export async function closeRAIDItem(id: string, resolutionNote: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     // Schema has no resolutionNote field — fold it into mitigation
     // and capture the original text in the audit log.
@@ -139,6 +154,11 @@ export async function reopenRAIDItem(id: string, reason: string): Promise<Action
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const item = await prisma.rAIDItem.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
@@ -171,6 +191,11 @@ export async function reopenRAIDItem(id: string, reason: string): Promise<Action
 export async function deleteRAIDItem(id: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.rAIDItem.delete({
       where: { id, tenantId: session.user.tenantId },

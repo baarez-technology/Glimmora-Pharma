@@ -19,7 +19,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { sanitizeServerError } from "@/lib/errors";
 
@@ -83,6 +83,13 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
     priorCAPAStatus = prior.status;
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
   // SME final rung â€” site-scoped reference allocation. Same retry-on-
   // P2002 shape as createDeviation / createCAPA.
   let siteCodeForRef: string | null = null;
@@ -137,7 +144,6 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
     return { success: false, error: sanitizeServerError(lastRefErr, "Failed to allocate finding reference") };
   }
 
-  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
 
     await prisma.auditLog.create({
@@ -190,6 +196,11 @@ export async function updateFinding(id: string, input: z.input<typeof UpdateFind
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const finding = await prisma.finding.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
@@ -223,6 +234,12 @@ export async function deleteFinding(id: string): Promise<ActionResult> {
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     await prisma.finding.delete({
       where: { id, tenantId: session.user.tenantId },
     });
@@ -250,6 +267,12 @@ export async function deleteFinding(id: string): Promise<ActionResult> {
 export async function closeFinding(id: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const finding = await prisma.finding.update({

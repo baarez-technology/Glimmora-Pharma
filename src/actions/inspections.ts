@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
 
 type ActionResult<T = unknown> =
@@ -57,6 +57,11 @@ export async function createInspection(
     session.user.tenantId,
     session.user.role,
   );
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const inspection = await prisma.inspection.create({
       data: {
@@ -120,6 +125,11 @@ export async function markActionComplete(actionId: string): Promise<ActionResult
     session.user.role,
   );
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const action = await prisma.readinessAction.update({
       where: { id: actionId },
       data: {
@@ -162,6 +172,11 @@ export async function completeInspection(
     session.user.tenantId,
     session.user.role,
   );
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const inspection = await prisma.inspection.update({
       where: { id, tenantId: session.user.tenantId },
@@ -230,6 +245,11 @@ export async function createTrainingRecord(
     session.user.role,
   );
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const record = await prisma.trainingRecord.create({
       data: {
         ...parsed.data,
@@ -276,6 +296,11 @@ export async function completeTrainingRecord(
     session.user.tenantId,
     session.user.role,
   );
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const record = await prisma.trainingRecord.update({
       where: { id },
@@ -343,6 +368,11 @@ export async function createSimulation(
     session.user.role,
   );
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const sim = await prisma.simulation.create({
       data: {
         inspectionId: parsed.data.inspectionId,
@@ -394,6 +424,11 @@ export async function completeSimulation(
     session.user.tenantId,
     session.user.role,
   );
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const sim = await prisma.simulation.update({
       where: { id },
@@ -451,6 +486,11 @@ export async function createPlaybook(
     session.user.role,
   );
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const playbook = await prisma.playbook.create({
       data: {
         ...parsed.data,
@@ -493,6 +533,11 @@ export async function deletePlaybook(id: string): Promise<ActionResult> {
     session.user.tenantId,
     session.user.role,
   );
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.playbook.delete({ where: { id } });
     await prisma.auditLog.create({

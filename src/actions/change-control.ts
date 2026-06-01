@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { generateReference, isReferenceConflict } from "@/lib/reference";
 import {
   CHANGE_CONTROL_RISKS,
@@ -344,6 +344,12 @@ export async function createChangeControl(
   );
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const MAX_RETRIES = 5;
     let cc: Awaited<ReturnType<typeof prisma.changeControl.create>> | null = null;
     let lastErr: unknown = null;
@@ -466,6 +472,12 @@ export async function updateChangeControl(
     session.user.tenantId,
     session.user.role,
   );
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const before = {
@@ -624,6 +636,12 @@ export async function transitionChangeControlStatus(
     session.user.tenantId,
     session.user.role,
   );
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   const isSignedTransition = SIGNED_TRANSITION_TARGETS.has(toStatus);
   if (isSignedTransition) {
@@ -871,6 +889,12 @@ export async function softDeleteChangeControl(
   );
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const updated = await prisma.changeControl.update({
       where: { id },
       data: {
@@ -976,6 +1000,12 @@ export async function linkCAPAToChangeControl(
   );
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const link = await prisma.cAPAChangeControlLink.create({
       data: {
         tenantId: capa.tenantId,
@@ -1059,6 +1089,12 @@ export async function unlinkCAPAFromChangeControl(
     session.user.tenantId,
     session.user.role,
   );
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const snapshot = {
