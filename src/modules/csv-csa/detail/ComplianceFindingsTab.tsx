@@ -126,7 +126,7 @@ export function ComplianceFindingsTab({ system, role, showPart11, showAnnex11, s
               <span className="text-[11px] ml-2" style={{ color: "var(--text-secondary)" }}>{f.requirement.slice(0, 70)}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <Badge variant={f.status.toLowerCase() === "closed" ? "green" : "amber"}>{f.status}</Badge>
+              <Badge variant={f.status === "Closed" ? "green" : "amber"}>{f.status}</Badge>
               {canManage && <button type="button" aria-label="Unlink" onClick={async () => { const r = await unlinkFindingFromSystem(system.id, f.id); if (!r.success) onError(r.error || "Failed"); else { onOk("Finding unlinked."); refresh(); } }} className="p-0.5 border-none bg-transparent cursor-pointer" style={{ color: "var(--text-muted)" }}><X className="w-3.5 h-3.5" /></button>}
             </div>
           </div>

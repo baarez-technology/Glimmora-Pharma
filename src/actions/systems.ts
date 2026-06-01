@@ -1421,7 +1421,7 @@ async function computeReadiness(systemId: string, tenantId: string): Promise<Sig
     .filter((s) => !COMPLETE_STAGE_STATUSES.has(s.status))
     .map((s) => s.stageName);
   const allStagesComplete = system.validationStages.length > 0 && outstandingStages.length === 0;
-  const openFindings = system.findings.filter((f) => f.status.toLowerCase() !== "closed").length;
+  const openFindings = system.findings.filter((f) => f.status !== "Closed").length;
   const openCriticalCAPAs = system.capas.filter(
     (c) => c.status.toLowerCase() !== "closed" && ["critical", "high"].includes((c.risk ?? "").toLowerCase()),
   ).length;
@@ -1487,7 +1487,7 @@ export async function signValidation(
     return { success: false, error: `Cannot sign off — outstanding stage(s): ${detail}.` };
   }
   // Gate 2 — no open findings.
-  const openFindings = system.findings.filter((f) => f.status.toLowerCase() !== "closed").length;
+  const openFindings = system.findings.filter((f) => f.status !== "Closed").length;
   if (openFindings > 0) {
     return { success: false, error: `Cannot sign off — ${openFindings} open finding(s) require remediation first.` };
   }

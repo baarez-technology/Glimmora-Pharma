@@ -16,16 +16,15 @@ export interface StatusDef {
 
 /* ── GAP ASSESSMENT — Finding statuses ── */
 
+// RUNG 3H — Finding.status canonicalised to Title Case ("Open" | "In Progress"
+// | "Closed") to match the schema default, the updateFinding enum, and the
+// FindingStatus type. The former lowercase duplicate keys (open/in_progress/
+// closed) and the unreachable lowercase-only states (pending_verification,
+// risk_accepted — never written by any finding action) were removed.
 export const FINDING_STATUSES: Record<string, StatusDef> = {
-  open: { value: "open", label: "Open", color: "#3B82F6", bg: "#EFF6FF", description: "Finding identified, no action taken yet", nextActions: ["Raise CAPA", "Assign owner"] },
-  in_progress: { value: "in_progress", label: "In Progress", color: "#F59E0B", bg: "#FEF9EC", description: "CAPA raised and corrective actions ongoing", nextActions: ["Monitor CAPA progress"] },
-  pending_verification: { value: "pending_verification", label: "Pending Verification", color: "#8B5CF6", bg: "#F5F3FF", description: "Fix implemented, awaiting QA verification", nextActions: ["QA Head to verify"] },
-  closed: { value: "closed", label: "Closed", color: "#0F6E56", bg: "#E8F5F1", description: "Finding resolved and verified by QA Head", nextActions: [] },
-  risk_accepted: { value: "risk_accepted", label: "Risk Accepted", color: "#6B7280", bg: "#F3F4F6", description: "Risk assessed and formally accepted by QA Head. No CAPA required.", nextActions: [] },
-  // Backward compat
-  Open: { value: "Open", label: "Open", color: "#3B82F6", bg: "#EFF6FF", description: "Finding identified, no action taken yet", nextActions: ["Raise CAPA"] },
-  "In Progress": { value: "In Progress", label: "In Progress", color: "#F59E0B", bg: "#FEF9EC", description: "Corrective actions ongoing", nextActions: [] },
-  Closed: { value: "Closed", label: "Closed", color: "#0F6E56", bg: "#E8F5F1", description: "Finding resolved", nextActions: [] },
+  Open: { value: "Open", label: "Open", color: "#3B82F6", bg: "#EFF6FF", description: "Finding identified, no action taken yet", nextActions: ["Raise CAPA", "Assign owner"] },
+  "In Progress": { value: "In Progress", label: "In Progress", color: "#F59E0B", bg: "#FEF9EC", description: "CAPA raised and corrective actions ongoing", nextActions: ["Monitor CAPA progress"] },
+  Closed: { value: "Closed", label: "Closed", color: "#0F6E56", bg: "#E8F5F1", description: "Finding resolved and verified by QA Head", nextActions: [] },
 };
 
 /* ── CAPA TRACKER — CAPA statuses ── */

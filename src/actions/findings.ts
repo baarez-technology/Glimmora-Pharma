@@ -118,7 +118,9 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
             ...parsed.data,
             reference,
             tenantId: session.user.tenantId,
-            status: "open",
+            // RUNG 3H — canonical Title Case (matches the schema default, the
+            // updateFinding enum, the FindingStatus type, and all read sites).
+            status: "Open",
             createdBy: session.user.name,
             targetDate: new Date(parsed.data.targetDate),
           },
@@ -245,7 +247,7 @@ export async function closeFinding(id: string): Promise<ActionResult> {
   try {
     const finding = await prisma.finding.update({
       where: { id, tenantId: session.user.tenantId },
-      data: { status: "closed" },
+      data: { status: "Closed" }, // RUNG 3H — canonical Title Case
     });
 
     await prisma.auditLog.create({

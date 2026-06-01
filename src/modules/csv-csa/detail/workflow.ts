@@ -65,7 +65,7 @@ export function computeNextStep(sys: GxPSystem): NextStep {
     return { label: `Review overdue by ${days} day${days === 1 ? "" : "s"}. Re-validate and re-sign.`, tab: "signoff" };
   }
 
-  const openFindings = (sys.findings ?? []).filter((f) => f.status.toLowerCase() !== "closed");
+  const openFindings = (sys.findings ?? []).filter((f) => f.status !== "Closed");
   if (openFindings.length > 0) {
     return { label: `${openFindings.length} open finding${openFindings.length === 1 ? "" : "s"} require remediation.`, tab: "inspect" };
   }
