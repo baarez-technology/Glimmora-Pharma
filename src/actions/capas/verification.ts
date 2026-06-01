@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { canApproveCAPA } from "@/lib/capa-approvals";
 import {
   canonicalizeCAPAVerificationContent,
@@ -73,6 +73,7 @@ export async function verifyCAPA(
   input: z.input<typeof VerifyCAPASchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const parsed = VerifyCAPASchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -101,9 +102,9 @@ export async function verifyCAPA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: VERIFICATION_AUDIT_MODULE,
           action: "CAPA_VERIFICATION_BLOCKED_STATUS",
           recordId: capaId,
@@ -133,9 +134,9 @@ export async function verifyCAPA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: VERIFICATION_AUDIT_MODULE,
           action: "CAPA_VERIFICATION_BLOCKED_SELF",
           recordId: capaId,
@@ -173,9 +174,9 @@ export async function verifyCAPA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: VERIFICATION_AUDIT_MODULE,
           action: "CAPA_VERIFICATION_BLOCKED_APPROVER",
           recordId: capaId,
@@ -210,9 +211,9 @@ export async function verifyCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: capaId,
@@ -282,9 +283,9 @@ export async function verifyCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: VERIFICATION_AUDIT_MODULE,
         action: "CAPA_VERIFIED",
         recordId: capaId,
@@ -299,9 +300,9 @@ export async function verifyCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "CAPA_VERIFICATION_SIGNED",
         recordId: signedRecord.id,
@@ -340,6 +341,7 @@ export async function revokeCAPAVerification(
   input: z.input<typeof RevokeCAPAVerificationSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const parsed = RevokeCAPAVerificationSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -386,9 +388,9 @@ export async function revokeCAPAVerification(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: capaId,
@@ -457,9 +459,9 @@ export async function revokeCAPAVerification(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: VERIFICATION_AUDIT_MODULE,
         action: "CAPA_VERIFICATION_REVOKED",
         recordId: capaId,

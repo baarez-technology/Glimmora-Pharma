@@ -158,6 +158,7 @@ export async function addActionItem(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const created = await prisma.$transaction(async (tx) => {
       // Determine sequence â€” caller may pin; otherwise append after the
@@ -192,9 +193,9 @@ export async function addActionItem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: ACTION_ITEMS_AUDIT_MODULE,
         action: "CAPA_ACTION_ITEM_ADDED",
         recordId: capaId,
@@ -254,6 +255,10 @@ export async function updateActionItem(
     },
   });
   if (!existing) return { success: false, error: "Action item not found" };
+
+  // Rung 3G-2 — resolve the actor once for all audit writes in this action
+  // (reused by the completion-authorship guard below).
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   // Determine what kind of update is being requested.
   const isStatusOnlyUpdate =
@@ -318,10 +323,8 @@ export async function updateActionItem(
   if (parsed.data.status !== undefined) {
     data.status = parsed.data.status;
     if (targetIsCompleteOrSkipped) {
-      // Rung 3E — completing an action item authors a GxP completion record.
-      // Resolve to a real User FK (admins are Tenant rows) and block
-      // super_admin authorship. customer_admin completes with a null FK + name.
-      const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+      // Rung 3E — completing an action item authors a GxP completion record;
+      // block super_admin authorship (reuses the actor resolved above).
       try {
         requireGxPAuthor(actor);
       } catch (e) {
@@ -367,9 +370,9 @@ export async function updateActionItem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: ACTION_ITEMS_AUDIT_MODULE,
         action: "CAPA_ACTION_ITEM_UPDATED",
         recordId: existing.capa.id,
@@ -389,9 +392,9 @@ export async function updateActionItem(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: ACTION_ITEMS_AUDIT_MODULE,
           action: "CAPA_ACTION_ITEM_STATUS_CHANGED",
           recordId: existing.capa.id,
@@ -412,9 +415,9 @@ export async function updateActionItem(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: ACTION_ITEMS_AUDIT_MODULE,
           action: "CAPA_ACTION_ITEM_INVALIDATED_BY_EDIT",
           recordId: existing.capa.id,
@@ -471,6 +474,7 @@ export async function deleteActionItem(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.$transaction(async (tx) => {
       await tx.cAPAActionItem.delete({ where: { id: itemId } });
@@ -479,9 +483,9 @@ export async function deleteActionItem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: ACTION_ITEMS_AUDIT_MODULE,
         action: "CAPA_ACTION_ITEM_DELETED",
         recordId: existing.capa.id,
@@ -537,6 +541,7 @@ export async function reorderActionItems(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.$transaction(async (tx) => {
       // Verify all ids belong to this CAPA + tenant before mutating.
@@ -572,9 +577,9 @@ export async function reorderActionItems(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: ACTION_ITEMS_AUDIT_MODULE,
         action: "CAPA_ACTION_ITEM_REORDERED",
         recordId: capaId,

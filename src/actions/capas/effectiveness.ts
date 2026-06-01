@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { canApproveCAPA } from "@/lib/capa-approvals";
 import {
   canonicalizeCAPAEffectivenessContent,
@@ -70,6 +70,7 @@ export async function recordEffectivenessReview(
   input: z.input<typeof RecordEffectivenessSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const parsed = RecordEffectivenessSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -150,9 +151,9 @@ export async function recordEffectivenessReview(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: EFFECTIVENESS_AUDIT_MODULE,
           action: "CAPA_EFFECTIVENESS_BLOCKED_SAME_SIGNER",
           recordId: capaId,
@@ -185,9 +186,9 @@ export async function recordEffectivenessReview(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: capaId,
@@ -257,9 +258,9 @@ export async function recordEffectivenessReview(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: EFFECTIVENESS_AUDIT_MODULE,
         action: "CAPA_EFFECTIVENESS_REVIEWED",
         recordId: capaId,
@@ -275,9 +276,9 @@ export async function recordEffectivenessReview(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "CAPA_EFFECTIVENESS_REVIEW_SIGNED",
         recordId: signedRecord.id,
@@ -298,9 +299,9 @@ export async function recordEffectivenessReview(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: EFFECTIVENESS_AUDIT_MODULE,
           action: "CAPA_FOUND_INEFFECTIVE",
           recordId: capaId,
@@ -335,6 +336,7 @@ export async function revokeEffectivenessReview(
   input: z.input<typeof RevokeEffectivenessSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const parsed = RevokeEffectivenessSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -376,9 +378,9 @@ export async function revokeEffectivenessReview(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: capaId,
@@ -447,9 +449,9 @@ export async function revokeEffectivenessReview(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: EFFECTIVENESS_AUDIT_MODULE,
         action: "CAPA_EFFECTIVENESS_REVIEW_REVOKED",
         recordId: capaId,

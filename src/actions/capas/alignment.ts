@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import {
   ALIGNMENT_OVERRIDE_REASON_MIN_LENGTH,
@@ -92,6 +92,8 @@ export async function setCAPAAlignmentStatus(
     return { success: false, error: ALIGNMENT_LOCKED_MESSAGE };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const now = new Date();
     const statusChanged = existing.alignmentStatus !== parsed.data.status;
@@ -119,8 +121,9 @@ export async function setCAPAAlignmentStatus(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: ALIGNMENT_AUDIT_MODULE,
         action: "ALIGNMENT_STATUS_SET",
         recordId: capaId,
@@ -209,6 +212,8 @@ export async function overrideCAPAAlignmentFlag(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const now = new Date();
     const capa = await prisma.cAPA.update({
@@ -223,8 +228,9 @@ export async function overrideCAPAAlignmentFlag(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: ALIGNMENT_AUDIT_MODULE,
         action: "ALIGNMENT_STATUS_OVERRIDE",
         recordId: capaId,
@@ -269,6 +275,8 @@ export async function clearCAPAAlignmentReview(
     return { success: false, error: ALIGNMENT_LOCKED_MESSAGE };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const capa = await prisma.cAPA.update({
       where: { id: capaId, tenantId: session.user.tenantId },
@@ -287,8 +295,9 @@ export async function clearCAPAAlignmentReview(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: ALIGNMENT_AUDIT_MODULE,
         action: "ALIGNMENT_REVIEW_CLEARED",
         recordId: capaId,

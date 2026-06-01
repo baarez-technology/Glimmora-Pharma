@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { sanitizeServerError } from "@/lib/errors";
 
 /**
@@ -178,6 +178,8 @@ export async function addCAPAComment(
     }
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const created = await prisma.cAPAComment.create({
       data: {
@@ -194,8 +196,9 @@ export async function addCAPAComment(
     await prisma.auditLog.create({
       data: {
         tenantId: capa.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "CAPA_COMMENT_ADDED",
         recordId: created.id,
@@ -275,6 +278,8 @@ export async function resolveCAPAComment(
     return { success: false, error: "Concern is already resolved." };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const updated = await prisma.cAPAComment.update({
       where: { id: commentId },
@@ -288,8 +293,9 @@ export async function resolveCAPAComment(
     await prisma.auditLog.create({
       data: {
         tenantId: comment.capa.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "CAPA_COMMENT_RESOLVED",
         recordId: commentId,
@@ -367,6 +373,8 @@ export async function reopenCAPAComment(
     return { success: false, error: "Concern is not currently resolved." };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const priorResolution = {
       resolvedById: comment.resolvedById,
@@ -385,8 +393,9 @@ export async function reopenCAPAComment(
     await prisma.auditLog.create({
       data: {
         tenantId: comment.capa.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "CAPA_COMMENT_REOPENED",
         recordId: commentId,
@@ -457,6 +466,8 @@ export async function editCAPAComment(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const originalBody = comment.body;
     const updated = await prisma.cAPAComment.update({
@@ -466,8 +477,9 @@ export async function editCAPAComment(
     await prisma.auditLog.create({
       data: {
         tenantId: comment.capa.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "CAPA_COMMENT_EDITED",
         recordId: commentId,
@@ -536,6 +548,8 @@ export async function softDeleteCAPAComment(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const updated = await prisma.cAPAComment.update({
       where: { id: commentId },
@@ -549,8 +563,9 @@ export async function softDeleteCAPAComment(
     await prisma.auditLog.create({
       data: {
         tenantId: comment.capa.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "CAPA_COMMENT_SOFT_DELETED",
         recordId: commentId,

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import {
   RCA_REVIEW_AUDIT_MODULE,
   RCA_REVIEW_INVALID_STATUS_MESSAGE,
@@ -85,6 +85,7 @@ export async function reviewRCA(
       error: "Only QA Head, Customer Admin, or Super Admin can review RCA",
     };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const parsed = ReviewRCASchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -126,9 +127,9 @@ export async function reviewRCA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: RCA_REVIEW_AUDIT_MODULE,
           action: "RCA_REVIEW_BLOCKED_SELF_REVIEW",
           recordId: capaId,
@@ -170,9 +171,9 @@ export async function reviewRCA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: RCA_REVIEW_AUDIT_MODULE,
         action: parsed.data.approved
           ? "CAPA_RCA_REVIEW_APPROVED"
@@ -269,6 +270,8 @@ export async function overrideRCAReview(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const now = new Date();
     const capa = await prisma.cAPA.update({
@@ -284,9 +287,9 @@ export async function overrideRCAReview(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: RCA_REVIEW_AUDIT_MODULE,
         action: "CAPA_RCA_REVIEW_OVERRIDE",
         recordId: capaId,
@@ -331,6 +334,8 @@ export async function clearRCAReview(capaId: string): Promise<ActionResult> {
     return { success: false, error: RCA_REVIEW_INVALID_STATUS_MESSAGE };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const capa = await prisma.cAPA.update({
       where: { id: capaId, tenantId: session.user.tenantId },
@@ -349,9 +354,9 @@ export async function clearRCAReview(capaId: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: RCA_REVIEW_AUDIT_MODULE,
         action: "CAPA_RCA_REVIEW_CLEARED",
         recordId: capaId,

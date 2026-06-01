@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { lockCAPAArtifacts } from "@/lib/evidence-lock";
 import {
   evaluateApprovalProgress,
@@ -74,6 +74,8 @@ export async function signAndCloseCAPA(
     return { success: false, error: "GxP signatory authority is required to sign and close" };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   // Substage 5.2 — count-based approval gate + §5.3 unresolved-concerns
   // gate. Plus substage 6.4 — Linked Change Control dependency gate. All
   // three must clear before the lock + status flip so a CAPA can't enter
@@ -102,9 +104,9 @@ export async function signAndCloseCAPA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: "CAPA / Verification",
           action: "CAPA_CLOSE_BLOCKED_NOT_VERIFIED",
           recordId: id,
@@ -187,9 +189,9 @@ export async function signAndCloseCAPA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: "CAPA / Action Items",
           action: "CAPA_CLOSE_BLOCKED_INCOMPLETE_ACTIONS",
           recordId: id,
@@ -286,9 +288,9 @@ export async function signAndCloseCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: id,
@@ -314,8 +316,9 @@ export async function signAndCloseCAPA(
     // re-locking is a no-op for already-locked items. Outside the tx
     // because lockCAPAArtifacts is idempotent and uses its own queries.
     await lockCAPAArtifacts(id, session.user.tenantId, {
-      name: session.user.name,
-      role: session.user.role,
+      userId: actor.userId,
+      name: actor.displayName,
+      role: actor.role,
     });
 
     // Build the canonical content + hash before the transaction so any
@@ -410,9 +413,9 @@ export async function signAndCloseCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CAPA",
         action: "CAPA_CLOSED",
         recordId: id,
@@ -424,9 +427,9 @@ export async function signAndCloseCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "CAPA_CLOSURE_SIGNED",
         recordId: signedRecord.id,

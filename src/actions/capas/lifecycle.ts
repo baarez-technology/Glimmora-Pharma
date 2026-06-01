@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import {
   lockCAPAArtifacts,
   unlockCAPAArtifacts,
@@ -111,6 +111,8 @@ export async function createCAPA(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
+
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
     const {
@@ -225,8 +227,9 @@ export async function createCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CAPA",
         action: "CAPA_CREATED",
         recordId: capa.id,
@@ -270,6 +273,8 @@ export async function updateCAPA(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   // SME Section 1, Stage 4 (FULL) â€” block direct writes to correctiveActions.
   // The field stays on the CAPA row as a denormalised cache rebuilt by
   // syncCorrectiveActions inside the action-items mutation paths, but the
@@ -280,9 +285,9 @@ export async function updateCAPA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: "CAPA",
           action: "CAPA_UPDATE_BLOCKED_CORRECTIVE_ACTIONS_DEPRECATED",
           recordId: id,
@@ -342,9 +347,9 @@ export async function updateCAPA(
         await prisma.auditLog.create({
           data: {
             tenantId: session.user.tenantId,
-            userId: session.user.id,
-            userName: session.user.name,
-            userRole: session.user.role,
+            userId: actor.userId,
+            userName: actor.displayName,
+            userRole: actor.role,
             module: "CAPA",
             action: "CAPA_UPDATE_BLOCKED_RCA_LOCKED",
             recordId: id,
@@ -406,9 +411,9 @@ export async function updateCAPA(
         await prisma.auditLog.create({
           data: {
             tenantId: session.user.tenantId,
-            userId: session.user.id,
-            userName: session.user.name,
-            userRole: session.user.role,
+            userId: actor.userId,
+            userName: actor.displayName,
+            userRole: actor.role,
             module: "CAPA / RCA Review",
             action: "CAPA_RCA_REVIEW_INVALIDATED_BY_EDIT",
             recordId: id,
@@ -434,8 +439,9 @@ export async function updateCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CAPA",
         action: "CAPA_UPDATED",
         recordId: id,
@@ -466,6 +472,8 @@ export async function clearDIGate(
     return { success: false, error: "Validation failed" };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const capa = await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
@@ -480,8 +488,9 @@ export async function clearDIGate(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CAPA",
         action: "CAPA_DI_GATE_CLEARED",
         recordId: id,
@@ -499,6 +508,7 @@ export async function clearDIGate(
 
 export async function submitForReview(id: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
     const existing = await prisma.cAPA.findFirst({
@@ -518,8 +528,9 @@ export async function submitForReview(id: string): Promise<ActionResult> {
         await prisma.auditLog.create({
           data: {
             tenantId: session.user.tenantId,
-            userName: session.user.name,
-            userRole: session.user.role,
+            userId: actor.userId,
+            userName: actor.displayName,
+            userRole: actor.role,
             module: "CAPA",
             action: "CAPA_SUBMIT_BLOCKED_RCA_NOT_APPROVED",
             recordId: id,
@@ -570,8 +581,9 @@ export async function submitForReview(id: string): Promise<ActionResult> {
     // pending_qa_review with editable artifacts. Both helpers inside
     // lockCAPAArtifacts are idempotent â€” re-runs are safe.
     await lockCAPAArtifacts(id, session.user.tenantId, {
-      name: session.user.name,
-      role: session.user.role,
+      userId: actor.userId,
+      name: actor.displayName,
+      role: actor.role,
     });
 
     const capa = await prisma.cAPA.update({
@@ -582,8 +594,9 @@ export async function submitForReview(id: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CAPA",
         action: "CAPA_SUBMITTED_FOR_REVIEW",
         recordId: id,
@@ -618,13 +631,16 @@ export async function rejectCAPA(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     // Rejection ends investigation activity â€” lock both evidence and
     // criteria the same way submitForReview/signAndCloseCAPA do so the
     // trail is consistent.
     await lockCAPAArtifacts(id, session.user.tenantId, {
-      name: session.user.name,
-      role: session.user.role,
+      userId: actor.userId,
+      name: actor.displayName,
+      role: actor.role,
     });
 
     const capa = await prisma.cAPA.update({
@@ -638,8 +654,9 @@ export async function rejectCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CAPA",
         action: "CAPA_REJECTED",
         recordId: id,
@@ -668,6 +685,7 @@ export async function startCAPAProgress(id: string): Promise<ActionResult> {
   if (!CAPA_WRITE_ROLES.includes(session.user.role)) {
     return { success: false, error: "You do not have permission to advance this CAPA." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const updated = await prisma.cAPA.updateMany({
     where: { id, tenantId: session.user.tenantId, status: "open" },
     data: { status: "in_progress" },
@@ -678,9 +696,9 @@ export async function startCAPAProgress(id: string): Promise<ActionResult> {
   await prisma.auditLog.create({
     data: {
       tenantId: session.user.tenantId,
-      userId: session.user.id,
-      userName: session.user.name,
-      userRole: session.user.role,
+      userId: actor.userId,
+      userName: actor.displayName,
+      userRole: actor.role,
       module: "CAPA",
       action: "CAPA_PROGRESS_STARTED",
       recordId: id,
@@ -723,6 +741,7 @@ export async function reopenCAPA(
   if (before.status !== "closed" && before.status !== "rejected") {
     return { success: false, error: "Only a closed or rejected CAPA can be reopened." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const capa = await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
@@ -730,15 +749,16 @@ export async function reopenCAPA(
     });
     // Unlock evidence + effectiveness criteria (moved here from updateCAPA).
     await unlockCAPAArtifacts(id, session.user.tenantId, {
-      name: session.user.name,
-      role: session.user.role,
+      userId: actor.userId,
+      name: actor.displayName,
+      role: actor.role,
     });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CAPA",
         action: "CAPA_REOPENED",
         recordId: id,
@@ -758,6 +778,7 @@ export async function reopenCAPA(
 
 export async function deleteCAPA(id: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
     const existing = await prisma.cAPA.findFirst({
@@ -774,8 +795,9 @@ export async function deleteCAPA(id: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CAPA",
         action: "CAPA_DELETED",
         recordId: id,

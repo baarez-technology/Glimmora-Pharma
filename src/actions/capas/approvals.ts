@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import {
   canonicalizeCAPAApprovalContent,
   canonicalizeCAPAApprovalRevocationContent,
@@ -85,6 +85,7 @@ export async function approveCAPA(
   input: z.input<typeof ApproveCAPASchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const parsed = ApproveCAPASchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -141,9 +142,9 @@ export async function approveCAPA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: APPROVAL_AUDIT_MODULE,
           action: "CAPA_APPROVAL_BLOCKED_SELF_APPROVAL",
           recordId: capaId,
@@ -212,9 +213,9 @@ export async function approveCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: capaId,
@@ -325,9 +326,9 @@ export async function approveCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: APPROVAL_AUDIT_MODULE,
         action: "CAPA_APPROVED",
         recordId: capaId,
@@ -343,9 +344,9 @@ export async function approveCAPA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "CAPA_APPROVAL_SIGNED",
         recordId: signedRecord.id,
@@ -369,9 +370,9 @@ export async function approveCAPA(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: APPROVAL_AUDIT_MODULE,
           action: "CAPA_AWAITING_VERIFICATION",
           recordId: capaId,
@@ -411,6 +412,7 @@ export async function revokeCAPAApproval(
   input: z.input<typeof RevokeCAPAApprovalSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const parsed = RevokeCAPAApprovalSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -467,9 +469,9 @@ export async function revokeCAPAApproval(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: existing.capa.id,
@@ -581,9 +583,9 @@ export async function revokeCAPAApproval(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: APPROVAL_AUDIT_MODULE,
         action: "CAPA_APPROVAL_REVOKED",
         recordId: existing.capa.id,
@@ -598,9 +600,9 @@ export async function revokeCAPAApproval(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "CAPA_APPROVAL_REVOKED_AND_SIGNED",
         recordId: revocationSignature.id,
@@ -623,9 +625,9 @@ export async function revokeCAPAApproval(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: "CAPA / Verification",
           action: "CAPA_VERIFICATION_INVALIDATED_BY_APPROVAL_REVOKE",
           recordId: existing.capa.id,
