@@ -59,7 +59,8 @@ const UpdateCAPASchema = z.object({
   risk: z.enum(["Critical", "High", "Medium", "Low"]).optional(),
   owner: z.string().optional(),
   dueDate: z.string().optional(),
-  status: z.string().optional(),
+  // RUNG 3D-CAPA — status intentionally removed (was the Part 11 lifecycle
+  // bypass, Finding #1). Transitions go through dedicated guarded actions.
   rca: z.string().optional(),
   rcaMethod: z.string().optional(),
   // SME Section 1, Stage 4 (FULL) â€” correctiveActions is now managed
@@ -78,6 +79,12 @@ const ClearDIGateSchema = z.object({
 
 const RejectSchema = z.object({
   reason: z.string().min(5, "Rejection reason must be at least 5 characters"),
+});
+
+// RUNG 3D-CAPA — reopening a closed/rejected CAPA is a senior corrective act;
+// a substantive reason (≥10 chars) is required and audited.
+const ReopenCAPASchema = z.object({
+  reason: z.string().min(10, "A reason of at least 10 characters is required to reopen").max(2000),
 });
 
 // â”€â”€ Actions â”€â”€
@@ -240,6 +247,15 @@ export async function createCAPA(
   }
 }
 
+// NOTE: status field intentionally NOT accepted (Rung 3D-CAPA). Status
+// changes route through dedicated guarded transitions:
+//   open → in_progress:        startCAPAProgress
+//   in_progress → pending_qa_review: submitForReview
+//   pending_qa_review → pending_verification: approveCAPA
+//   pending_verification → closed: signAndCloseCAPA
+//   any → rejected:            rejectCAPA
+//   closed/rejected → open:    reopenCAPA (carries the evidence unlock)
+// See AUDIT-GLOBAL-PATTERNS.md Finding #1.
 export async function updateCAPA(
   id: string,
   input: z.input<typeof UpdateCAPASchema>,
@@ -410,19 +426,10 @@ export async function updateCAPA(
       }
     }
 
-    // Lock / unlock side-effect when the CAPA crosses the investigation
-    // boundary. Idempotent â€” both helpers no-op when the desired state is
-    // already in place.
-    if (parsed.data.status && parsed.data.status !== before.status) {
-      const wasLocked = LOCKED_CAPA_STATUSES.has(before.status);
-      const willBeLocked = LOCKED_CAPA_STATUSES.has(parsed.data.status);
-      const actor = { name: session.user.name, role: session.user.role };
-      if (!wasLocked && willBeLocked) {
-        await lockCAPAArtifacts(id, session.user.tenantId, actor);
-      } else if (wasLocked && !willBeLocked) {
-        await unlockCAPAArtifacts(id, session.user.tenantId, actor);
-      }
-    }
+    // RUNG 3D-CAPA — the status-transition lock/unlock side-effect moved out
+    // of updateCAPA (status is no longer accepted here). Forward locks happen
+    // in submitForReview / rejectCAPA / signAndCloseCAPA; the unlock-on-reopen
+    // happens in reopenCAPA.
 
     await prisma.auditLog.create({
       data: {
@@ -646,6 +653,106 @@ export async function rejectCAPA(
   } catch (err) {
     console.error("[action] rejectCAPA failed:", err);
     return { success: false, error: "Failed to reject CAPA" };
+  }
+}
+
+/**
+ * RUNG 3D-CAPA — guarded open → in_progress transition. Was the UI autoAdvance
+ * via updateCAPA (status bypass). Optimistic-locked on status="open" so a
+ * concurrent transition can't double-fire. No precondition beyond "open" —
+ * matches the prior behaviour (the UI advanced once RCA text was entered;
+ * full RCA approval is gated later, at submitForReview).
+ */
+export async function startCAPAProgress(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (!CAPA_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "You do not have permission to advance this CAPA." };
+  }
+  const updated = await prisma.cAPA.updateMany({
+    where: { id, tenantId: session.user.tenantId, status: "open" },
+    data: { status: "in_progress" },
+  });
+  if (updated.count === 0) {
+    return { success: false, error: "CAPA cannot start progress — it is not in the open state." };
+  }
+  await prisma.auditLog.create({
+    data: {
+      tenantId: session.user.tenantId,
+      userId: session.user.id,
+      userName: session.user.name,
+      userRole: session.user.role,
+      module: "CAPA",
+      action: "CAPA_PROGRESS_STARTED",
+      recordId: id,
+      oldValue: "open",
+      newValue: "in_progress",
+    },
+  });
+  revalidatePath("/capa");
+  revalidatePath(`/capa/${id}`);
+  return { success: true, data: null };
+}
+
+/**
+ * RUNG 3D-CAPA — guarded closed/rejected → open transition (reopen). Senior
+ * action (QA Head / admins only). Requires a reason. Carries the evidence +
+ * criteria unlock side-effect that previously lived in updateCAPA's status
+ * boundary detection (now the only place it fires).
+ */
+export async function reopenCAPA(
+  id: string,
+  input: z.input<typeof ReopenCAPASchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (
+    session.user.role !== "qa_head" &&
+    session.user.role !== "customer_admin" &&
+    session.user.role !== "super_admin"
+  ) {
+    return { success: false, error: "Only a QA Head or an admin can reopen a CAPA." };
+  }
+  const parsed = ReopenCAPASchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const before = await prisma.cAPA.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: { status: true, reference: true },
+  });
+  if (!before) return { success: false, error: "CAPA not found" };
+  if (before.status !== "closed" && before.status !== "rejected") {
+    return { success: false, error: "Only a closed or rejected CAPA can be reopened." };
+  }
+  try {
+    const capa = await prisma.cAPA.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: { status: "open" },
+    });
+    // Unlock evidence + effectiveness criteria (moved here from updateCAPA).
+    await unlockCAPAArtifacts(id, session.user.tenantId, {
+      name: session.user.name,
+      role: session.user.role,
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: session.user.id,
+        userName: session.user.name,
+        userRole: session.user.role,
+        module: "CAPA",
+        action: "CAPA_REOPENED",
+        recordId: id,
+        recordTitle: (before.reference ?? id).slice(0, 80),
+        oldValue: before.status,
+        newValue: JSON.stringify({ status: "open", reason: parsed.data.reason }),
+      },
+    });
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${id}`);
+    return { success: true, data: capa };
+  } catch (err) {
+    console.error("[action] reopenCAPA failed:", err);
+    return { success: false, error: "Failed to reopen CAPA" };
   }
 }
 

@@ -25,6 +25,8 @@ export {
   clearDIGate,
   submitForReview,
   rejectCAPA,
+  startCAPAProgress,
+  reopenCAPA,
   deleteCAPA,
 } from "./capas/lifecycle";
 

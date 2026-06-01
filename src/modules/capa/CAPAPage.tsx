@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import {
   ClipboardCheck, GitBranch, BarChart3, Plus, Search,
-  AlertTriangle, CheckCircle2, TrendingUp, Wrench, Shield, MessageSquare,
+  AlertTriangle, CheckCircle2, TrendingUp, Wrench, Shield, MessageSquare, RotateCcw,
 } from "lucide-react";
 import type { CAPA as PrismaCAPA } from "@prisma/client";
 import dayjs from "@/lib/dayjs";
@@ -31,9 +31,12 @@ import {
   updateCAPA as updateCAPAServer,
   submitForReview as submitForReviewServer,
   signAndCloseCAPA as signAndCloseCAPAServer,
+  startCAPAProgress as startCAPAProgressServer,
+  reopenCAPA as reopenCAPAServer,
 } from "@/actions/capas";
 import { Button } from "@/components/ui/Button";
 import { Popup } from "@/components/ui/Popup";
+import { Modal } from "@/components/ui/Modal";
 import { StatusGuide } from "@/components/shared";
 import { CAPA_STATUSES } from "@/constants/statusTaxonomy";
 
@@ -83,7 +86,9 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   // useRole itself); this page only needs isViewOnly to gate the table's
   // "New CAPA" button + edit affordances at the row level.
   const { isViewOnly } = useRole();
-  const { isCustomerAdmin, canCreateCAPAs, isViewer } = usePermissions();
+  const { isCustomerAdmin, isSuperAdmin, isQAHead, canCreateCAPAs, isViewer } = usePermissions();
+  // RUNG 3D-CAPA — reopening a closed/rejected CAPA is a senior action.
+  const canReopen = isQAHead || isCustomerAdmin || isSuperAdmin;
   // AI CAPA is available to anyone except read-only viewers — including
   // customer admins, so they can trigger AI analysis even though the manual
   // "New CAPA" creation flow is reserved for QA-side roles.
@@ -265,12 +270,21 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         risk: data.risk as never,
         rcaMethod: (data.rcaMethod as string) || undefined,
         rca: data.rca ?? "",
-        status: autoAdvance ? "in_progress" : undefined,
       });
       if (!res.success) {
         setErrorMsg(res.error || "Failed to save changes. Please try again.");
         setErrorPopup(true);
         return;
+      }
+      // RUNG 3D-CAPA — open→in_progress now routes through the guarded
+      // startCAPAProgress transition (status is no longer settable via update).
+      if (autoAdvance) {
+        const adv = await startCAPAProgressServer(capaId);
+        if (!adv.success) {
+          setErrorMsg(adv.error || "Saved, but failed to start CAPA progress.");
+          setErrorPopup(true);
+          return;
+        }
       }
       // Server accepted — now safe to mirror into Redux + close the modal.
       dispatch(updateCAPAAction({
@@ -307,6 +321,23 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
       setSelectedCAPA(null);
       router.refresh();
     });
+  }
+
+  // RUNG 3D-CAPA — reopen a closed/rejected CAPA (senior action, reason ≥10).
+  const [reopenTarget, setReopenTarget] = useState<string | null>(null);
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopenBusy, setReopenBusy] = useState(false);
+  const [reopenError, setReopenError] = useState<string | null>(null);
+  function closeReopenModal() { setReopenTarget(null); setReopenReason(""); setReopenError(null); }
+  async function handleConfirmReopen() {
+    if (!reopenTarget || reopenReason.trim().length < 10) return;
+    setReopenBusy(true); setReopenError(null);
+    const res = await reopenCAPAServer(reopenTarget, { reason: reopenReason.trim() });
+    setReopenBusy(false);
+    if (!res.success) { setReopenError(res.error || "Failed to reopen CAPA."); return; }
+    if (selectedCAPA?.id === reopenTarget) setSelectedCAPA(null);
+    closeReopenModal();
+    router.refresh();
   }
 
   const [diGateBlockPopup, setDiGateBlockPopup] = useState(false);
@@ -412,6 +443,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
             setPendingCCOverride(override ?? null);
             setSignOpen(true);
           }} onSubmitForReview={handleSubmitForReview}
+          onReopen={canReopen ? (id) => { setReopenTarget(id); setReopenReason(""); setReopenError(null); } : undefined}
           onNavigateGap={(fid) => router.push(`/gap-assessment?openFindingId=${encodeURIComponent(fid)}`)}
           onNavigateCapa={() => router.push("/gap-assessment")}
         />
@@ -431,6 +463,30 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
       <AddCAPAModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddCAPA} users={complianceUsers} sites={allSites} lockedSiteId={selectedSiteId} />
       <EditCAPAModal isOpen={editModalOpen} onClose={() => setEditModalOpen(false)} onSave={handleEditSave} capa={selectedCAPA} users={complianceUsers} />
       <SignCloseModal isOpen={signOpen} onClose={() => { setSignOpen(false); setPendingCCOverride(null); setSignError(null); }} onSign={handleSignClose} capa={selectedCAPA} ccBlockOverride={pendingCCOverride} error={signError} busy={signBusy} />
+
+      {/* RUNG 3D-CAPA — reopen a closed/rejected CAPA (reason required) */}
+      <Modal
+        open={!!reopenTarget}
+        onClose={reopenBusy ? () => undefined : closeReopenModal}
+        title="Reopen this CAPA?"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" disabled={reopenBusy} onClick={closeReopenModal}>Cancel</Button>
+            <Button variant="primary" size="sm" icon={RotateCcw} loading={reopenBusy} disabled={reopenBusy || reopenReason.trim().length < 10} onClick={handleConfirmReopen}>Reopen CAPA</Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+            Reopening returns the CAPA to the open state and unlocks its evidence and effectiveness criteria for further work. This is recorded in the audit trail.
+          </p>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>Reason for reopening *</label>
+            <textarea rows={3} className="input text-[12px] resize-none w-full" value={reopenReason} onChange={(e) => setReopenReason(e.target.value)} placeholder="Why is this CAPA being reopened? (min 10 characters)" maxLength={2000} disabled={reopenBusy} aria-label="Reopen reason" />
+          </div>
+          {reopenError && <p role="alert" className="text-[11px]" style={{ color: "var(--danger)" }}>{reopenError}</p>}
+        </div>
+      </Modal>
       <AIGenerateCAPAModal
         isOpen={aiOpen}
         onClose={() => setAiOpen(false)}

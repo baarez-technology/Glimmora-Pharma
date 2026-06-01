@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import { ClipboardCheck, Plus, Search, ChevronRight, Link2, CheckCircle2, Sparkles } from "lucide-react";
+import { ClipboardCheck, Plus, Search, ChevronRight, Link2, CheckCircle2, Sparkles, RotateCcw } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import type { CAPA, CAPARisk } from "@/store/capa.slice";
 import { isOverdue, STATUS_LABEL, type CAPAStatus } from "@/types/capa";
@@ -46,6 +46,9 @@ interface CAPATrackerTabProps {
    *  pre-flight gate. CAPAPage forwards it into signAndCloseCAPA. */
   onSignOpen: (override?: { reason: string }) => void;
   onSubmitForReview: (id: string) => void;
+  /** RUNG 3D-CAPA — reopen a closed/rejected CAPA. Passed only when the
+   *  current user may reopen (QA Head / admin); undefined hides the control. */
+  onReopen?: (id: string) => void;
   onNavigateGap: (findingId: string) => void;
   onNavigateCapa: () => void;
 }
@@ -53,7 +56,7 @@ interface CAPATrackerTabProps {
 export function CAPATrackerTab({
   capas, filteredCAPAs, selectedCAPA, onSelectCAPA,
   isDark, isViewOnly, users, user, sites, timezone, dateFormat,
-  onAddOpen, onAiOpen, onEditOpen, onSignOpen, onSubmitForReview,
+  onAddOpen, onAiOpen, onEditOpen, onSignOpen, onSubmitForReview, onReopen,
   onNavigateGap, onNavigateCapa,
 }: CAPATrackerTabProps) {
   const router = useRouter();
@@ -191,6 +194,9 @@ export function CAPATrackerTab({
                           router.push(`/ai-capa/${encodeURIComponent(c.reference ?? c.id)}`);
                         }}
                       />
+                      {onReopen && (c.status === "closed" || c.status === "rejected") && (
+                        <Button variant="ghost" size="xs" icon={RotateCcw} aria-label={`Reopen ${referenceDisplay}`} title="Reopen CAPA" onClick={(e) => { e.stopPropagation(); onReopen(c.id); }} />
+                      )}
                       <Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${referenceDisplay} detail`} />
                     </div>
                   </td>
