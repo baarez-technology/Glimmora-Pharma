@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { lockCAPAArtifacts } from "@/lib/evidence-lock";
 import {
   evaluateApprovalProgress,
@@ -75,6 +75,12 @@ export async function signAndCloseCAPA(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   // Substage 5.2 — count-based approval gate + §5.3 unresolved-concerns
   // gate. Plus substage 6.4 — Linked Change Control dependency gate. All

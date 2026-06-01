@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import {
   ALIGNMENT_OVERRIDE_REASON_MIN_LENGTH,
@@ -93,6 +93,12 @@ export async function setCAPAAlignmentStatus(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const now = new Date();
@@ -215,6 +221,12 @@ export async function overrideCAPAAlignmentFlag(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const now = new Date();
     const capa = await prisma.cAPA.update({
       where: { id: capaId, tenantId: session.user.tenantId },
@@ -276,6 +288,12 @@ export async function clearCAPAAlignmentReview(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const capa = await prisma.cAPA.update({

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import { getCAPAEffectivenessCriteria } from "@/lib/queries/capa-criteria";
 import { sanitizeServerError } from "@/lib/errors";
@@ -95,6 +95,11 @@ export async function createCriterion(
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const criterion = await prisma.cAPAEffectivenessCriterion.create({
       data: {
         ...parsed.data,
@@ -162,6 +167,11 @@ export async function updateCriterion(
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const before = {
       description: existing.description,
       targetMetric: existing.targetMetric,
@@ -225,6 +235,11 @@ export async function deleteCriterion(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const snapshot = {
       description: existing.description,

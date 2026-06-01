@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import {
   RCA_REVIEW_AUDIT_MODULE,
   RCA_REVIEW_INVALID_STATUS_MESSAGE,
@@ -86,6 +86,11 @@ export async function reviewRCA(
     };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   const parsed = ReviewRCASchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -273,6 +278,12 @@ export async function overrideRCAReview(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const now = new Date();
     const capa = await prisma.cAPA.update({
       where: { id: capaId, tenantId: session.user.tenantId },
@@ -335,6 +346,12 @@ export async function clearRCAReview(capaId: string): Promise<ActionResult> {
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const capa = await prisma.cAPA.update({

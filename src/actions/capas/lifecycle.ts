@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import {
   lockCAPAArtifacts,
   unlockCAPAArtifacts,
@@ -113,6 +113,12 @@ export async function createCAPA(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const {
@@ -274,6 +280,12 @@ export async function updateCAPA(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   // SME Section 1, Stage 4 (FULL) â€” block direct writes to correctiveActions.
   // The field stays on the CAPA row as a denormalised cache rebuilt by
@@ -475,6 +487,12 @@ export async function clearDIGate(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const capa = await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
@@ -509,6 +527,12 @@ export async function clearDIGate(
 export async function submitForReview(id: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const existing = await prisma.cAPA.findFirst({
@@ -634,6 +658,12 @@ export async function rejectCAPA(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     // Rejection ends investigation activity â€” lock both evidence and
     // criteria the same way submitForReview/signAndCloseCAPA do so the
     // trail is consistent.
@@ -686,6 +716,11 @@ export async function startCAPAProgress(id: string): Promise<ActionResult> {
     return { success: false, error: "You do not have permission to advance this CAPA." };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   const updated = await prisma.cAPA.updateMany({
     where: { id, tenantId: session.user.tenantId, status: "open" },
     data: { status: "in_progress" },
@@ -743,6 +778,11 @@ export async function reopenCAPA(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const capa = await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
       data: { status: "open" },
@@ -779,6 +819,12 @@ export async function reopenCAPA(
 export async function deleteCAPA(id: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const existing = await prisma.cAPA.findFirst({

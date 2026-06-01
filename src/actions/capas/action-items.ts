@@ -160,6 +160,11 @@ export async function addActionItem(
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const created = await prisma.$transaction(async (tx) => {
       // Determine sequence â€” caller may pin; otherwise append after the
       // current highest.
@@ -259,6 +264,12 @@ export async function updateActionItem(
   // Rung 3G-2 — resolve the actor once for all audit writes in this action
   // (reused by the completion-authorship guard below).
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   // Determine what kind of update is being requested.
   const isStatusOnlyUpdate =
@@ -476,6 +487,11 @@ export async function deleteActionItem(
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     await prisma.$transaction(async (tx) => {
       await tx.cAPAActionItem.delete({ where: { id: itemId } });
       await syncCorrectiveActions(tx, existing.capaId, session.user.tenantId);
@@ -542,6 +558,11 @@ export async function reorderActionItems(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.$transaction(async (tx) => {
       // Verify all ids belong to this CAPA + tenant before mutating.

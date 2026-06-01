@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { sanitizeServerError } from "@/lib/errors";
 
 /**
@@ -181,6 +181,12 @@ export async function addCAPAComment(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const created = await prisma.cAPAComment.create({
       data: {
         tenantId: capa.tenantId,
@@ -281,6 +287,12 @@ export async function resolveCAPAComment(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const updated = await prisma.cAPAComment.update({
       where: { id: commentId },
       data: {
@@ -376,6 +388,12 @@ export async function reopenCAPAComment(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const priorResolution = {
       resolvedById: comment.resolvedById,
       resolvedByName: comment.resolvedByName,
@@ -469,6 +487,12 @@ export async function editCAPAComment(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  try {
     const originalBody = comment.body;
     const updated = await prisma.cAPAComment.update({
       where: { id: commentId },
@@ -549,6 +573,12 @@ export async function softDeleteCAPAComment(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   try {
     const updated = await prisma.cAPAComment.update({

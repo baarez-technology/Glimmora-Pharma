@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import {
@@ -190,6 +190,11 @@ export async function updateEvidenceStatus(
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     await prisma.$transaction(async (tx) => {
       // Snapshot prior notes value when notes changed (existing behaviour;
       // preserves ALCOA+ Original).
@@ -291,6 +296,11 @@ export async function addEvidenceFile(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentHashSha256 = createHash("sha256").update(buffer).digest("hex");
@@ -395,6 +405,11 @@ export async function removeEvidenceFile(
   // retainUntil check belongs.
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.$transaction(async (tx) => {
       await tx.evidenceFile.update({

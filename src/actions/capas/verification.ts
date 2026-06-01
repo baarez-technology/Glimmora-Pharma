@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { canApproveCAPA } from "@/lib/capa-approvals";
 import {
   canonicalizeCAPAVerificationContent,
@@ -74,6 +74,11 @@ export async function verifyCAPA(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   const parsed = VerifyCAPASchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -342,6 +347,11 @@ export async function revokeCAPAVerification(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   const parsed = RevokeCAPAVerificationSchema.safeParse(input);
   if (!parsed.success) {
     return {
