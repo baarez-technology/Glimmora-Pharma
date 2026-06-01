@@ -22,7 +22,8 @@ import {
 } from "@/store/deviation.slice";
 import {
   createDeviation as createDeviationAction,
-  updateDeviation as updateDeviationAction,
+  startInvestigation as startInvestigationAction,
+  submitDeviationForReview as submitDeviationForReviewAction,
   closeDeviation as closeDeviationAction,
   rejectDeviation as rejectDeviationAction,
 } from "@/actions/deviations";
@@ -262,7 +263,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
 
   async function handleSubmitForReview() {
     if (!selected) return;
-    const result = await updateDeviationAction(selected.id, { status: "pending_qa_review" });
+    const result = await submitDeviationForReviewAction(selected.id);
     if (!result.success) {
       setErrorMsg(result.error || "Failed to submit for review. Please try again.");
       setErrorPopup(true);
@@ -273,7 +274,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
 
   async function handleStartInvestigation() {
     if (!selected) return;
-    const result = await updateDeviationAction(selected.id, { status: "under_investigation" });
+    const result = await startInvestigationAction(selected.id);
     if (!result.success) {
       setErrorMsg(result.error || "Failed to start investigation. Please try again.");
       setErrorPopup(true);

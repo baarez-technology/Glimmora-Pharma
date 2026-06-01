@@ -53,8 +53,11 @@ const CreateDeviationSchema = z.object({
   previousCAPAId: z.string().optional(),
 });
 
+// RUNG 3D-Deviation — status intentionally removed (was the bypass that
+// accepted any non-protected status string). Transitions go through dedicated
+// guarded actions (startInvestigation / submitDeviationForReview /
+// closeDeviation / rejectDeviation).
 const UpdateDeviationSchema = CreateDeviationSchema.partial().extend({
-  status: z.string().optional(),
   rootCause: z.string().optional(),
   rcaMethod: z.string().optional(),
 });
@@ -205,16 +208,19 @@ export async function createDeviation(
   }
 }
 
-// SME Section 1, Stage 1 follow-up â€” closure-bypass guard.
-// Status values reachable only through dedicated gated Server Actions.
-// updateDeviation must refuse to write these â€” transitions to "closed"
-// belong to closeDeviation (Part 11 SignedRecord + Critical-CAPA gate);
-// transitions to "rejected" belong to rejectDeviation (role check +
-// audit). Strict mode: a protected value is rejected even when it equals
-// the current row's status, so the UI cannot accidentally re-post a
-// closed deviation and silently weaken the rule.
-const PROTECTED_DEVIATION_STATUSES = new Set(["closed", "rejected"]);
+// RUNG 3D-Deviation — the closure-bypass guard (PROTECTED_DEVIATION_STATUSES)
+// is removed: updateDeviation no longer accepts a status field at all, so there
+// is nothing to guard. "closed"/"rejected" remain owned by closeDeviation /
+// rejectDeviation; the new pre-terminal transitions are startInvestigation /
+// submitDeviationForReview.
 
+// NOTE: status field intentionally NOT accepted (Rung 3D-Deviation). Status
+// changes route through dedicated guarded transitions:
+//   open -> under_investigation:            startInvestigation
+//   under_investigation -> pending_qa_review: submitDeviationForReview
+//   -> closed:   closeDeviation
+//   -> rejected: rejectDeviation
+// See AUDIT-GLOBAL-PATTERNS.md Finding #4.
 export async function updateDeviation(
   id: string,
   input: z.input<typeof UpdateDeviationSchema>,
@@ -223,33 +229,6 @@ export async function updateDeviation(
   const parsed = UpdateDeviationSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
-  }
-  if (parsed.data.status && PROTECTED_DEVIATION_STATUSES.has(parsed.data.status)) {
-    try {
-      await prisma.auditLog.create({
-        data: {
-          tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
-          module: "Deviation Management",
-          action: "DEVIATION_UPDATE_BLOCKED_PROTECTED_STATUS",
-          recordId: id,
-          newValue: JSON.stringify({
-            attemptedStatus: parsed.data.status,
-            protected: true,
-          }),
-        },
-      });
-    } catch (err) {
-      console.error("[action] failed to write DEVIATION_UPDATE_BLOCKED_PROTECTED_STATUS audit:", err);
-    }
-    const dedicated =
-      parsed.data.status === "closed" ? "closeDeviation" : "rejectDeviation";
-    return {
-      success: false,
-      error: `Status transitions to "${parsed.data.status}" must use the dedicated action (${dedicated}).`,
-    };
   }
   try {
     const { dueDate, detectedDate, ...rest } = parsed.data;
@@ -681,6 +660,77 @@ export async function completeInvestigation(
     console.error("[action] completeInvestigation failed:", err);
     return { success: false, error: "Failed to complete investigation" };
   }
+}
+
+/**
+ * RUNG 3D-Deviation — guarded open -> under_investigation transition (was the
+ * UI "Start investigation" button writing status through updateDeviation).
+ * Optimistic-locked on status="open"; viewers blocked. The RCA segregation of
+ * duties (investigator != reporter) is enforced at completeInvestigation,
+ * unchanged — starting the investigation phase is administrative.
+ */
+export async function startInvestigation(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot start an investigation." };
+  }
+  const updated = await prisma.deviation.updateMany({
+    where: { id, tenantId: session.user.tenantId, status: "open" },
+    data: { status: "under_investigation" },
+  });
+  if (updated.count === 0) {
+    return { success: false, error: "Only an open deviation can be moved into investigation." };
+  }
+  await prisma.auditLog.create({
+    data: {
+      tenantId: session.user.tenantId,
+      userId: session.user.id,
+      userName: session.user.name,
+      userRole: session.user.role,
+      module: "Deviation Management",
+      action: "DEVIATION_INVESTIGATION_STARTED",
+      recordId: id,
+      oldValue: "open",
+      newValue: "under_investigation",
+    },
+  });
+  revalidatePath("/deviation");
+  return { success: true, data: null };
+}
+
+/**
+ * RUNG 3D-Deviation — guarded under_investigation -> pending_qa_review
+ * transition (was the UI "Submit for QA review" button). Optimistic-locked;
+ * viewers blocked. QA's segregation of duties (decider/closer != reporter !=
+ * investigator) is enforced downstream at guardCapaDecision / closeDeviation.
+ */
+export async function submitDeviationForReview(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot submit a deviation for review." };
+  }
+  const updated = await prisma.deviation.updateMany({
+    where: { id, tenantId: session.user.tenantId, status: "under_investigation" },
+    data: { status: "pending_qa_review" },
+  });
+  if (updated.count === 0) {
+    return { success: false, error: "Only a deviation under investigation can be submitted for QA review." };
+  }
+  await prisma.auditLog.create({
+    data: {
+      tenantId: session.user.tenantId,
+      userId: session.user.id,
+      userName: session.user.name,
+      userRole: session.user.role,
+      module: "Deviation Management",
+      action: "DEVIATION_SUBMITTED_FOR_REVIEW",
+      recordId: id,
+      oldValue: "under_investigation",
+      newValue: "pending_qa_review",
+    },
+  });
+  revalidatePath("/deviation");
+  return { success: true, data: null };
 }
 
 /** Shared validation for save/edit of the CAPA decision (SoD + QA role +
