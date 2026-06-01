@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
 import { deriveSiteCode, isReferenceConflict } from "@/lib/reference";
 
@@ -109,6 +109,11 @@ export async function createRTMEntry(
   if (!parent) return { success: false, error: "FORBIDDEN" };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     // RUNG 2.8 — allocate a per-site URS-<SITE_CODE>-<NNNN> reference. Site.code
     // is canonical (same source as SYS references); name-derived fallback for a
     // misconfigured site so creation never blocks.
@@ -180,6 +185,11 @@ export async function updateRTMEntry(
   });
   if (!current) return { success: false, error: "FORBIDDEN" };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const merged = { ...current, ...parsed.data };
     const derived = deriveRtmCoverage(merged);

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
@@ -244,6 +244,11 @@ export async function createSystem(
     // when the caller omits them (the simplified Add System modal does).
     const derivedRisk = riskFromRelevance(parsed.data.gxpRelevance);
     const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+    try {
+      requireGxPAuthor(actor);
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    }
 
     // RUNG 2.7 — allocate a human-readable SYS-<SITE_CODE>-<NNNN> reference.
     // Site.code is canonical (same source every other module's reference
@@ -339,6 +344,11 @@ export async function updateSystem(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const system = await prisma.gxPSystem.update({
       where: { id, tenantId: session.user.tenantId },
       data: toSystemData(parsed.data),
@@ -387,6 +397,11 @@ export async function submitStageForReview(stageId: string): Promise<ActionResul
     return { success: false, error: "This stage cannot be submitted — it is already under review or completed." };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
@@ -453,6 +468,11 @@ export async function approveStage(stageId: string): Promise<ActionResult> {
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
       data: {
@@ -501,6 +521,11 @@ export async function rejectStage(stageId: string, reason: string): Promise<Acti
     return { success: false, error: "This stage is not under review — only a stage submitted for QA review can be rejected." };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
@@ -576,6 +601,11 @@ export async function deleteSystem(
   if (!existing) return { success: false, error: "System not found" };
   if (existing.deletedAt) return { success: false, error: "System is already archived." };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   const deletedById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
   try {
     await prisma.gxPSystem.update({
@@ -626,6 +656,11 @@ export async function restoreSystem(
   if (!existing) return { success: false, error: "System not found" };
   if (!existing.deletedAt) return { success: false, error: "System is not archived." };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.gxPSystem.update({
       where: { id, tenantId: session.user.tenantId },
@@ -679,6 +714,11 @@ export async function skipStage(stageId: string, reason: string): Promise<Action
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
       data: {
@@ -724,6 +764,11 @@ export async function updateStageNotes(stageId: string, notes: string): Promise<
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
@@ -785,6 +830,11 @@ export async function addRoadmapActivity(
   if (!parent) return { success: false, error: "FORBIDDEN" };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const activity = await prisma.roadmapActivity.create({
       data: {
         systemId: parsed.data.systemId,
@@ -828,6 +878,11 @@ export async function updateRoadmapActivity(id: string, status: string): Promise
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const activity = await prisma.roadmapActivity.update({
       where: { id },
@@ -940,6 +995,11 @@ export async function addStageDocument(
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentHashSha256 = createHash("sha256").update(buffer).digest("hex");
@@ -1059,6 +1119,11 @@ export async function removeStageDocument(
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     await prisma.$transaction(async (tx) => {
       await tx.stageDocument.update({
         where: { id: documentId },
@@ -1124,6 +1189,11 @@ export async function saveRiskFactors(systemId: string, riskFactors: string): Pr
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
       data: { riskFactors },
@@ -1165,6 +1235,11 @@ export async function saveRiskClassification(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
       data: parsed.data,
@@ -1196,6 +1271,11 @@ export async function saveNextReview(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1238,6 +1318,11 @@ export async function saveRemediation(
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1286,6 +1371,11 @@ export async function attestValidationStatus(
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
       data: {
@@ -1322,6 +1412,11 @@ export async function resetToAutoDerivedStatus(systemId: string): Promise<Action
     return { success: false, error: "Only QA Head can reset to auto-derived status" };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     // Clear the manual flag first so syncValidationStatus will recompute.
     await prisma.gxPSystem.update({
@@ -1384,6 +1479,11 @@ export async function linkFindingToSystem(systemId: string, findingId: string): 
   if (!finding) return { success: false, error: "FORBIDDEN" };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  try {
     await prisma.finding.update({ where: { id: findingId }, data: { systemId } });
     await prisma.auditLog.create({
       data: {
@@ -1413,6 +1513,11 @@ export async function unlinkFindingFromSystem(systemId: string, findingId: strin
   const finding = await prisma.finding.findFirst({ where: { id: findingId, tenantId: session.user.tenantId, systemId }, select: { id: true, reference: true } });
   if (!finding) return { success: false, error: "FORBIDDEN" };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     await prisma.finding.update({ where: { id: findingId }, data: { systemId: null } });
     await prisma.auditLog.create({
@@ -1457,6 +1562,11 @@ export async function raiseCAPAFromSystem(
   const system = await prisma.gxPSystem.findFirst({ where: { id: systemId, tenantId: session.user.tenantId }, select: { id: true, siteId: true, reference: true } });
   if (!system) return { success: false, error: "FORBIDDEN" };
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   // Delegate to the canonical createCAPA (reference allocation, audit, etc.),
   // tagging source = "CSV/CSA" and the new systemId FK.
   const result = await createCAPA({
@@ -1671,6 +1781,11 @@ export async function signValidation(
   );
   const provenance = await readSigningProvenance();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   const signedOffById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
 
   try {
