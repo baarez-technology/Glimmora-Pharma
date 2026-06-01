@@ -199,12 +199,14 @@ async function syncValidationStatus(
   if (!system || system.statusManuallySet || system.signedOffAt) return;
   const derived = deriveValidationStatus(system.validationStages);
   if (derived === system.validationStatus) return;
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   await prisma.gxPSystem.update({ where: { id: systemId }, data: { validationStatus: derived } });
   await prisma.auditLog.create({
     data: {
       tenantId: session.user.tenantId,
-      userName: session.user.name,
-      userRole: session.user.role,
+      userId: actor.userId,
+      userName: actor.displayName,
+      userRole: actor.role,
       module: CSV_AUDIT_MODULE,
       action: "SYSTEM_STATUS_AUTO_DERIVED",
       recordId: systemId,
@@ -241,6 +243,7 @@ export async function createSystem(
     // Auto-derive the 4 risk classifications + riskLevel from gxpRelevance
     // when the caller omits them (the simplified Add System modal does).
     const derivedRisk = riskFromRelevance(parsed.data.gxpRelevance);
+    const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
     // RUNG 2.7 — allocate a human-readable SYS-<SITE_CODE>-<NNNN> reference.
     // Site.code is canonical (same source every other module's reference
@@ -290,8 +293,9 @@ export async function createSystem(
           await tx.auditLog.create({
             data: {
               tenantId: session.user.tenantId,
-              userName: session.user.name,
-              userRole: session.user.role,
+              userId: actor.userId,
+              userName: actor.displayName,
+              userRole: actor.role,
               module: CSV_AUDIT_MODULE,
               action: "SYSTEM_CREATED",
               recordId: created.id,
@@ -333,6 +337,7 @@ export async function updateSystem(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const system = await prisma.gxPSystem.update({
       where: { id, tenantId: session.user.tenantId },
@@ -341,8 +346,9 @@ export async function updateSystem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_UPDATED",
         recordId: id,
@@ -380,6 +386,7 @@ export async function submitStageForReview(stageId: string): Promise<ActionResul
   if (!SUBMITTABLE_STAGE_STATUSES.includes(stage0.status)) {
     return { success: false, error: "This stage cannot be submitted — it is already under review or completed." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
@@ -399,8 +406,9 @@ export async function submitStageForReview(stageId: string): Promise<ActionResul
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "STAGE_SUBMITTED_FOR_REVIEW",
         recordId: stageId,
@@ -443,6 +451,7 @@ export async function approveStage(stageId: string): Promise<ActionResult> {
   if (stage0.submittedById && stage0.submittedById === session.user.id) {
     return { success: false, error: "Segregation of duties: you cannot approve a stage you submitted. A different QA reviewer must approve it." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
@@ -456,8 +465,9 @@ export async function approveStage(stageId: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "STAGE_APPROVED",
         recordId: stageId,
@@ -490,6 +500,7 @@ export async function rejectStage(stageId: string, reason: string): Promise<Acti
   if (stage0.status !== "in_review") {
     return { success: false, error: "This stage is not under review — only a stage submitted for QA review can be rejected." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
@@ -509,8 +520,9 @@ export async function rejectStage(stageId: string, reason: string): Promise<Acti
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "STAGE_REJECTED",
         recordId: stageId,
@@ -563,6 +575,7 @@ export async function deleteSystem(
   });
   if (!existing) return { success: false, error: "System not found" };
   if (existing.deletedAt) return { success: false, error: "System is already archived." };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const deletedById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
   try {
     await prisma.gxPSystem.update({
@@ -572,9 +585,9 @@ export async function deleteSystem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: deletedById,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_SOFT_DELETED",
         recordId: id,
@@ -612,6 +625,7 @@ export async function restoreSystem(
   });
   if (!existing) return { success: false, error: "System not found" };
   if (!existing.deletedAt) return { success: false, error: "System is not archived." };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.gxPSystem.update({
       where: { id, tenantId: session.user.tenantId },
@@ -620,9 +634,9 @@ export async function restoreSystem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_RESTORED",
         recordId: id,
@@ -663,6 +677,7 @@ export async function skipStage(stageId: string, reason: string): Promise<Action
   if (stage0.stageName !== "DS") {
     return { success: false, error: "Only the DS (Design Specification) stage can be skipped." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
@@ -676,8 +691,9 @@ export async function skipStage(stageId: string, reason: string): Promise<Action
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "STAGE_SKIPPED",
         recordId: stageId,
@@ -707,6 +723,7 @@ export async function updateStageNotes(stageId: string, notes: string): Promise<
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const stage = await prisma.validationStage.update({
       where: { id: stageId },
@@ -715,8 +732,9 @@ export async function updateStageNotes(stageId: string, notes: string): Promise<
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "STAGE_NOTES_UPDATED",
         recordId: stageId,
@@ -765,6 +783,7 @@ export async function addRoadmapActivity(
     name: string;
   }>(session, "gxpSystem", parsed.data.systemId, { name: true });
   if (!parent) return { success: false, error: "FORBIDDEN" };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const activity = await prisma.roadmapActivity.create({
       data: {
@@ -781,8 +800,9 @@ export async function addRoadmapActivity(
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "ROADMAP_ACTIVITY_ADDED",
         recordId: parsed.data.systemId,
@@ -807,6 +827,7 @@ export async function updateRoadmapActivity(id: string, status: string): Promise
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const activity = await prisma.roadmapActivity.update({
       where: { id },
@@ -815,8 +836,9 @@ export async function updateRoadmapActivity(id: string, status: string): Promise
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "ROADMAP_ACTIVITY_UPDATED",
         recordId: id,
@@ -917,6 +939,7 @@ export async function addStageDocument(
     return { success: false, error: STAGE_LOCKED_MESSAGE };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentHashSha256 = createHash("sha256").update(buffer).digest("hex");
@@ -947,9 +970,9 @@ export async function addStageDocument(
     await prisma.auditLog.create({
       data: {
         tenantId: stage.system.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "STAGE_DOCUMENT_UPLOADED",
         recordId: created.id,
@@ -1034,6 +1057,7 @@ export async function removeStageDocument(
     return { success: false, error: STAGE_LOCKED_MESSAGE };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.$transaction(async (tx) => {
       await tx.stageDocument.update({
@@ -1048,9 +1072,9 @@ export async function removeStageDocument(
       await tx.auditLog.create({
         data: {
           tenantId: doc.validationStage.system.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: CSV_AUDIT_MODULE,
           action: "STAGE_DOCUMENT_SOFT_DELETED",
           recordId: documentId,
@@ -1098,6 +1122,7 @@ export async function removeStageDocument(
 
 export async function saveRiskFactors(systemId: string, riskFactors: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1106,8 +1131,9 @@ export async function saveRiskFactors(systemId: string, riskFactors: string): Pr
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_RISK_FACTORS_UPDATED",
         recordId: systemId,
@@ -1137,6 +1163,7 @@ export async function saveRiskClassification(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1145,8 +1172,9 @@ export async function saveRiskClassification(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_RISK_CLASSIFICATION_UPDATED",
         recordId: systemId,
@@ -1167,6 +1195,7 @@ export async function saveNextReview(
   lastValidated?: string | null,
 ): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1178,8 +1207,9 @@ export async function saveNextReview(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_REVIEW_DATES_UPDATED",
         recordId: systemId,
@@ -1207,6 +1237,7 @@ export async function saveRemediation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1218,8 +1249,9 @@ export async function saveRemediation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_REMEDIATION_UPDATED",
         recordId: systemId,
@@ -1252,6 +1284,7 @@ export async function attestValidationStatus(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1266,9 +1299,9 @@ export async function attestValidationStatus(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_STATUS_MANUALLY_ATTESTED",
         recordId: systemId,
@@ -1288,6 +1321,7 @@ export async function resetToAutoDerivedStatus(systemId: string): Promise<Action
   if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
     return { success: false, error: "Only QA Head can reset to auto-derived status" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     // Clear the manual flag first so syncValidationStatus will recompute.
     await prisma.gxPSystem.update({
@@ -1302,9 +1336,9 @@ export async function resetToAutoDerivedStatus(systemId: string): Promise<Action
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_STATUS_AUTO_RESUMED",
         recordId: systemId,
@@ -1348,13 +1382,15 @@ export async function linkFindingToSystem(systemId: string, findingId: string): 
   // Scope the finding to the caller's tenant too (IDOR guard on both sides).
   const finding = await prisma.finding.findFirst({ where: { id: findingId, tenantId: session.user.tenantId }, select: { id: true, reference: true } });
   if (!finding) return { success: false, error: "FORBIDDEN" };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.finding.update({ where: { id: findingId }, data: { systemId } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_FINDING_LINKED",
         recordId: systemId,
@@ -1376,13 +1412,15 @@ export async function unlinkFindingFromSystem(systemId: string, findingId: strin
   }
   const finding = await prisma.finding.findFirst({ where: { id: findingId, tenantId: session.user.tenantId, systemId }, select: { id: true, reference: true } });
   if (!finding) return { success: false, error: "FORBIDDEN" };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.finding.update({ where: { id: findingId }, data: { systemId: null } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_FINDING_UNLINKED",
         recordId: systemId,
@@ -1418,6 +1456,7 @@ export async function raiseCAPAFromSystem(
   }
   const system = await prisma.gxPSystem.findFirst({ where: { id: systemId, tenantId: session.user.tenantId }, select: { id: true, siteId: true, reference: true } });
   if (!system) return { success: false, error: "FORBIDDEN" };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   // Delegate to the canonical createCAPA (reference allocation, audit, etc.),
   // tagging source = "CSV/CSA" and the new systemId FK.
   const result = await createCAPA({
@@ -1434,8 +1473,9 @@ export async function raiseCAPAFromSystem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: CSV_AUDIT_MODULE,
         action: "SYSTEM_CAPA_RAISED",
         recordId: systemId,
@@ -1630,6 +1670,7 @@ export async function signValidation(
     }),
   );
   const provenance = await readSigningProvenance();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   const signedOffById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
 
   try {
@@ -1679,9 +1720,9 @@ export async function signValidation(
       await tx.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: signedOffById,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: CSV_AUDIT_MODULE,
           action: "SYSTEM_VALIDATION_SIGNED",
           recordId: system.id,
@@ -1726,6 +1767,7 @@ export async function unsignValidation(
   if (!system) return { success: false, error: "System not found" };
   if (!system.signedOffAt) return { success: false, error: "This system is not signed off." };
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.$transaction(async (tx) => {
       await tx.gxPSystem.update({
@@ -1747,9 +1789,9 @@ export async function unsignValidation(
       await tx.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: CSV_AUDIT_MODULE,
           action: "SYSTEM_VALIDATION_UNSIGNED",
           recordId: system.id,

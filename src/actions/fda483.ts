@@ -96,6 +96,7 @@ export async function createFDA483Event(
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
   try {
+    const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
     const d = parsed.data;
     // Resolve the internal owner's name for the audit trail (best-effort).
     const owner = await prisma.user.findUnique({
@@ -121,8 +122,9 @@ export async function createFDA483Event(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "FDA483_EVENT_CREATED",
         recordId: event.id,
@@ -144,6 +146,7 @@ export async function updateFDA483Event(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   try {
+    const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
     const event = await prisma.fDA483Event.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
@@ -155,8 +158,9 @@ export async function updateFDA483Event(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "FDA483_EVENT_UPDATED",
         recordId: id,
@@ -191,6 +195,8 @@ export async function addObservation(
     siteId: true,
   });
   if (!parent) return { success: false, error: "FORBIDDEN" };
+
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   // SME final rung â€” site-scoped reference. FDA483Observation has no
   // siteId of its own; the site is resolved via the parent FDA483Event's
@@ -243,8 +249,9 @@ export async function addObservation(
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "OBSERVATION_ADDED",
         recordId: parsed.data.eventId,
@@ -314,6 +321,7 @@ export async function addCommitment(
   // session.user.id may be a Tenant-row id (super_admin / customer_admin) —
   // resolve to a real User FK or null so createdById never violates its FK.
   const createdById = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   const MAX_REF_RETRIES = 5;
   let commitment: Awaited<ReturnType<typeof prisma.fDA483Commitment.create>> | null = null;
@@ -362,9 +370,9 @@ export async function addCommitment(
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "COMMITMENT_ADDED",
         recordId: commitment.id,
@@ -383,14 +391,16 @@ export async function addCommitment(
 export async function deleteFDA483Event(id: string): Promise<ActionResult> {
   const session = await requireAuth();
   try {
+    const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
     await prisma.fDA483Event.delete({
       where: { id, tenantId: session.user.tenantId },
     });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "FDA483_EVENT_DELETED",
         recordId: id,
@@ -414,6 +424,7 @@ export async function saveResponseDraft(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   try {
+    const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
     const event = await prisma.fDA483Event.update({
       where: { id: eventId, tenantId: session.user.tenantId },
       data: {
@@ -427,8 +438,9 @@ export async function saveResponseDraft(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "RESPONSE_DRAFT_SAVED",
         recordId: eventId,
@@ -448,6 +460,7 @@ export async function saveAGIDraft(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   try {
+    const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
     const event = await prisma.fDA483Event.update({
       where: { id: eventId, tenantId: session.user.tenantId },
       data: { agiDraft },
@@ -456,8 +469,9 @@ export async function saveAGIDraft(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "AGI_DRAFT_SAVED",
         recordId: eventId,
@@ -503,6 +517,8 @@ export async function signSubmitFDA483Response(
   });
   if (!existing) return { success: false, error: "FDA 483 event not found" };
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   // Â§11.200(a)(1)(ii) â€” re-authenticate at the moment of signing.
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
@@ -512,9 +528,9 @@ export async function signSubmitFDA483Response(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: eventId,
@@ -582,8 +598,9 @@ export async function signSubmitFDA483Response(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "FDA483_RESPONSE_SUBMITTED",
         recordId: eventId,
@@ -593,9 +610,9 @@ export async function signSubmitFDA483Response(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "FDA483_RESPONSE_SIGNED",
         recordId: signedRecord.id,
@@ -681,6 +698,8 @@ export async function updateObservation(
   const invalidateCapaId =
     rcaChanged && existing.capaId ? existing.capaId : null;
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     const obs = await prisma.$transaction(async (tx) => {
       const updated = await tx.fDA483Observation.update({
@@ -715,9 +734,9 @@ export async function updateObservation(
           await tx.auditLog.create({
             data: {
               tenantId: session.user.tenantId,
-              userId: session.user.id,
-              userName: session.user.name,
-              userRole: session.user.role,
+              userId: actor.userId,
+              userName: actor.displayName,
+              userRole: actor.role,
               module: "CAPA",
               action: "CAPA_RCA_REVIEW_INVALIDATED_BY_OBS_RCA_CHANGE",
               recordId: capa.id,
@@ -735,8 +754,9 @@ export async function updateObservation(
       await tx.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: FDA483_AUDIT_MODULE,
           action: "OBSERVATION_UPDATED",
           recordId: id,
@@ -775,14 +795,15 @@ export async function markObservationResponseDrafted(id: string): Promise<Action
   if (existing.status === "Closed") {
     return { success: false, error: "Cannot draft a response on a closed observation." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const obs = await prisma.fDA483Observation.update({ where: { id }, data: { status: "Response Drafted" } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "OBSERVATION_RESPONSE_DRAFTED",
         recordId: id,
@@ -830,14 +851,15 @@ export async function closeObservation(
   });
   if (!existing) return { success: false, error: "FORBIDDEN" };
   if (existing.status === "Closed") return { success: false, error: "Observation is already closed." };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const obs = await prisma.fDA483Observation.update({ where: { id }, data: { status: "Closed" } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "OBSERVATION_CLOSED",
         recordId: id,
@@ -868,6 +890,7 @@ export async function linkCAPAToEvent(
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.fDA483Observation.update({
       where: { id: observationId },
@@ -876,8 +899,9 @@ export async function linkCAPAToEvent(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "CAPA_LINKED_TO_OBSERVATION",
         recordId: eventId,
@@ -903,13 +927,15 @@ export async function deleteObservation(id: string): Promise<ActionResult> {
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.fDA483Observation.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "OBSERVATION_DELETED",
         recordId: id,
@@ -959,6 +985,7 @@ export async function updateCommitment(
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const commitment = await prisma.fDA483Commitment.update({
       where: { id },
@@ -970,8 +997,9 @@ export async function updateCommitment(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "COMMITMENT_UPDATED",
         recordId: id,
@@ -996,13 +1024,15 @@ export async function deleteCommitment(id: string): Promise<ActionResult> {
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.fDA483Commitment.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "COMMITMENT_DELETED",
         recordId: id,
@@ -1061,6 +1091,7 @@ export async function completeCommitment(
   // Tenant-row logins (super_admin / customer_admin) aren't User rows —
   // resolve to a valid User FK or null for completedById / uploadedById.
   const userFk = (await resolveUserFk(session.user.id, session.user.tenantId, session.user.role)).userId;
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const commitment = await prisma.$transaction(async (tx) => {
       const updated = await tx.fDA483Commitment.update({
@@ -1089,9 +1120,9 @@ export async function completeCommitment(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "COMMITMENT_COMPLETED",
         recordId: id,
@@ -1125,6 +1156,7 @@ export async function reopenCommitment(
   if (owned.status !== "Complete") {
     return { success: false, error: "Only a completed commitment can be reopened." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const commitment = await prisma.fDA483Commitment.update({
       where: { id },
@@ -1133,9 +1165,9 @@ export async function reopenCommitment(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "COMMITMENT_REOPENED",
         recordId: id,
@@ -1180,6 +1212,7 @@ export async function addResponseDocument(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   // IDOR guard - verify the caller's tenant owns the parent event before
   // inserting the document (canonical pattern: same assertTenantOwnsParent
   // helper addObservation uses). Returns null for a missing event OR one
@@ -1195,9 +1228,9 @@ export async function addResponseDocument(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: FDA483_AUDIT_MODULE,
           action: "RESPONSE_DOCUMENT_ADD_BLOCKED_TENANT_MISMATCH",
           recordId: parsed.data.eventId,
@@ -1224,8 +1257,9 @@ export async function addResponseDocument(
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "RESPONSE_DOCUMENT_ADDED",
         recordId: parsed.data.eventId,
@@ -1253,13 +1287,15 @@ export async function removeResponseDocument(
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.fDA483Document.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "RESPONSE_DOCUMENT_REMOVED",
         recordId: eventId,
@@ -1325,6 +1361,8 @@ export async function raiseCAPAFromObservation(
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   try {
     // 1) Create the CAPA via the canonical createCAPA so it gets a real
     //    CAPA-<SITE>-<YEAR>-<NNN> reference + the shared role gate + audit,
@@ -1357,8 +1395,9 @@ export async function raiseCAPAFromObservation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: FDA483_AUDIT_MODULE,
         action: "CAPA_RAISED_FROM_OBSERVATION",
         recordId: d.eventId,

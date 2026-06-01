@@ -189,9 +189,9 @@ export async function createDeviation(
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: "Deviation Management",
           action: "DEVIATION_LINKED_TO_PRIOR_CAPA_AS_RECURRENCE",
           recordId: deviation.id,
@@ -207,8 +207,9 @@ export async function createDeviation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_CREATED",
         recordId: deviation.id,
@@ -246,6 +247,7 @@ export async function updateDeviation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const { dueDate, detectedDate, ...rest } = parsed.data;
     const deviation = await prisma.deviation.update({
@@ -259,8 +261,9 @@ export async function updateDeviation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_UPDATED",
         recordId: id,
@@ -302,6 +305,8 @@ export async function closeDeviation(
     },
   });
   if (!existing) return { success: false, error: "Deviation not found" };
+
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   // SME Section 1, Stage 1 â€” CAPA Decision Gate.
   // A Critical deviation cannot be closed until a CAPA exists and is linked.
@@ -351,9 +356,9 @@ export async function closeDeviation(
         await prisma.auditLog.create({
           data: {
             tenantId: session.user.tenantId,
-            userId: session.user.id,
-            userName: session.user.name,
-            userRole: session.user.role,
+            userId: actor.userId,
+            userName: actor.displayName,
+            userRole: actor.role,
             module: "Deviation Management",
             action: auditAction,
             recordId: existing.id,
@@ -395,9 +400,9 @@ export async function closeDeviation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: id,
@@ -464,8 +469,9 @@ export async function closeDeviation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_CLOSED",
         recordId: id,
@@ -474,9 +480,9 @@ export async function closeDeviation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "DEVIATION_CLOSED_AND_SIGNED",
         recordId: signedRecord.id,
@@ -510,6 +516,7 @@ export async function rejectDeviation(
   if (!parsed.success) {
     return { success: false, error: "Rejection reason must be at least 5 characters" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const deviation = await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
@@ -518,8 +525,9 @@ export async function rejectDeviation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_REJECTED",
         recordId: id,
@@ -596,6 +604,7 @@ export async function saveInvestigationProgress(
   if (existing.createdById && existing.createdById === session.user.id) {
     return { success: false, error: "Investigation must be performed by someone other than the reporter." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const deviation = await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
@@ -608,9 +617,9 @@ export async function saveInvestigationProgress(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_INVESTIGATION_SAVED",
         recordId: id,
@@ -667,9 +676,9 @@ export async function completeInvestigation(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_INVESTIGATION_COMPLETED",
         recordId: id,
@@ -704,12 +713,13 @@ export async function startInvestigation(id: string): Promise<ActionResult> {
   if (updated.count === 0) {
     return { success: false, error: "Only an open deviation can be moved into investigation." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   await prisma.auditLog.create({
     data: {
       tenantId: session.user.tenantId,
-      userId: session.user.id,
-      userName: session.user.name,
-      userRole: session.user.role,
+      userId: actor.userId,
+      userName: actor.displayName,
+      userRole: actor.role,
       module: "Deviation Management",
       action: "DEVIATION_INVESTIGATION_STARTED",
       recordId: id,
@@ -739,12 +749,13 @@ export async function submitDeviationForReview(id: string): Promise<ActionResult
   if (updated.count === 0) {
     return { success: false, error: "Only a deviation under investigation can be submitted for QA review." };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   await prisma.auditLog.create({
     data: {
       tenantId: session.user.tenantId,
-      userId: session.user.id,
-      userName: session.user.name,
-      userRole: session.user.role,
+      userId: actor.userId,
+      userName: actor.displayName,
+      userRole: actor.role,
       module: "Deviation Management",
       action: "DEVIATION_SUBMITTED_FOR_REVIEW",
       recordId: id,
@@ -822,9 +833,9 @@ export async function saveCAPADecision(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_CAPA_DECISION_MADE",
         recordId: id,
@@ -874,9 +885,9 @@ export async function editCAPADecision(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_CAPA_DECISION_UPDATED",
         recordId: id,
@@ -898,6 +909,7 @@ export async function editCAPADecision(
 
 export async function deleteDeviation(id: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.deviation.delete({
       where: { id, tenantId: session.user.tenantId },
@@ -905,8 +917,9 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Deviation Management",
         action: "DEVIATION_DELETED",
         recordId: id,
