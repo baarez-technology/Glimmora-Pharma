@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
 import { deriveSiteCode, isReferenceConflict } from "@/lib/reference";
 
@@ -107,6 +107,7 @@ export async function createRTMEntry(
     siteId: string | null;
   }>(session, "gxpSystem", parsed.data.systemId, { name: true, siteId: true });
   if (!parent) return { success: false, error: "FORBIDDEN" };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     // RUNG 2.8 — allocate a per-site URS-<SITE_CODE>-<NNNN> reference. Site.code
     // is canonical (same source as SYS references); name-derived fallback for a
@@ -141,8 +142,9 @@ export async function createRTMEntry(
     await prisma.auditLog.create({
       data: {
         tenantId: parent.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CSV/CSA",
         action: "RTM_ENTRY_CREATED",
         recordId: entry!.id,
@@ -177,6 +179,7 @@ export async function updateRTMEntry(
     select: { fsReference: true, iqTestId: true, iqResult: true, oqTestId: true, oqResult: true, pqTestId: true, pqResult: true },
   });
   if (!current) return { success: false, error: "FORBIDDEN" };
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const merged = { ...current, ...parsed.data };
     const derived = deriveRtmCoverage(merged);
@@ -187,8 +190,9 @@ export async function updateRTMEntry(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "CSV/CSA",
         action: "RTM_ENTRY_UPDATED",
         recordId: id,

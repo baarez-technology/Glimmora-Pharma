@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -20,12 +20,14 @@ export async function toggleAGIAgent(
   if (!isAdmin(session.user.role)) {
     return { success: false, error: "Only Admin can toggle AGI agents" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "AGI Console",
         action: "AGI_AGENT_TOGGLED",
         recordTitle: agentName,
@@ -50,12 +52,14 @@ export async function logAGISuggestion(input: {
   accepted?: boolean;
 }): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const log = await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: input.module,
         action: input.accepted ? "AI_SUGGESTION_ACCEPTED" : "AI_SUGGESTION_SHOWN",
         recordId: input.recordId ?? null,

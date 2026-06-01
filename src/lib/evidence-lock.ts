@@ -8,15 +8,18 @@ import { prisma } from "@/lib/prisma";
  * NOT a server action file (no `"use server"` directive) — these helpers are
  * called from already-authenticated server actions in src/actions/capas.ts.
  * They take an explicit `user` so the audit row reflects who triggered the
- * transition; callers MUST pass session.user.{name, role} from their own
- * requireAuth() result. Tenant scoping is enforced by verifying the parent
- * CAPA belongs to the supplied tenantId before any writes.
+ * transition; callers MUST pass a resolved actor (resolveUserFk result):
+ * { userId: actor.userId, name: actor.displayName, role: actor.role }. The
+ * userId is null for admin (Tenant-row) actors — AUDIT Finding #5 / Rung 3G-2.
+ * Tenant scoping is enforced by verifying the parent CAPA belongs to the
+ * supplied tenantId before any writes.
  */
 
 const AUDIT_MODULE_EVIDENCE = "CAPA / Evidence";
 const AUDIT_MODULE_EFFECTIVENESS = "CAPA / Effectiveness";
 
 interface ActorIdentity {
+  userId: string | null;
   name: string;
   role: string;
 }
@@ -48,6 +51,7 @@ export async function lockEvidenceForCAPA(
       await tx.auditLog.create({
         data: {
           tenantId,
+          userId: user.userId,
           userName: user.name,
           userRole: user.role,
           module: AUDIT_MODULE_EVIDENCE,
@@ -88,6 +92,7 @@ export async function unlockEvidenceForCAPA(
       await tx.auditLog.create({
         data: {
           tenantId,
+          userId: user.userId,
           userName: user.name,
           userRole: user.role,
           module: AUDIT_MODULE_EVIDENCE,
@@ -129,6 +134,7 @@ export async function lockCriteriaForCAPA(
       await tx.auditLog.create({
         data: {
           tenantId,
+          userId: user.userId,
           userName: user.name,
           userRole: user.role,
           module: AUDIT_MODULE_EFFECTIVENESS,
@@ -167,6 +173,7 @@ export async function unlockCriteriaForCAPA(
       await tx.auditLog.create({
         data: {
           tenantId,
+          userId: user.userId,
           userName: user.name,
           userRole: user.role,
           module: AUDIT_MODULE_EFFECTIVENESS,

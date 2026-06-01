@@ -19,7 +19,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { sanitizeServerError } from "@/lib/errors";
 
@@ -137,13 +137,15 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
     return { success: false, error: sanitizeServerError(lastRefErr, "Failed to allocate finding reference") };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
 
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Gap Assessment",
         action: "FINDING_CREATED",
         recordId: finding.id,
@@ -155,9 +157,9 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
       await prisma.auditLog.create({
         data: {
           tenantId: session.user.tenantId,
-          userId: session.user.id,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: "Gap Assessment",
           action: "FINDING_LINKED_TO_PRIOR_CAPA_AS_RECURRENCE",
           recordId: finding.id,
@@ -186,6 +188,7 @@ export async function updateFinding(id: string, input: z.input<typeof UpdateFind
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const finding = await prisma.finding.update({
       where: { id, tenantId: session.user.tenantId },
@@ -198,8 +201,9 @@ export async function updateFinding(id: string, input: z.input<typeof UpdateFind
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Gap Assessment",
         action: "FINDING_UPDATED",
         recordId: id,
@@ -216,6 +220,7 @@ export async function updateFinding(id: string, input: z.input<typeof UpdateFind
 
 export async function deleteFinding(id: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
     await prisma.finding.delete({
@@ -225,8 +230,9 @@ export async function deleteFinding(id: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Gap Assessment",
         action: "FINDING_DELETED",
         recordId: id,
@@ -243,6 +249,7 @@ export async function deleteFinding(id: string): Promise<ActionResult> {
 
 export async function closeFinding(id: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
     const finding = await prisma.finding.update({
@@ -253,8 +260,9 @@ export async function closeFinding(id: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Gap Assessment",
         action: "FINDING_CLOSED",
         recordId: id,

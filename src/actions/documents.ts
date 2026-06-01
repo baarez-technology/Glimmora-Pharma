@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import {
   canonicalizeDocumentApprovalContent,
   computeContentHash,
@@ -37,6 +37,7 @@ export async function createDocument(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const doc = await prisma.document.create({
       data: {
@@ -50,8 +51,9 @@ export async function createDocument(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Evidence & Documents",
         action: "DOCUMENT_UPLOADED",
         recordId: doc.id,
@@ -89,6 +91,8 @@ export async function approveDocument(
   });
   if (!existing) return { success: false, error: "Document not found" };
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
   // §11.200(a)(1)(ii) — re-authenticate at the moment of signing.
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
@@ -98,9 +102,9 @@ export async function approveDocument(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "SIGNING_PASSWORD_FAILED",
         recordId: id,
@@ -164,8 +168,9 @@ export async function approveDocument(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Evidence & Documents",
         action: "DOCUMENT_APPROVED",
         recordId: id,
@@ -174,9 +179,9 @@ export async function approveDocument(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: SIGNING_AUDIT_MODULE,
         action: "DOCUMENT_APPROVAL_SIGNED",
         recordId: signedRecord.id,
@@ -203,6 +208,7 @@ export async function rejectDocument(id: string, reason: string): Promise<Action
   if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
     return { success: false, error: "Only QA Head can reject documents" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     // Schema has no rejectedBy/rejectionReason — store reason in description
     // and flip status; full audit trail captures the rejection event.
@@ -213,8 +219,9 @@ export async function rejectDocument(id: string, reason: string): Promise<Action
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Evidence & Documents",
         action: "DOCUMENT_REJECTED",
         recordId: id,
@@ -231,6 +238,7 @@ export async function rejectDocument(id: string, reason: string): Promise<Action
 
 export async function deleteDocument(id: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.document.delete({
       where: { id, tenantId: session.user.tenantId },
@@ -238,8 +246,9 @@ export async function deleteDocument(id: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Evidence & Documents",
         action: "DOCUMENT_DELETED",
         recordId: id,

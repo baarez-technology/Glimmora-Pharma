@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -16,13 +16,14 @@ export async function logAuditAction(input: {
   newValue?: string;
 }): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const log = await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userId: session.user.id,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: input.module,
         action: input.action,
         recordId: input.recordId ?? null,

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import { getCAPAEffectivenessCriteria } from "@/lib/queries/capa-criteria";
 import { sanitizeServerError } from "@/lib/errors";
@@ -93,6 +93,7 @@ export async function createCriterion(
     return { success: false, error: LOCKED_CAPA_MESSAGE };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const criterion = await prisma.cAPAEffectivenessCriterion.create({
       data: {
@@ -105,8 +106,9 @@ export async function createCriterion(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "EFFECTIVENESS_CRITERION_CREATED",
         recordId: criterion.id,
@@ -158,6 +160,7 @@ export async function updateCriterion(
     return { success: false, error: LOCKED_CAPA_MESSAGE };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const before = {
       description: existing.description,
@@ -176,8 +179,9 @@ export async function updateCriterion(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "EFFECTIVENESS_CRITERION_UPDATED",
         recordId: criterionId,
@@ -220,6 +224,7 @@ export async function deleteCriterion(
     return { success: false, error: LOCKED_CAPA_MESSAGE };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const snapshot = {
       description: existing.description,
@@ -234,8 +239,9 @@ export async function deleteCriterion(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "EFFECTIVENESS_CRITERION_DELETED",
         recordId: criterionId,

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -30,6 +30,7 @@ export async function createRAIDItem(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const item = await prisma.rAIDItem.create({
       data: {
@@ -43,8 +44,9 @@ export async function createRAIDItem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Governance",
         action: "RAID_ITEM_CREATED",
         recordId: item.id,
@@ -69,6 +71,7 @@ export async function updateRAIDItem(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const { dueDate, ...rest } = parsed.data;
     const item = await prisma.rAIDItem.update({
@@ -81,8 +84,9 @@ export async function updateRAIDItem(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Governance",
         action: "RAID_ITEM_UPDATED",
         recordId: id,
@@ -98,6 +102,7 @@ export async function updateRAIDItem(
 
 export async function closeRAIDItem(id: string, resolutionNote: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     // Schema has no resolutionNote field — fold it into mitigation
     // and capture the original text in the audit log.
@@ -113,8 +118,9 @@ export async function closeRAIDItem(id: string, resolutionNote: string): Promise
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Governance",
         action: "RAID_ITEM_CLOSED",
         recordId: id,
@@ -131,6 +137,7 @@ export async function closeRAIDItem(id: string, resolutionNote: string): Promise
 
 export async function reopenRAIDItem(id: string, reason: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const item = await prisma.rAIDItem.update({
       where: { id, tenantId: session.user.tenantId },
@@ -144,8 +151,9 @@ export async function reopenRAIDItem(id: string, reason: string): Promise<Action
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Governance",
         action: "RAID_ITEM_REOPENED",
         recordId: id,
@@ -162,6 +170,7 @@ export async function reopenRAIDItem(id: string, reason: string): Promise<Action
 
 export async function deleteRAIDItem(id: string): Promise<ActionResult> {
   const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.rAIDItem.delete({
       where: { id, tenantId: session.user.tenantId },
@@ -169,8 +178,9 @@ export async function deleteRAIDItem(id: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Governance",
         action: "RAID_ITEM_DELETED",
         recordId: id,

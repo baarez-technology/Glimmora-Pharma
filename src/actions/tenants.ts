@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { BCRYPT_COST } from "@/lib/passwords";
 import { getTenants } from "@/lib/queries/tenants";
 import type { Tenant as ReduxTenant } from "@/store/auth.slice";
@@ -60,6 +60,7 @@ export async function createTenant(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_COST);
     const tenant = await prisma.tenant.create({
@@ -78,8 +79,9 @@ export async function createTenant(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Admin",
         action: "TENANT_CREATED",
         recordId: tenant.id,
@@ -109,6 +111,7 @@ export async function updateTenant(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const { password, ...rest } = parsed.data;
     const data: Record<string, unknown> = { ...rest };
@@ -122,8 +125,9 @@ export async function updateTenant(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Admin",
         action: "TENANT_UPDATED",
         recordId: id,
@@ -154,6 +158,7 @@ export async function toggleTenantMFA(
   if (session.user.role !== "super_admin") {
     return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const existing = await prisma.tenant.findUnique({
       where: { id },
@@ -175,8 +180,9 @@ export async function toggleTenantMFA(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Admin",
         action: enabled ? "MFA_ENABLED" : "MFA_DISABLED",
         recordId: id,
@@ -201,6 +207,7 @@ export async function deleteTenant(id: string): Promise<ActionResult> {
   if (id === session.user.tenantId) {
     return { success: false, error: "You cannot delete your own account" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const target = await prisma.tenant.findUnique({
       where: { id },
@@ -216,8 +223,9 @@ export async function deleteTenant(id: string): Promise<ActionResult> {
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Admin",
         action: "TENANT_DELETED",
         recordId: id,
@@ -242,6 +250,7 @@ export async function createSubscription(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const sub = await prisma.subscription.upsert({
       where: { tenantId: parsed.data.tenantId },
@@ -262,8 +271,9 @@ export async function createSubscription(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Admin",
         action: "SUBSCRIPTION_UPSERTED",
         recordId: parsed.data.tenantId,

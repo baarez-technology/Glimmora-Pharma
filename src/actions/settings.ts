@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { BCRYPT_COST } from "@/lib/passwords";
 import { sanitizeServerError } from "@/lib/errors";
 
@@ -56,6 +56,7 @@ export async function createSite(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const site = await prisma.site.create({
       data: {
@@ -66,8 +67,9 @@ export async function createSite(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Settings",
         action: "SITE_CREATED",
         recordId: site.id,
@@ -104,6 +106,7 @@ export async function updateSite(
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const site = await prisma.site.update({
       where: { id },
@@ -112,8 +115,9 @@ export async function updateSite(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Settings",
         action: "SITE_UPDATED",
         recordId: id,
@@ -144,13 +148,15 @@ export async function deleteSite(id: string): Promise<ActionResult> {
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.site.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Settings",
         action: "SITE_DELETED",
         recordId: id,
@@ -179,6 +185,7 @@ export async function createUser(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_COST);
     const user = await prisma.user.create({
@@ -197,8 +204,9 @@ export async function createUser(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Settings",
         action: "USER_CREATED",
         recordId: user.id,
@@ -238,6 +246,7 @@ export async function updateUser(
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const { password, ...rest } = parsed.data;
     const data: Record<string, unknown> = { ...rest };
@@ -250,8 +259,9 @@ export async function updateUser(
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Settings",
         action: "USER_UPDATED",
         recordId: id,
@@ -278,13 +288,15 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.user.delete({ where: { id } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: "Settings",
         action: "USER_DELETED",
         recordId: id,

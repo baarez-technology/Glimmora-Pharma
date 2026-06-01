@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import {
@@ -188,6 +188,7 @@ export async function updateEvidenceStatus(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.$transaction(async (tx) => {
       // Snapshot prior notes value when notes changed (existing behaviour;
@@ -229,8 +230,9 @@ export async function updateEvidenceStatus(
       await tx.auditLog.create({
         data: {
           tenantId: item.capa.tenantId,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: AUDIT_MODULE,
           action: auditAction,
           recordId: evidenceItemId,
@@ -288,6 +290,7 @@ export async function addEvidenceFile(
     };
   }
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentHashSha256 = createHash("sha256").update(buffer).digest("hex");
@@ -320,8 +323,9 @@ export async function addEvidenceFile(
     await prisma.auditLog.create({
       data: {
         tenantId: item.capa.tenantId,
-        userName: session.user.name,
-        userRole: session.user.role,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
         module: AUDIT_MODULE,
         action: "EVIDENCE_FILE_UPLOADED",
         recordId: created.id,
@@ -390,6 +394,7 @@ export async function removeEvidenceFile(
   // retainUntil window. A future hard-delete/purge job is where the
   // retainUntil check belongs.
 
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     await prisma.$transaction(async (tx) => {
       await tx.evidenceFile.update({
@@ -403,8 +408,9 @@ export async function removeEvidenceFile(
       await tx.auditLog.create({
         data: {
           tenantId: file.evidenceItem.capa.tenantId,
-          userName: session.user.name,
-          userRole: session.user.role,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
           module: AUDIT_MODULE,
           action: "EVIDENCE_FILE_SOFT_DELETED",
           recordId: fileId,
