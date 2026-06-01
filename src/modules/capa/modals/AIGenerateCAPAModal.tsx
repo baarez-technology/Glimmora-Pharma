@@ -682,7 +682,7 @@ function DismissAlertControl({ capaId, alertType }: { capaId: string; alertType:
   return (
     <div className="mt-2 rounded-lg p-3 space-y-2" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
       <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-        Logged in your audit trail. Reason becomes part of the immutable record.
+        Logged in your audit trail with your identity and a timestamp.
       </p>
       <textarea
         rows={2}

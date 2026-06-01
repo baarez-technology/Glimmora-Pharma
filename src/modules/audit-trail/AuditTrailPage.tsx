@@ -1,5 +1,11 @@
 "use client";
 
+// NOTE: Content-hash chain + append-only enforcement is a planned future
+// feature (tracked in AUDIT-GLOBAL-PATTERNS.md Finding #7). The current audit
+// trail provides actor identity, timestamp, and tenant-scoped persistence.
+// Do NOT add tamper-evidence / SHA-256 / append-only / immutable UI claims
+// until the AuditLog schema and DB constraints actually support them.
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -278,9 +284,9 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
       >
         <div className="flex items-center gap-2 text-[11px] font-medium tracking-wide flex-wrap">
           <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>21 CFR PART 11 COMPLIANT AUDIT TRAIL</span>
+          <span>21 CFR PART 11 AUDIT TRAIL</span>
           <span className="opacity-60" aria-hidden="true">·</span>
-          <span className="opacity-80">Append-only · SHA-256 chained · Tamper-evident</span>
+          <span className="opacity-80">Actor identity and timestamp on every change</span>
           <span className="ml-auto opacity-60 font-mono">UTC {headerUtc}</span>
         </div>
       </div>
@@ -291,7 +297,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
           <div>
             <h1 className="text-2xl font-semibold text-[#1a1a1a] leading-tight">Audit Trail</h1>
             <p className="mt-1 text-[13px] text-[#6b6b6b]">
-              Immutable record of every action across{" "}
+              Record of every action across{" "}
               <span className="font-semibold text-[#3a3530]">{totalCount.toLocaleString()}</span>{" "}
               {entryWord(totalCount)}
               {truncated && (
@@ -520,13 +526,10 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
         <div className="flex items-center gap-1.5">
           <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span>
-            Records are append-only and tamper-evident. Retention:
-            7 years (21 CFR Part 11.10(c)).
+            Every change is recorded with actor identity and timestamp.
+            Retention: 7 years (21 CFR Part 11.10(c)).
           </span>
         </div>
-        {/* Chain-hash block omitted: AuditLog model does not currently
-            carry a content-hash column. Re-enable here once the hashing
-            substage lands so we don't fabricate one. */}
       </div>
     </main>
   );
