@@ -496,6 +496,17 @@ body {
     border-bottom: none;
   }
 
+  /* ap-row — bespoke dashboard ActionPlanTable rows (Rung: action-plan
+     redesign). Scoped to .ap-row ONLY so it cannot affect .data-table or any
+     other table. Hover lifts the row to the elevated bg (the inline severity
+     tint yields; the priority accent left-border stays). */
+  .ap-row td {
+    transition: background-color 0.12s ease;
+  }
+  .ap-row:hover td {
+    background-color: var(--bg-elevated) !important;
+  }
+
   /* nav-item — sidebar nav link styling */
   .nav-item {
     @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium cursor-pointer transition-all duration-150 mx-2;

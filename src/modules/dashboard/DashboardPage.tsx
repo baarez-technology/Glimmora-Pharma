@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import {
   ShieldCheck, AlertTriangle, Clock, Database, GraduationCap, TrendingUp,
-  Grid3x3, Calendar, Bot, Activity, ChevronRight, Info,
+  Grid3x3, Calendar, Bot, Activity, Info,
   CheckCircle2, Search, ClipboardCheck, FileWarning, BarChart3, ClipboardList,
   MapPin,
 } from "lucide-react";
@@ -20,8 +20,9 @@ import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { StatCard, CardSection, SetupChecklist } from "@/components/shared";
-import { isOverdue, STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
+import { isOverdue } from "@/types/capa";
 import { displayUserName } from "@/lib/identity-display";
+import { ActionPlanTable } from "./ActionPlanTable";
 
 /* ══════════════════════════════════════ */
 
@@ -307,24 +308,13 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
             {actionPlan.length === 0 ? (
               <div className="flex flex-col items-center py-8"><ClipboardList className="w-10 h-10 text-[#334155] mb-2" aria-hidden="true" /><p className="text-[12px] mb-2" style={{ color: "var(--text-muted)" }}>No open actions</p><Button variant="ghost" size="sm" onClick={() => router.push("/gap-assessment")}>Log a finding</Button></div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="data-table" aria-label="90 day action plan"><caption className="sr-only">Priority actions due within 90 days</caption>
-                  <thead><tr><th scope="col">Priority</th><th scope="col">Area</th><th scope="col">Action</th><th scope="col">Owner</th><th scope="col">Due date</th><th scope="col">Status</th><th scope="col">AGI risk</th><th scope="col"><span className="sr-only">Nav</span></th></tr></thead>
-                  <tbody>{actionPlan.slice(0, 10).map((item) => (
-                    <tr key={item.id} className="cursor-pointer" onClick={() => { if (item.module === "gap-assessment") router.push("/gap-assessment"); else if (item.module === "capa") router.push("/capa"); else if (item.module === "csv-csa") router.push("/csv-csa"); }}>
-                      <td><Badge variant={item.priority === "Critical" ? "red" : item.priority === "High" ? "amber" : "green"}>{item.priority}</Badge></td>
-                      <td><Badge variant="gray">{item.area}</Badge></td>
-                      <td><p className="text-[12px]" style={{ color: "var(--text-primary)", maxWidth: 200 }}>{item.action}</p></td>
-                      <td className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{ownerName(item.owner)}</td>
-                      <td>{item.dueDate ? (<><div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(item.dueDate).tz(timezone).format(dateFormat)}</div>{dayjs.utc(item.dueDate).isBefore(dayjs()) && <div className="text-[10px] text-[#ef4444]">Overdue</div>}</>) : <span className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
-                      <td><Badge variant={item.status === "Closed" || item.status === "closed" ? "green" : item.status === "In Progress" || item.status === "in_progress" ? "amber" : item.status === "Pending QA Review" || item.status === "pending_qa_review" ? "purple" : "blue"}>{CAPA_STATUS_LABEL[item.status as keyof typeof CAPA_STATUS_LABEL] ?? item.status}</Badge></td>
-                      <td><Badge variant={item.agiRisk === "High" ? "red" : item.agiRisk === "Medium" ? "amber" : "green"}>{item.agiRisk}</Badge></td>
-                      <td><Button variant="ghost" size="xs" icon={ChevronRight} aria-label={`View ${item.refId}`} onClick={() => { if (item.module === "gap-assessment") router.push("/gap-assessment"); else if (item.module === "capa") router.push("/capa"); else if (item.module === "csv-csa") router.push("/csv-csa"); }} /></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-                {actionPlan.length > 10 && <p className="text-[11px] text-center mt-2" style={{ color: "var(--text-muted)" }}>Showing 10 of {actionPlan.length} items</p>}
-              </div>
+              <ActionPlanTable
+                items={actionPlan}
+                ownerName={ownerName}
+                timezone={timezone}
+                dateFormat={dateFormat}
+                router={router}
+              />
             )}
           </CardSection>
         </div>
