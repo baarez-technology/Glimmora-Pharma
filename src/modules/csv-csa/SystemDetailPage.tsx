@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { ArrowLeft, Clock, AlertTriangle } from "lucide-react";
 import dayjs from "@/lib/dayjs";
-import { displayUserName } from "@/lib/identity-display";
+import { displayUserName, displaySiteName } from "@/lib/identity-display";
 import { useRole } from "@/hooks/useRole";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
@@ -61,7 +61,7 @@ export function SystemDetailPage({ system: prismaSystem, availableFindings, rece
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const resolveUser = (id: string) => displayUserName(id, users);
-  const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? "—";
+  const siteName = (id: string) => displaySiteName(id, sites, "—");
 
   async function onEditSave(data: EditSystemForm) {
     // RUNG 2.6 — the edit modal now carries only the 8 essential identity /

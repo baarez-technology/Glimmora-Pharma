@@ -105,6 +105,15 @@ export const COMPLIANCE_AUTHOR_ROLES: readonly string[] = [
   "super_admin",
 ];
 
+/**
+ * Admin-tier set for destructive record deletes (deleteCAPA / deleteFinding /
+ * deleteDeviation). Mirrors SYSTEM_DELETE_ROLES (systems.ts) — deleting a GxP
+ * record is an admin act, narrower than authoring it. super_admin is listed
+ * for symmetry but is independently blocked from authorship by requireGxPAuthor
+ * (Rung 3E.2), so the effective deleter is customer_admin. Rung 3J.1.
+ */
+export const ADMIN_DELETE_ROLES: readonly string[] = ["customer_admin", "super_admin"];
+
 export type UserFkResolution = {
   /** Real User.id, or null for non-User actors (platform/customer admin). */
   userId: string | null;

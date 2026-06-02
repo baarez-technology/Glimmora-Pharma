@@ -20,7 +20,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
-import { displayName, displayUserName } from "@/lib/identity-display";
+import { displayName, displayUserName, displaySiteName } from "@/lib/identity-display";
 
 /* ── Helpers ── */
 
@@ -87,7 +87,7 @@ export function GapRegisterTab({
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const { sites: accessibleSites } = useTenantConfig();
   const showSiteColumn = !selectedSiteId && accessibleSites.length > 1;
-  const siteName = (id: string) => accessibleSites.find((s) => s.id === id)?.name ?? id;
+  const siteName = (id: string) => displaySiteName(id, accessibleSites);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Edit state

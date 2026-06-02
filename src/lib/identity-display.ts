@@ -70,3 +70,26 @@ export function displayUserName(
   if (CUID_RE.test(v)) return fallback; // unresolvable id — don't leak it
   return v; // a free-typed human name — preserve it
 }
+
+/**
+ * Site sibling of displayUserName — resolve a Site id against a loaded sites
+ * list (Rung 3J.1, closing the parallel `siteName(id) => sites.find()?.name ?? id`
+ * cuid-leak). Same cuid-aware contract:
+ *   - id resolves in `sites`        → that site's name
+ *   - value looks like a raw cuid   → fallback (NEVER leak the id)
+ *   - otherwise (a free-typed name) → the value, passed through
+ *   - empty                         → fallback
+ */
+export function displaySiteName(
+  value: string | null | undefined,
+  sites: ReadonlyArray<{ id: string; name?: string | null }>,
+  fallback: string = "Unknown site",
+): string {
+  const v = value?.trim();
+  if (!v) return fallback;
+  const match = sites.find((s) => s.id === v);
+  const resolved = match?.name?.trim();
+  if (resolved) return resolved;
+  if (CUID_RE.test(v)) return fallback; // unresolvable id — don't leak it
+  return v; // a free-typed name — preserve it
+}

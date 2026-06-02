@@ -12,7 +12,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { CAPA_STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { CAPADetailModal } from "../modals/CAPADetailModal";
-import { displayUserName } from "@/lib/identity-display";
+import { displayUserName, displaySiteName } from "@/lib/identity-display";
 
 /* ── Helpers ── */
 const SOURCE_LABEL: Record<string, string> = { "483": "FDA 483 Observation", "Gap Assessment": "Gap Assessment Finding", Deviation: "Deviation Report", "Internal Audit": "Internal Audit", Complaint: "Complaint", OOS: "OOS", "Change Control": "Change Control" };
@@ -63,7 +63,7 @@ export function CAPATrackerTab({
   const router = useRouter();
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const showSiteColumn = !selectedSiteId && sites.length > 1;
-  const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
+  const siteName = (id: string) => displaySiteName(id, sites);
   const [search, setSearch] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");

@@ -28,7 +28,7 @@ import {
   rejectDeviation as rejectDeviationAction,
 } from "@/actions/deviations";
 import { createCAPA as createCAPAAction } from "@/actions/capas";
-import { displayName, displayUserName } from "@/lib/identity-display";
+import { displayName, displayUserName, displaySiteName } from "@/lib/identity-display";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
@@ -83,7 +83,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   const overdueCount = tenantDevs.filter((d) => d.status !== "closed" && d.status !== "rejected" && dayjs.utc(d.dueDate).isBefore(dayjs())).length;
 
   function ownerName(id: string) { return displayUserName(id, users); }
-  function siteName(id: string) { return allSites.find((s) => s.id === id)?.name ?? id; }
+  function siteName(id: string) { return displaySiteName(id, allSites); }
 
   const canReport = !isCustomerAdmin && !isViewer;
 

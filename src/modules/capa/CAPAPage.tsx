@@ -374,7 +374,10 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     // Server confirmed. Now safe to apply local Redux + cross-module side
     // effects.
     const now = dayjs().toISOString();
-    dispatch(closeCAPA({ id: capaId, closedBy: user?.id ?? "", closedAt: now }));
+    // Rung 3J.1 — closedBy stores a NAME (server sets session.user.name;
+    // displayed via displayName({name})), so the optimistic dispatch must pass
+    // the name, not the id (passing the id leaked a cuid until server refresh).
+    dispatch(closeCAPA({ id: capaId, closedBy: user?.name ?? "", closedAt: now }));
     if (findingId) dispatch(closeFinding(findingId));
     if (source === "483") {
       for (const ev of fda483Events) {
