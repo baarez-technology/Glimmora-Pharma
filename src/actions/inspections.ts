@@ -62,6 +62,9 @@ export async function createInspection(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const inspection = await prisma.inspection.create({
       data: {
@@ -249,6 +252,9 @@ export async function createTrainingRecord(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const record = await prisma.trainingRecord.create({
       data: {
@@ -372,6 +378,9 @@ export async function createSimulation(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const sim = await prisma.simulation.create({
       data: {
@@ -490,6 +499,9 @@ export async function createPlaybook(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const playbook = await prisma.playbook.create({
       data: {
@@ -537,6 +549,9 @@ export async function deletePlaybook(id: string): Promise<ActionResult> {
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
   }
   try {
     await prisma.playbook.delete({ where: { id } });

@@ -36,6 +36,9 @@ export async function createRAIDItem(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const item = await prisma.rAIDItem.create({
       data: {
@@ -82,6 +85,9 @@ export async function updateRAIDItem(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const { dueDate, ...rest } = parsed.data;
     const item = await prisma.rAIDItem.update({
@@ -117,6 +123,9 @@ export async function closeRAIDItem(id: string, resolutionNote: string): Promise
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
   }
   try {
     // Schema has no resolutionNote field — fold it into mitigation
@@ -158,6 +167,9 @@ export async function reopenRAIDItem(id: string, reason: string): Promise<Action
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const item = await prisma.rAIDItem.update({
       where: { id, tenantId: session.user.tenantId },
@@ -195,6 +207,9 @@ export async function deleteRAIDItem(id: string): Promise<ActionResult> {
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
   }
   try {
     await prisma.rAIDItem.delete({

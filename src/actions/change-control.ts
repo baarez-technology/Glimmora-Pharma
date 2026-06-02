@@ -349,6 +349,10 @@ export async function createChangeControl(
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
 
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
+
   try {
     const MAX_RETRIES = 5;
     let cc: Awaited<ReturnType<typeof prisma.changeControl.create>> | null = null;
