@@ -28,6 +28,7 @@ import {
   rejectDeviation as rejectDeviationAction,
 } from "@/actions/deviations";
 import { createCAPA as createCAPAAction } from "@/actions/capas";
+import { displayName, displayUserName } from "@/lib/identity-display";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
@@ -81,7 +82,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   const investigatingCount = tenantDevs.filter((d) => d.status === "under_investigation").length;
   const overdueCount = tenantDevs.filter((d) => d.status !== "closed" && d.status !== "rejected" && dayjs.utc(d.dueDate).isBefore(dayjs())).length;
 
-  function ownerName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
+  function ownerName(id: string) { return displayUserName(id, users); }
   function siteName(id: string) { return allSites.find((s) => s.id === id)?.name ?? id; }
 
   const canReport = !isCustomerAdmin && !isViewer;
@@ -403,7 +404,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
               <div><p style={{ color: "var(--text-muted)" }}>Type</p><p className="capitalize font-medium" style={{ color: "var(--text-primary)" }}>{selected.type}</p></div>
               <div><p style={{ color: "var(--text-muted)" }}>Area</p><p className="font-medium" style={{ color: "var(--text-primary)" }}>{selected.area}</p></div>
               <div><p style={{ color: "var(--text-muted)" }}>Site</p><p className="font-medium" style={{ color: "var(--text-primary)" }}>{siteName(selected.siteId)}</p></div>
-              <div><p style={{ color: "var(--text-muted)" }}>Detected by</p><p className="font-medium" style={{ color: "var(--text-primary)" }}>{ownerName(selected.detectedBy)}</p></div>
+              <div><p style={{ color: "var(--text-muted)" }}>Detected by</p><p className="font-medium" style={{ color: "var(--text-primary)" }}>{displayName({ name: selected.detectedBy })}</p></div>
               <div><p style={{ color: "var(--text-muted)" }}>Detected date</p><p className="font-medium" style={{ color: "var(--text-primary)" }}>{dayjs.utc(selected.detectedDate).tz(timezone).format(dateFormat)}</p></div>
             </div>
 

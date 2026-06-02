@@ -11,6 +11,7 @@ import type { Document as PrismaDocument } from "@prisma/client";
 // files. Phase 4 of the document-store unification removes this.
 import type { getCAPAEvidenceFiles } from "@/lib/queries/governance";
 import dayjs from "@/lib/dayjs";
+import { displayUserName } from "@/lib/identity-display";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useRole } from "@/hooks/useRole";
@@ -395,7 +396,7 @@ export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePa
   const allDocs = getAllDocuments();
 
   function ownerName(id: string) {
-    return users.find((u) => u.id === id)?.name ?? id;
+    return displayUserName(id, users);
   }
 
   function exportPack(pack: EvidencePack) {

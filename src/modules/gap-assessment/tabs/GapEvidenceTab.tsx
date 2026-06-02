@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import type { FindingSeverity } from "@/store/findings.slice";
 import type { UserConfig } from "@/store/settings.slice";
+import { displayUserName } from "@/lib/identity-display";
 
 interface EvidenceRow {
   findingId: string;
@@ -47,7 +48,7 @@ export function GapEvidenceTab({
   expandedAreas, onToggleArea, isViewOnly, users,
   onLinkEvidence, onFindingClick, onExport, onGoToRegister,
 }: GapEvidenceTabProps) {
-  function ownerName(uid: string) { return users.find((u) => u.id === uid)?.name ?? uid; }
+  function ownerName(uid: string) { return displayUserName(uid, users); }
 
   return (
     <div role="tabpanel" id="panel-evidence" aria-labelledby="tab-evidence" tabIndex={0}>

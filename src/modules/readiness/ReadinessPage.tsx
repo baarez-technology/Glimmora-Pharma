@@ -21,6 +21,7 @@ import type {
   Playbook as PrismaPlaybook,
 } from "@prisma/client";
 import dayjs from "@/lib/dayjs";
+import { displayUserName } from "@/lib/identity-display";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { store } from "@/store";
@@ -183,7 +184,7 @@ export function ReadinessPage({ inspections: prismaInspections, playbooks }: Rea
   const inProgressCount = tenantCards.filter((c) => c.status === "In Progress").length;
   const overdueCount = tenantCards.filter((c) => c.status !== "Complete" && dayjs.utc(c.dueDate).isBefore(dayjs())).length;
 
-  function ownerName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
+  function ownerName(id: string) { return displayUserName(id, users); }
 
   const ROLE_LABELS: Record<string, string> = {
     qa_head: "QA Head",

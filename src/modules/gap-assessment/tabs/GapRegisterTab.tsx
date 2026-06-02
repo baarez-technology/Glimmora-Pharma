@@ -20,6 +20,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
+import { displayName, displayUserName } from "@/lib/identity-display";
 
 /* ── Helpers ── */
 
@@ -125,7 +126,7 @@ export function GapRegisterTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFinding?.id]);
 
-  function ownerName(uid: string) { return users.find((u) => u.id === uid)?.name ?? uid; }
+  function ownerName(uid: string) { return displayUserName(uid, users); }
 
   const displayed = searchQuery
     ? filteredFindings.filter((f) => {
@@ -495,7 +496,7 @@ export function GapRegisterTab({
                         <div>
                           <p className="font-medium" style={{ color: "var(--text-primary)" }}>Last updated</p>
                           <p style={{ color: "var(--text-muted)" }}>
-                            {ownerName(last.editedBy)} &mdash; {dayjs.utc(last.editedAt).tz(timezone).format("DD/MM/YYYY hh:mm A")}
+                            {displayName({ name: last.editedBy })} &mdash; {dayjs.utc(last.editedAt).tz(timezone).format("DD/MM/YYYY hh:mm A")}
                           </p>
                         </div>
                       </div>
@@ -526,7 +527,7 @@ export function GapRegisterTab({
                     className={clsx("text-[11px] mb-2 pb-2", i < selectedFinding.editHistory!.length - 1 && "border-b border-(--bg-border)")}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium" style={{ color: "var(--text-primary)" }}>{ownerName(edit.editedBy)}</span>
+                      <span className="font-medium" style={{ color: "var(--text-primary)" }}>{displayName({ name: edit.editedBy })}</span>
                       <span style={{ color: "var(--text-muted)" }}>{dayjs.utc(edit.editedAt).tz(timezone).format("DD MMM YYYY HH:mm")}</span>
                     </div>
                     {edit.reason && (
