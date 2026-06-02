@@ -186,6 +186,10 @@ export async function addCAPAComment(
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
 
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
+
   try {
     const created = await prisma.cAPAComment.create({
       data: {

@@ -19,7 +19,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { sanitizeServerError } from "@/lib/errors";
 
@@ -88,6 +88,9 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
   }
 
   // SME final rung â€” site-scoped reference allocation. Same retry-on-
@@ -200,6 +203,9 @@ export async function updateFinding(id: string, input: z.input<typeof UpdateFind
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
   try {
     const finding = await prisma.finding.update({
       where: { id, tenantId: session.user.tenantId },
@@ -239,6 +245,10 @@ export async function deleteFinding(id: string): Promise<ActionResult> {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
 
+  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
+
   try {
     await prisma.finding.delete({
       where: { id, tenantId: session.user.tenantId },
@@ -272,6 +282,10 @@ export async function closeFinding(id: string): Promise<ActionResult> {
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
   }
 
   try {
