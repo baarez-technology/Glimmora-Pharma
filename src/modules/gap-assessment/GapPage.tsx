@@ -26,6 +26,7 @@ import {
   updateFinding as updateFindingAction,
 } from "@/actions/findings";
 import { createCAPA as createCAPAAction } from "@/actions/capas";
+import { linkFindingToSystem as linkFindingToSystemAction } from "@/actions/systems";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Popup } from "@/components/ui/Popup";
@@ -301,10 +302,23 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
       console.error("[gap] handleAddFinding failed:", result.error);
       return;
     }
+    // GAP-LINK-FIX — persist the optional finding↔system link. AddFindingModal
+    // collects linkedSystemId (for CSV/IT & QC Lab areas) but it was previously
+    // dropped here, so the FK was never written and the link vanished on
+    // refresh. createFinding has no systemId field, so route the link through
+    // the canonical linkFindingToSystem action. Best-effort: the finding is
+    // already created; a link failure (e.g. the caller lacks the qa_head/admin
+    // role that canManageSystemLinks requires) is logged, not fatal.
+    const created = result.data as PrismaFinding | undefined;
+    if (rest.linkedSystemId && created?.id) {
+      const linkRes = await linkFindingToSystemAction(rest.linkedSystemId, created.id);
+      if (!linkRes.success) {
+        console.error("[gap] linkFindingToSystem failed:", linkRes.error);
+      }
+    }
     setAddOpen(false);
     setAddedPopup(true);
-    if (raiseCapaImmediately && result.data) {
-      const created = result.data as PrismaFinding;
+    if (raiseCapaImmediately && created) {
       await handleRaiseCapa(adaptFinding(created));
     } else {
       router.refresh();
