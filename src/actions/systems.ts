@@ -834,6 +834,9 @@ export async function addRoadmapActivity(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (!SYSTEM_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
   try {
     const activity = await prisma.roadmapActivity.create({
       data: {
@@ -999,6 +1002,9 @@ export async function addStageDocument(
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!SYSTEM_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
   }
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -1193,6 +1199,9 @@ export async function saveRiskFactors(systemId: string, riskFactors: string): Pr
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (!SYSTEM_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1239,6 +1248,9 @@ export async function saveRiskClassification(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (!SYSTEM_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
   try {
     const system = await prisma.gxPSystem.update({
       where: { id: systemId, tenantId: session.user.tenantId },
@@ -1275,6 +1287,9 @@ export async function saveNextReview(
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!SYSTEM_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
   }
   try {
     const system = await prisma.gxPSystem.update({
@@ -1322,6 +1337,9 @@ export async function saveRemediation(
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!SYSTEM_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
   }
   try {
     const system = await prisma.gxPSystem.update({

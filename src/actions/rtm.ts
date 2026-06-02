@@ -113,6 +113,9 @@ export async function createRTMEntry(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     // RUNG 2.8 — allocate a per-site URS-<SITE_CODE>-<NNNN> reference. Site.code
     // is canonical (same source as SYS references); name-derived fallback for a

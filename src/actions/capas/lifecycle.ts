@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
 import {
   lockCAPAArtifacts,
   unlockCAPAArtifacts,
@@ -94,7 +94,9 @@ const ReopenCAPASchema = z.object({
 // through createCAPA, so this single gate covers Gap / Deviation / CSV/CSA /
 // FDA 483 / manual / AI at once. regulatory_affairs is included because FDA
 // 483 + CAPA work is their domain. Raw session role (not resolveUserFk).
-const CAPA_WRITE_ROLES: readonly string[] = ["csv_val_lead", "qa_head", "regulatory_affairs", "customer_admin", "super_admin"];
+// Rung 3A-bis — consolidated onto the canonical COMPLIANCE_AUTHOR_ROLES
+// (@/lib/auth); identical values, single source of truth.
+const CAPA_WRITE_ROLES = COMPLIANCE_AUTHOR_ROLES;
 
 export async function createCAPA(
   input: z.input<typeof CreateCAPASchema>,
@@ -285,6 +287,10 @@ export async function updateCAPA(
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  if (!CAPA_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
   }
 
   // SME Section 1, Stage 4 (FULL) â€” block direct writes to correctiveActions.
@@ -532,6 +538,10 @@ export async function submitForReview(id: string): Promise<ActionResult> {
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  if (!CAPA_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
   }
 
   try {
@@ -824,6 +834,10 @@ export async function deleteCAPA(id: string): Promise<ActionResult> {
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+
+  if (!CAPA_WRITE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
   }
 
   try {

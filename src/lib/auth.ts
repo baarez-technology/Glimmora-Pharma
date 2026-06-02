@@ -87,6 +87,24 @@ export async function requireAuth(): Promise<AuthSession> {
  *                          standing fda483 / systems behaviour for admins.
  * ════════════════════════════════════════════════════════════════════ */
 
+/**
+ * Canonical compliance-authoring role set — the roles permitted to author
+ * CAPA-family GxP records (CAPA, action items, effectiveness criteria,
+ * evidence) and Gap-assessment findings. Mirrors the values of
+ * CAPA_WRITE_ROLES (capas/lifecycle.ts now re-exports this). super_admin is
+ * listed for symmetry but is independently blocked from authorship by
+ * requireGxPAuthor (Rung 3E.2). Other modules keep their own narrower
+ * (SYSTEM_WRITE_ROLES) or broader ("not viewer") conventions — see Rung
+ * 3A-bis Q-1F. Excludes: viewer, qc_lab_director, it_cdo, operations_head.
+ */
+export const COMPLIANCE_AUTHOR_ROLES: readonly string[] = [
+  "csv_val_lead",
+  "qa_head",
+  "regulatory_affairs",
+  "customer_admin",
+  "super_admin",
+];
+
 export type UserFkResolution = {
   /** Real User.id, or null for non-User actors (platform/customer admin). */
   userId: string | null;
