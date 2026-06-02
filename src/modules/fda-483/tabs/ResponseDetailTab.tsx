@@ -43,6 +43,7 @@ import dayjs from "@/lib/dayjs";
 import { addResponseDocument, removeResponseDocument } from "@/actions/fda483";
 import { DocumentUpload } from "@/components/shared";
 import type { FDA483Event } from "@/types/fda483";
+import { displayName } from "@/lib/identity-display";
 import type { CAPA } from "@/store/capa.slice";
 import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Button } from "@/components/ui/Button";
@@ -82,8 +83,6 @@ export interface ResponseDetailTabProps {
   /** True when the Edit Draft modal is open (drives the cancel-edit
    *  reset behaviour). */
   editingResponse: boolean;
-  /** Resolves a user id (submittedBy / commitment owner) to a name. */
-  ownerName: (id: string) => string;
   /** Setter for the response-draft buffer. */
   onResponseTextChange: (v: string) => void;
   /** Toggle the Edit Draft modal open/closed. */
@@ -171,7 +170,6 @@ export function ResponseDetailTab({
   timezone,
   dateFormat,
   responseText,
-  ownerName,
   onResponseTextChange,
   onCancelEdit,
   onSaveDraft,
@@ -379,7 +377,7 @@ export function ResponseDetailTab({
                   className="mt-0.5"
                   style={{ color: "var(--text-primary)" }}
                 >
-                  {ownerName(liveEvent.submittedBy)}
+                  {displayName({ name: liveEvent.submittedBy })}
                 </p>
               </div>
             )}
@@ -893,7 +891,7 @@ export function ResponseDetailTab({
                       className="mt-0.5"
                       style={{ color: "var(--text-primary)" }}
                     >
-                      {ownerName(liveEvent.submittedBy)}
+                      {displayName({ name: liveEvent.submittedBy })}
                     </dd>
                   </div>
                 )}

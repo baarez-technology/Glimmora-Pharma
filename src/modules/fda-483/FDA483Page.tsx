@@ -34,6 +34,7 @@ import { FDA483_EVENT_STATUSES } from "@/constants/statusTaxonomy";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
+import { displayUserName } from "@/lib/identity-display";
 import type { FDA483Event, EventStatus, Observation, Commitment } from "@/types/fda483";
 import { daysUntil, eventStatusBadge, getEffectiveEventStatus, FDA483_AUDIT_MODULE } from "./_shared";
 import {
@@ -395,7 +396,7 @@ export function FDA483Page({
   const { hasSites } = useSetupStatus();
 
   function ownerName(id: string) {
-    return users.find((u) => u.id === id)?.name ?? id;
+    return displayUserName(id, users);
   }
 
   /* ── URL-driven detail navigation (replaces selectedEvent + currentStep) ── */
@@ -739,9 +740,7 @@ export function FDA483Page({
               sites={sites}
               timezone={timezone}
               dateFormat={dateFormat}
-              ownerName={(id) =>
-                users.find((u) => u.id === id)?.name ?? "Unknown"
-              }
+              ownerName={(id) => displayUserName(id, users)}
             />
             <TabBar
               tabs={DETAIL_TABS}
@@ -922,7 +921,6 @@ export function FDA483Page({
                   dateFormat={dateFormat}
                   responseText={responseText}
                   editingResponse={editingResponse}
-                  ownerName={ownerName}
                   onNavigate={(t) => urlState.navigate({ tab: t.tab, obsIndex: t.obsIndex ?? null })}
                   onResponseTextChange={setResponseText}
                   onEditResponseToggle={() => {

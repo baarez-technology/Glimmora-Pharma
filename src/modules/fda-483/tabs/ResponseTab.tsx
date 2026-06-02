@@ -15,6 +15,7 @@ import dayjs from "@/lib/dayjs";
 import { addResponseDocument, removeResponseDocument } from "@/actions/fda483";
 import { DocumentUpload } from "@/components/shared";
 import type { FDA483Event, EventStatus } from "@/types/fda483";
+import { displayName } from "@/lib/identity-display";
 import type { CAPA } from "@/store/capa.slice";
 import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import { Button } from "@/components/ui/Button";
@@ -46,7 +47,6 @@ export interface ResponseTabProps {
   responseText: string;
   editingResponse: boolean;
   canSubmit: boolean;
-  ownerName: (id: string) => string;
   onGoToEvents: () => void;
   onResponseTextChange: (v: string) => void;
   onEditResponseToggle: () => void;
@@ -68,7 +68,6 @@ export function ResponseTab({
   dateFormat,
   responseText,
   canSubmit,
-  ownerName,
   onGoToEvents,
   onResponseTextChange,
   onCancelEdit,
@@ -205,7 +204,7 @@ export function ResponseTab({
             {liveEvent.submittedBy && (
               <div>
                 <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-muted)" }}>Signed by</p>
-                <p className="mt-0.5" style={{ color: "var(--text-primary)" }}>{ownerName(liveEvent.submittedBy)}</p>
+                <p className="mt-0.5" style={{ color: "var(--text-primary)" }}>{displayName({ name: liveEvent.submittedBy })}</p>
               </div>
             )}
             {liveEvent.signatureMeaning && (
