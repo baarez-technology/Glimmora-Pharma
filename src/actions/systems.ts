@@ -1458,7 +1458,18 @@ export async function resetToAutoDerivedStatus(systemId: string): Promise<Action
  * ══════════════════════════════════════ */
 
 function canManageSystemLinks(role: string): boolean {
-  return role === "qa_head" || role === "customer_admin" || role === "super_admin";
+  // Gap-link-fix-2 — broadened to the compliance-authoring set (mirrors
+  // CAPA_WRITE_ROLES in capas/lifecycle.ts): every role that can author a
+  // Finding/CAPA can link it to a system at creation time. Excludes viewer
+  // (read-only). raiseCAPAFromSystem also uses this gate but stays effectively
+  // bound by createCAPA's own CAPA_WRITE_ROLES check, so the sets now align.
+  return (
+    role === "csv_val_lead" ||
+    role === "qa_head" ||
+    role === "regulatory_affairs" ||
+    role === "customer_admin" ||
+    role === "super_admin"
+  );
 }
 
 async function assertSystemInTenant(systemId: string, tenantId: string): Promise<boolean> {
