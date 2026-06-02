@@ -90,6 +90,9 @@ export async function createDeviation(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   // SME Section 1, Stage 6 (FULL) â€” if previousCAPAId is supplied,
   // verify it exists in the caller's tenant before persisting the
   // link. Permissive about its status (non-closed parents are allowed,
@@ -252,6 +255,9 @@ export async function updateDeviation(
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
   }
   try {
     const { dueDate, detectedDate, ...rest } = parsed.data;
@@ -944,6 +950,9 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
   }
   try {
     await prisma.deviation.delete({

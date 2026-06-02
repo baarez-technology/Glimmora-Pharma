@@ -102,6 +102,9 @@ export async function createFDA483Event(
     } catch (e) {
       return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
     }
+    if (session.user.role === "viewer") {
+      return { success: false, error: "Viewers cannot perform this action." };
+    }
     const d = parsed.data;
     // Resolve the internal owner's name for the audit trail (best-effort).
     const owner = await prisma.user.findUnique({
@@ -157,6 +160,9 @@ export async function updateFDA483Event(
     } catch (e) {
       return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
     }
+    if (session.user.role === "viewer") {
+      return { success: false, error: "Viewers cannot perform this action." };
+    }
     const event = await prisma.fDA483Event.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
@@ -211,6 +217,9 @@ export async function addObservation(
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
   }
 
   // SME final rung â€” site-scoped reference. FDA483Observation has no
@@ -342,6 +351,9 @@ export async function addCommitment(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
 
   const MAX_REF_RETRIES = 5;
   let commitment: Awaited<ReturnType<typeof prisma.fDA483Commitment.create>> | null = null;
@@ -417,6 +429,9 @@ export async function deleteFDA483Event(id: string): Promise<ActionResult> {
     } catch (e) {
       return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
     }
+    if (session.user.role === "viewer") {
+      return { success: false, error: "Viewers cannot perform this action." };
+    }
     await prisma.fDA483Event.delete({
       where: { id, tenantId: session.user.tenantId },
     });
@@ -454,6 +469,9 @@ export async function saveResponseDraft(
       requireGxPAuthor(actor);
     } catch (e) {
       return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    }
+    if (session.user.role === "viewer") {
+      return { success: false, error: "Viewers cannot perform this action." };
     }
     const event = await prisma.fDA483Event.update({
       where: { id: eventId, tenantId: session.user.tenantId },
@@ -495,6 +513,9 @@ export async function saveAGIDraft(
       requireGxPAuthor(actor);
     } catch (e) {
       return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    }
+    if (session.user.role === "viewer") {
+      return { success: false, error: "Viewers cannot perform this action." };
     }
     const event = await prisma.fDA483Event.update({
       where: { id: eventId, tenantId: session.user.tenantId },
@@ -1172,6 +1193,9 @@ export async function completeCommitment(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const commitment = await prisma.$transaction(async (tx) => {
       const updated = await tx.fDA483Commitment.update({
@@ -1242,6 +1266,9 @@ export async function reopenCommitment(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   try {
     const commitment = await prisma.fDA483Commitment.update({
       where: { id },
@@ -1302,6 +1329,9 @@ export async function addResponseDocument(
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
   }
   // IDOR guard - verify the caller's tenant owns the parent event before
   // inserting the document (canonical pattern: same assertTenantOwnsParent
