@@ -23,6 +23,7 @@ import { StatCard, CardSection, SetupChecklist } from "@/components/shared";
 import { isOverdue } from "@/types/capa";
 import { displayUserName } from "@/lib/identity-display";
 import { ActionPlanTable } from "./ActionPlanTable";
+import { GapDetectionPanel } from "./GapDetectionPanel";
 
 /* ══════════════════════════════════════ */
 
@@ -193,18 +194,22 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
   // which changes with the count). Used as the React key in the render loop;
   // a count flipping from 3 to 5 keeps the same id so the insight card
   // doesn't unmount/remount on every re-render.
+  // Gap-detection source values — also feed AGI Insights below. Computed once
+  // (ungated, so the Gap Detection panel works even in AGI manual mode) and
+  // shared with AGI Insights so the two panels can never drift.
+  const diOpen = filteredCAPAs.filter((c) => c.diGate && c.status !== "closed").length;
+  const overdueVal = filteredSystems.filter((s) => s.validationStatus === "Overdue").length;
+  const reviewOverdue = filteredSystems.filter((s) => s.nextReview && dayjs.utc(s.nextReview).isBefore(dayjs())).length;
+  const pending = filteredCAPAs.filter((c) => c.status === "pending_qa_review").length;
+
   const insights: { id: string; type: "warning" | "info" | "success"; text: string; action?: string; link?: string }[] = [];
   if (agiSettings.mode !== "manual" && (filteredFindings.length > 0 || filteredCAPAs.length > 0)) {
     if (criticalCount > 0) insights.push({ id: "critical-findings", type: "warning", text: `${criticalCount} critical finding${criticalCount > 1 ? "s" : ""} open \u2014 immediate attention required.`, action: "View findings", link: "/gap-assessment" });
     if (overdueCAPAs.length > 0) insights.push({ id: "overdue-capas", type: "warning", text: `${overdueCAPAs.length} CAPA${overdueCAPAs.length > 1 ? "s" : ""} past due. Risk of inspection finding.`, action: "View CAPAs", link: "/capa" });
-    const diOpen = filteredCAPAs.filter((c) => c.diGate && c.status !== "closed").length;
     if (diOpen > 0) insights.push({ id: "di-gate-open", type: "warning", text: `${diOpen} open DI gate CAPA${diOpen > 1 ? "s" : ""}. Data integrity unresolved.`, action: "View DI issues", link: "/capa" });
     if (csvHighRisk > 0) insights.push({ id: "csv-high-risk-unvalidated", type: "warning", text: `${csvHighRisk} HIGH-risk system${csvHighRisk > 1 ? "s" : ""} not yet validated \u2014 FDA inspection exposure.`, action: "View systems", link: "/csv-csa" });
-    const overdueVal = filteredSystems.filter((s) => s.validationStatus === "Overdue").length;
     if (overdueVal > 0) insights.push({ id: "validation-overdue", type: "warning", text: `${overdueVal} system${overdueVal > 1 ? "s" : ""} with overdue validation.`, action: "View systems", link: "/csv-csa" });
-    const reviewOverdue = filteredSystems.filter((s) => s.nextReview && dayjs.utc(s.nextReview).isBefore(dayjs())).length;
     if (reviewOverdue > 0) insights.push({ id: "periodic-review-overdue", type: "warning", text: `${reviewOverdue} system${reviewOverdue > 1 ? "s" : ""} with periodic review overdue.`, action: "View systems", link: "/csv-csa" });
-    const pending = filteredCAPAs.filter((c) => c.status === "pending_qa_review").length;
     if (pending > 0) insights.push({ id: "capa-pending-qa", type: "info", text: `${pending} CAPA${pending > 1 ? "s" : ""} awaiting QA sign-off.`, action: "Review", link: "/capa" });
     if (criticalCount === 0 && overdueCAPAs.length === 0) insights.push({ id: "all-clear", type: "success", text: "No critical findings or overdue CAPAs. Maintain current trajectory." });
   }
@@ -339,6 +344,15 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
               ))}
             </div>
           </aside>
+
+          {/* ④b Gap Detection (mock AI 03) — severity-ranked nightly-scan view
+              over the SAME live gap data AGI Insights uses (shared counts, so
+              the two panels can't contradict each other). AGI Insights above is
+              left exactly as-is. */}
+          <GapDetectionPanel
+            counts={{ criticalCount, overdueCAPAs: overdueCAPAs.length, csvHighRisk, overdueVal, diOpen, reviewOverdue, pending }}
+            router={router}
+          />
 
           {/* ⑤ Risk signals */}
           <CardSection icon={Activity} iconColor="#ef4444" title="Risk signals">
