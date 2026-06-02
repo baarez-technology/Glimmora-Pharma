@@ -959,6 +959,11 @@ export async function linkCAPAToEvent(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Rung 3A-bis.1 — explicit viewer block (the super_admin-IDOR-bypass below
+  // does not restrict viewers).
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Observation.findFirst({
       where: { id: observationId, event: { tenantId: session.user.tenantId } },

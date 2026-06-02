@@ -115,6 +115,12 @@ export async function createInspection(
 export async function markActionComplete(actionId: string): Promise<ActionResult> {
   const session = await requireAuth();
   // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Rung 3A-bis.1 — explicit viewer block. The super_admin-IDOR-bypass below
+  // is NOT a role restriction; without this a tenant viewer passes the IDOR
+  // and completes the action.
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   if (session.user.role !== "super_admin") {
     const owned = await prisma.readinessAction.findFirst({
       where: { id: actionId, inspection: { tenantId: session.user.tenantId } },
@@ -290,6 +296,11 @@ export async function completeTrainingRecord(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Rung 3A-bis.1 — explicit viewer block (the super_admin-IDOR-bypass below
+  // does not restrict viewers).
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   if (session.user.role !== "super_admin") {
     const owned = await prisma.trainingRecord.findFirst({
       where: { id, tenantId: session.user.tenantId },
@@ -421,6 +432,11 @@ export async function completeSimulation(
 ): Promise<ActionResult> {
   const session = await requireAuth();
   // Tenant scope check — prevents IDOR (audit finding 1.1)
+  // Rung 3A-bis.1 — explicit viewer block (the super_admin-IDOR-bypass below
+  // does not restrict viewers).
+  if (session.user.role === "viewer") {
+    return { success: false, error: "Viewers cannot perform this action." };
+  }
   if (session.user.role !== "super_admin") {
     const owned = await prisma.simulation.findFirst({
       where: { id, inspection: { tenantId: session.user.tenantId } },
