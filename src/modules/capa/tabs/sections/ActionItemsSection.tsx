@@ -28,6 +28,7 @@ import {
   loadActionItemsForCAPA,
 } from "@/actions/capas";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
+import { displayUserName } from "@/lib/identity-display";
 import type { CAPA, CAPAActionItem } from "@/store/capa.slice";
 
 /* ── SME Section 1, Stage 4 (FULL) — structured Action Plan table ──
@@ -168,7 +169,7 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
   );
 
   const userNameById = useCallback(
-    (id: string) => users.find((u) => u.id === id)?.name ?? id,
+    (id: string) => displayUserName(id, users),
     [users],
   );
 

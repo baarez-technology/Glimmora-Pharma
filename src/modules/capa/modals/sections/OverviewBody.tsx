@@ -26,6 +26,7 @@ import { SubmissionChecklist } from "../components/SubmissionChecklist";
 // so commenting this single line transitively disconnects both surfaces.
 // import { LinkedChangeControlsSection } from "./LinkedChangeControlsSection";
 import type { DetailSubTab } from "../helpers/getNextStep";
+import { displayUserName } from "@/lib/identity-display";
 
 const SOURCE_LABEL: Record<string, string> = {
   "483": "FDA 483 Observation",
@@ -76,7 +77,7 @@ export function OverviewBody({
   hasAlignment,
 }: OverviewBodyProps) {
   const router = useRouter();
-  const ownerName = users.find((u) => u.id === capa.owner)?.name ?? capa.owner;
+  const ownerName = displayUserName(capa.owner, users);
   const baseVariant = getSeverityVariant(capa.risk, "generic");
 
   // SME Section 1, Stage 2 (FULL) — "Linked deviation" reads from the

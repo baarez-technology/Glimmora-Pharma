@@ -28,6 +28,7 @@ import { AGIOverviewTab } from "./tabs/AGIOverviewTab";
 import { IntendedUseTab } from "./tabs/IntendedUseTab";
 import { OversightTab } from "./tabs/OversightTab";
 import { DriftMonitoringTab } from "./tabs/DriftMonitoringTab";
+import { displayUserName } from "@/lib/identity-display";
 
 /* ── Types & constants ── */
 
@@ -70,7 +71,7 @@ export function AGIPage({ activityLogs: _activityLogs = [] }: AGIPageProps = {})
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;  const { role } = useRole();
 
-  function ownerName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
+  function ownerName(id: string) { return displayUserName(id, users); }
 
   const activeAgents = Object.entries(agiSettings.agents).filter(([, v]) => v).map(([k]) => k);
   const isManualMode = agiSettings.mode === "manual";
@@ -161,7 +162,7 @@ export function AGIPage({ activityLogs: _activityLogs = [] }: AGIPageProps = {})
       </div>
 
       <div role="tabpanel" id="panel-oversight" aria-labelledby="tab-oversight" tabIndex={0} hidden={activeTab !== "oversight"}>
-        <OversightTab pendingReviewCount={capas.filter((c) => c.status === "pending_qa_review").length} approvedCount={capas.filter((c) => c.status === "closed").length} agiAssistedCount={capas.filter((c) => c.source === "Gap Assessment").length} closedCAPAs={capas.filter((c) => c.status === "closed")} ownerName={ownerName} />
+        <OversightTab pendingReviewCount={capas.filter((c) => c.status === "pending_qa_review").length} approvedCount={capas.filter((c) => c.status === "closed").length} agiAssistedCount={capas.filter((c) => c.source === "Gap Assessment").length} closedCAPAs={capas.filter((c) => c.status === "closed")} />
       </div>
 
       <div role="tabpanel" id="panel-drift" aria-labelledby="tab-drift" tabIndex={0} hidden={activeTab !== "drift"}>

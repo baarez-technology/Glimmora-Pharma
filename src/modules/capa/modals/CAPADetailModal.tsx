@@ -23,6 +23,7 @@ import { OverviewBody } from "./sections/OverviewBody";
 import { RcaBody } from "./sections/RcaBody";
 import { NextStepBanner } from "./components/NextStepBanner";
 import { getNextStep, type DetailSubTab } from "./helpers/getNextStep";
+import { displayUserName } from "@/lib/identity-display";
 
 /* ── CAPA detail modal shell ──
  *
@@ -122,7 +123,7 @@ export function CAPADetailModal({
     descriptionText.length > 80
       ? `${descriptionText.slice(0, 80).trimEnd()}…`
       : descriptionText;
-  const ownerName = users.find((u) => u.id === capa.owner)?.name ?? capa.owner;
+  const ownerName = displayUserName(capa.owner, users);
   const dueText = dayjs.utc(capa.dueDate).tz(timezone).format(dateFormat);
   const overdue = isOverdueHelper(capa);
   const editAllowed = !isViewOnly && capa.status !== "closed";
