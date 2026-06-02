@@ -213,8 +213,11 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
 
   /* ══════════════════════════════════════ */
 
+  // Root is a <section>, not a second <main> — AppShell already renders the
+  // page's <main id="main-content"> landmark; a nested duplicate id is an a11y
+  // bug. (Recovered from commit 6c46a07, which Rung 3J accidentally reverted.)
   return (
-    <main id="main-content" aria-label="Executive overview dashboard" className="w-full space-y-5">
+    <section aria-label="Executive overview dashboard" className="w-full space-y-5">
       {/* Header */}
       <header className="flex items-start justify-between flex-wrap gap-4">
         <div>
@@ -245,7 +248,10 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
       </section>
 
       {/* Main grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+      {/* lg:items-start so the shorter right rail is NOT stretched to the tall
+          left column's height (removes the empty bottom-right region with a tall
+          90-day action plan). The rail is also sticky (see below). */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 lg:items-start">
         {/* Left + Center */}
         <div className="lg:col-span-2 space-y-4">
           {/* ① Heatmap */}
@@ -323,8 +329,10 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
           </CardSection>
         </div>
 
-        {/* Right rail */}
-        <div className="space-y-4">
+        {/* Right rail. lg:self-start (content-height, not stretched) + lg:sticky
+            lg:top-0 so the shorter rail follows the scroll instead of stranding
+            empty space beside a tall left column. (Recovered from 6c46a07.) */}
+        <div className="space-y-4 lg:sticky lg:top-0 lg:self-start">
           {/* ④ AGI insights */}
           <aside aria-label="AGI insights" className="card">
             <div className="card-header"><div className="flex items-center gap-2"><Bot className="w-4 h-4 text-[#6366f1]" aria-hidden="true" /><span className="card-title">AGI Insights</span></div>{(() => { const activeAgents = Object.values(agiSettings.agents).filter(Boolean).length; const totalAgents = Object.values(agiSettings.agents).length; if (agiSettings.mode === "manual" || activeAgents === 0) return <Badge variant="gray">inactive</Badge>; if (activeAgents === totalAgents) return <Badge variant="green">autonomous</Badge>; return <Badge variant="amber">{activeAgents}/{totalAgents} active</Badge>; })()}</div>
@@ -372,6 +380,6 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
           </CardSection>
         </div>
       </div>
-    </main>
+    </section>
   );
 }
