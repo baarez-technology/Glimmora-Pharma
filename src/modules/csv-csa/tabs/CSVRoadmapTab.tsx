@@ -6,6 +6,7 @@ import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
+import { displayUserName } from "@/lib/identity-display";
 
 /* ── Helpers ── */
 
@@ -26,7 +27,7 @@ function actStatusBadge(s: RoadmapActivity["status"]) {
 }
 
 function ownerName(uid: string, users: UserConfig[]) {
-  return users.find((u) => u.id === uid)?.name ?? uid;
+  return displayUserName(uid, users);
 }
 
 function activityProgress(a: RoadmapActivity) {

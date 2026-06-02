@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
+import { displayUserName } from "@/lib/identity-display";
 
 /* ── Helpers ── */
 
@@ -46,7 +47,7 @@ function actStatusBadge(s: RoadmapActivity["status"]) {
   const m: Record<string, "green" | "amber" | "blue" | "red"> = { Complete: "green", "In Progress": "amber", Planned: "blue", Overdue: "red" };
   return <Badge variant={m[s] ?? "gray"}>{s}</Badge>;
 }
-function ownerName(uid: string, users: UserConfig[]) { return users.find((u) => u.id === uid)?.name ?? uid; }
+function ownerName(uid: string, users: UserConfig[]) { return displayUserName(uid, users); }
 function getStages(system: GxPSystem): ValidationStage[] {
   const existing = system.validationStages ?? [];
   return VALIDATION_STAGE_KEYS.map((k) => existing.find((s) => s.key === k) ?? { key: k, status: "not_started" as const });

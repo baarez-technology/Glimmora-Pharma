@@ -27,6 +27,7 @@ import { Modal } from "@/components/ui/Modal";
 import { SystemInventoryTab } from "./tabs/SystemInventoryTab";
 import { CSVRoadmapTab } from "./tabs/CSVRoadmapTab";
 import { RTMTab } from "./tabs/RTMTab";
+import { displayUserName } from "@/lib/identity-display";
 import { AddSystemModal, type SystemForm } from "./modals/AddSystemModal";
 import { EditSystemModal, type SystemForm as EditSystemForm } from "./modals/EditSystemModal";
 import { AddActivityModal, type ActivityForm } from "./modals/AddActivityModal";
@@ -313,7 +314,7 @@ export function CSVPage(props: CSVPageProps = { systems: [], deletedSystems: [],
 
   // RUNG 3B — archive / restore handlers. GxPSystem has deletedById (no name
   // column), so resolve the actor via the tenant users map for the archive view.
-  const resolveUserName = (id: string | null) => (id ? users.find((u) => u.id === id)?.name ?? id : "—");
+  const resolveUserName = (id: string | null) => displayUserName(id, users, "—");
 
   function closeDeleteModal() { setSystemToRemove(null); setDeleteReason(""); setDeleteError(null); }
   async function handleConfirmDelete() {

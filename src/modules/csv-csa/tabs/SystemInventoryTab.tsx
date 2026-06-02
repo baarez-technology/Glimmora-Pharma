@@ -9,6 +9,7 @@ import type { UserConfig, SiteConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
+import { displayUserName } from "@/lib/identity-display";
 
 /* ── Helpers (pure, no Redux) ── */
 
@@ -71,7 +72,7 @@ function relevanceBadge(r: GxPRelevance) {
 }
 
 function ownerName(uid: string, users: UserConfig[]) {
-  return users.find((u) => u.id === uid)?.name ?? uid;
+  return displayUserName(uid, users);
 }
 
 /* ── Props ── */

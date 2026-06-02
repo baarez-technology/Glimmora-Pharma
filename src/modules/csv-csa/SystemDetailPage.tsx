@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { ArrowLeft, Clock, AlertTriangle } from "lucide-react";
 import dayjs from "@/lib/dayjs";
+import { displayUserName } from "@/lib/identity-display";
 import { useRole } from "@/hooks/useRole";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
@@ -59,7 +60,7 @@ export function SystemDetailPage({ system: prismaSystem, availableFindings, rece
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const resolveUser = (id: string) => users.find((u) => u.id === id)?.name ?? id;
+  const resolveUser = (id: string) => displayUserName(id, users);
   const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? "—";
 
   async function onEditSave(data: EditSystemForm) {

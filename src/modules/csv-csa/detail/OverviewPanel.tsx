@@ -7,6 +7,7 @@ import type { GxPSystem } from "@/types/csv-csa";
 import type { UserConfig, SiteConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { updateSystem as updateSystemServer } from "@/actions/systems";
+import { displayUserName } from "@/lib/identity-display";
 
 /* ── Props ── */
 
@@ -22,7 +23,7 @@ export interface OverviewPanelProps {
 }
 
 function ownerName(uid: string, users: UserConfig[]) {
-  return users.find((u) => u.id === uid)?.name ?? uid;
+  return displayUserName(uid, users);
 }
 
 /* ── Inline-editable documentation field ──

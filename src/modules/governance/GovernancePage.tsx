@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Popup } from "@/components/ui/Popup";
 import { Modal } from "@/components/ui/Modal";
+import { displayUserName } from "@/lib/identity-display";
 
 /* ── Adapt Prisma RAIDItem → slice RAIDItem shape ── */
 function adaptRAID(p: PrismaRAIDItem): RAIDItem {
@@ -113,7 +114,7 @@ export function GovernancePage({ readinessScore: readinessScoreProp, raidItems: 
     ? allSites.filter((s) => s.id === selectedSiteId)
     : allSites;
 
-  function ownerName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
+  function ownerName(id: string) { return displayUserName(id, users); }
 
   /* ── Computed KPIs ── */
   const closedCAPAs = capas.filter((c) => c.status === "closed");
