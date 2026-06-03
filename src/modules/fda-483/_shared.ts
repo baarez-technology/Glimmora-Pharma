@@ -64,37 +64,32 @@ export const FDA483_EVENT_TYPE_VARIANT: Record<EventType, BadgeVariant> = {
 export const FDA483_OBSERVATION_STATUS_VARIANT: Record<ObservationStatus, BadgeVariant> = {
   Open: "amber",
   "In Progress": "amber",
-  "RCA In Progress": "blue",
   "CAPA Linked": "blue",
-  "Response Ready": "green",
   "Response Drafted": "green",
   Closed: "gray",
 };
 
 /* ── User-pickable vs server-only observation statuses ─────────────
  *
- * The full taxonomy has 7 values, but only 4 are reachable through
- * the user-facing observation status dropdown. The other 3 are set
+ * The full taxonomy has 5 values, but only 3 are reachable through
+ * the user-facing observation status dropdown. The other 2 are set
  * by server actions:
  *   - "CAPA Linked"     → set by raiseCAPAFromObservation
  *   - "Response Drafted" → set by RCA-save in FDA483Page
- *   - "Response Ready"  → reserved for future workflow stage
  *
- * The badge map renders all 7; AddObservationModal's picker shows
- * only the user-pickable 4 (plus the current value as disabled when
+ * The badge map renders all 5; AddObservationModal's picker shows
+ * only the user-pickable 3 (plus the current value as disabled when
  * editing an observation whose status is server-only). */
 
 export const USER_PICKABLE_OBSERVATION_STATUSES: readonly ObservationStatus[] = [
   "Open",
   "In Progress",
-  "RCA In Progress",
   "Closed",
 ];
 
 export const SERVER_ONLY_OBSERVATION_STATUSES: readonly ObservationStatus[] = [
   "CAPA Linked",
   "Response Drafted",
-  "Response Ready",
 ];
 
 export function isServerOnlyObservationStatus(status: string): boolean {

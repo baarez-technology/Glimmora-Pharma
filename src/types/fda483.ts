@@ -40,9 +40,7 @@ export type ObservationSeverity = "Critical" | "High" | "Low";
 export type ObservationStatus =
   | "Open"
   | "In Progress"
-  | "RCA In Progress"
   | "CAPA Linked"
-  | "Response Ready"
   | "Response Drafted"
   | "Closed";
 

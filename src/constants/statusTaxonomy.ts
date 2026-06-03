@@ -57,9 +57,7 @@ export const FDA483_EVENT_STATUSES: Record<string, StatusDef> = {
 export const FDA483_OBS_STATUSES: Record<string, StatusDef> = {
   Open: { value: "Open", label: "Open", color: "#3B82F6", bg: "#EFF6FF", description: "Observation not yet addressed", nextActions: ["Start RCA"] },
   "In Progress": { value: "In Progress", label: "In Progress", color: "#F59E0B", bg: "#FEF9EC", description: "RCA being performed", nextActions: ["Complete RCA", "Raise CAPA"] },
-  "RCA In Progress": { value: "RCA In Progress", label: "RCA In Progress", color: "#F59E0B", bg: "#FEF9EC", description: "Root cause analysis in progress", nextActions: ["Finalize RCA"] },
   "CAPA Linked": { value: "CAPA Linked", label: "CAPA Linked", color: "#8B5CF6", bg: "#F5F3FF", description: "CAPA raised for this observation", nextActions: ["Draft response"] },
-  "Response Ready": { value: "Response Ready", label: "Response Ready", color: "#10B981", bg: "#E8F5F1", description: "Draft response complete for this observation", nextActions: ["Include in response package"] },
   "Response Drafted": { value: "Response Drafted", label: "Response Drafted", color: "#10B981", bg: "#E8F5F1", description: "Response drafted", nextActions: [] },
   Closed: { value: "Closed", label: "Closed", color: "#6B7280", bg: "#F3F4F6", description: "Observation fully addressed", nextActions: [] },
 };
@@ -82,7 +80,6 @@ export const VALIDATION_STATUSES: Record<string, StatusDef> = {
 /* ── DEVIATION — Deviation statuses ── */
 
 export const DEVIATION_STATUSES: Record<string, StatusDef> = {
-  draft: { value: "draft", label: "Draft", color: "#6B7280", bg: "#F3F4F6", description: "Deviation report being prepared", nextActions: ["Complete and submit"] },
   open: { value: "open", label: "Open", color: "#3B82F6", bg: "#EFF6FF", description: "Deviation reported, investigation not started", nextActions: ["Start investigation"] },
   under_investigation: { value: "under_investigation", label: "Under Investigation", color: "#F59E0B", bg: "#FEF9EC", description: "RCA in progress, impact being assessed", nextActions: ["Complete RCA", "Submit for QA review"] },
   pending_qa_review: { value: "pending_qa_review", label: "Pending QA Review", color: "#8B5CF6", bg: "#F5F3FF", description: "Investigation complete, QA Head reviewing", nextActions: ["QA Head to close or reject"] },

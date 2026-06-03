@@ -9,7 +9,7 @@ export type DeviationCategory = "process" | "equipment" | "material" | "environm
 // matching the FDA-regulatory canonical form). Display code normalises
 // via src/lib/severity.ts; comparisons must do the same.
 export type DeviationSeverity = "critical" | "major" | "minor" | "Critical" | "Major" | "Minor";
-export type DeviationStatus = "draft" | "open" | "under_investigation" | "pending_qa_review" | "closed" | "rejected";
+export type DeviationStatus = "open" | "under_investigation" | "pending_qa_review" | "closed" | "rejected";
 export type ImpactLevel = "high" | "medium" | "low" | "none";
 export type DeviationRCAMethod = "5Why" | "Fishbone" | "FaultTree" | "BarrierAnalysis";
 

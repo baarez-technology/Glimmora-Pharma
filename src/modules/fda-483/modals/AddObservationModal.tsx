@@ -41,7 +41,7 @@ const obsSchema = z.object({
   area: z.string().optional(),
   regulation: z.string().optional(),
   severity: z.enum(["Critical", "High", "Low"]),
-  status: z.enum(["Open", "In Progress", "RCA In Progress", "CAPA Linked", "Response Ready", "Response Drafted", "Closed"]),
+  status: z.enum(["Open", "In Progress", "CAPA Linked", "Response Drafted", "Closed"]),
 });
 
 export type ObsFormData = z.infer<typeof obsSchema>;
@@ -263,11 +263,11 @@ export function AddObservationModal({
               control={form.control}
               render={({ field }) => {
                 // When editing an observation whose current status is
-                // server-only ("CAPA Linked", "Response Drafted",
-                // "Response Ready"), the picker is locked — those
-                // states are reached via workflow actions (Raise CAPA,
-                // Save RCA), not by manual selection. The user can
-                // still see what the current value is.
+                // server-only ("CAPA Linked", "Response Drafted"), the
+                // picker is locked — those states are reached via
+                // workflow actions (Raise CAPA, Save RCA), not by manual
+                // selection. The user can still see what the current
+                // value is.
                 const currentLocked = isServerOnlyObservationStatus(field.value);
                 const pickable = USER_PICKABLE_OBSERVATION_STATUSES.map((s) => ({ value: s, label: s }));
                 const options = currentLocked

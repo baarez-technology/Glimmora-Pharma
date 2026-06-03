@@ -54,7 +54,7 @@ export const ObservationSchema = z.object({
   severity: z.enum(GENERIC_SEVERITY),
   area: z.string().optional(),
   regulation: z.string().optional(),
-  status: z.enum(["Open", "In Progress", "RCA In Progress", "CAPA Linked", "Response Ready", "Response Drafted", "Closed"]),
+  status: z.enum(["Open", "In Progress", "CAPA Linked", "Response Drafted", "Closed"]),
 });
 export type ObservationFormData = z.infer<typeof ObservationSchema>;
 
