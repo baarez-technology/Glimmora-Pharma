@@ -127,7 +127,7 @@ export function RoadmapPrismaTab({ inspection, isAdmin }: RoadmapPrismaTabProps)
 
       {total === 0 && (
         <div
-          className="text-center py-12 text-[12px]"
+          className="text-center py-8 text-[12px]"
           style={{ color: "var(--text-secondary)" }}
         >
           No actions yet for this inspection.

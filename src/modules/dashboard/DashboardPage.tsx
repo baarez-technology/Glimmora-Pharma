@@ -243,8 +243,9 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
         <StatCard icon={GraduationCap} color={trainingCompliance === null ? "#64748b" : trainingCompliance >= 90 ? "#10b981" : trainingCompliance >= 70 ? "#f59e0b" : "#ef4444"} label="Training compliance" value={trainingCompliance === null ? "\u2014" : `${trainingCompliance}%`} sub={users.length === 0 ? "No users configured" : `${users.filter((u) => u.status === "Active").length} active users`} />
       </section>
 
-      {/* Main grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+      {/* Main grid — items-start keeps each column at its natural height so the
+          shorter column never stretches into a tall empty void on sparse data. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">
         {/* Left + Center */}
         <div className="lg:col-span-2 space-y-4">
           {/* ① Heatmap */}
@@ -287,7 +288,7 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
           {/* ② Trend chart */}
           <CardSection icon={TrendingUp} iconColor="#6366f1" title="Observation volume &amp; severity">
             {trendEmpty ? (
-              <div className="flex flex-col items-center py-8"><BarChart3 className="w-8 h-8 text-[#334155] mb-2" aria-hidden="true" /><p className="text-[12px]" style={{ color: "var(--text-muted)" }}>No findings logged yet</p></div>
+              <div className="flex flex-col items-center py-5"><BarChart3 className="w-8 h-8 text-[#334155] mb-2" aria-hidden="true" /><p className="text-[12px]" style={{ color: "var(--text-muted)" }}>No findings logged yet</p></div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={trendData} barSize={14} barGap={2}><CartesianGrid {...chartDefaults.cartesianGrid} /><XAxis dataKey="month" {...chartDefaults.xAxis} /><YAxis {...chartDefaults.yAxis} allowDecimals={false} /><Tooltip {...chartDefaults.tooltip} /><Legend iconType="circle" iconSize={8} formatter={(v: string) => <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{v}</span>} /><Bar dataKey="Critical" name="Critical" fill="#ef4444" stackId="a" radius={[0, 0, 0, 0]} /><Bar dataKey="High" name="High" fill="#f59e0b" stackId="a" radius={[0, 0, 0, 0]} /><Bar dataKey="Low" name="Low" fill="#10b981" stackId="a" radius={[3, 3, 0, 0]} /></BarChart>
@@ -298,7 +299,7 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
           {/* ③ Action plan */}
           <CardSection icon={Calendar} iconColor="#f59e0b" title="90-day action plan" badge={actionPlan.length > 0 ? <Badge variant="amber">{actionPlan.length}</Badge> : undefined}>
             {actionPlan.length === 0 ? (
-              <div className="flex flex-col items-center py-8"><ClipboardList className="w-10 h-10 text-[#334155] mb-2" aria-hidden="true" /><p className="text-[12px] mb-2" style={{ color: "var(--text-muted)" }}>No open actions</p><Button variant="ghost" size="sm" onClick={() => router.push("/gap-assessment")}>Log a finding</Button></div>
+              <div className="flex flex-col items-center py-5"><ClipboardList className="w-10 h-10 text-[#334155] mb-2" aria-hidden="true" /><p className="text-[12px] mb-2" style={{ color: "var(--text-muted)" }}>No open actions</p><Button variant="ghost" size="sm" onClick={() => router.push("/gap-assessment")}>Log a finding</Button></div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="data-table" aria-label="90 day action plan"><caption className="sr-only">Priority actions due within 90 days</caption>

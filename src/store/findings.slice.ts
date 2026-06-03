@@ -12,10 +12,12 @@ export interface EditHistoryEntry {
 
 export interface Finding {
   id: string;
+  reference?: string;
   tenantId: string;
   siteId: string;
   area: string;
   requirement: string;
+  purpose?: string;
   framework: string;
   severity: FindingSeverity;
   status: FindingStatus;

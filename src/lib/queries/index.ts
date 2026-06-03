@@ -6,7 +6,7 @@
  * prisma directly in Server Components.
  */
 
-export { getFindings, getFinding, getFindingStats } from "./findings";
+export { getFindings, getFinding, getFindingStats, getFindingEvidenceDocIds } from "./findings";
 export { getCAPAs, getCAPA, getCAPAStats, getCAPAApprovals, getCAPAComments } from "./capas";
 export { getCAPAEffectivenessCriteria } from "./capa-criteria";
 export {

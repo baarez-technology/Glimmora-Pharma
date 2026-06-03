@@ -477,7 +477,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
 
       {/* ── Event list ─────────────────────────────────────────────── */}
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+        <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
           <FileSearch className="h-10 w-10 text-[#d4cec5] mb-3" aria-hidden="true" />
           <h3 className="text-[13px] font-medium text-[#3a3530]">
             {logs.length === 0

@@ -124,6 +124,76 @@ async function main() {
   }
   console.log("  Users:", users.length);
 
+  // ── Demo gap-assessment findings ──
+  // Seeded with explicit human-readable references (GAP-YYYY-NNN) so they
+  // mirror the CAPA-2026-NNN scheme and never fall back to the
+  // "GAP-LEGACY-<id>" display label. Upsert keyed on the stable id so
+  // re-seeding an existing DB heals any null reference (matching the
+  // password-heal pattern above), and a fresh db:reset recreates them.
+  // New findings raised in-app continue the sequence from GAP-2026-004
+  // because generateReference() reads the max existing reference.
+  const findings = [
+    {
+      id: "demo-find-001",
+      reference: "GAP-2026-001",
+      requirement: "Temperature excursion in stability chamber — 25C ± 2C limit breached for 4hrs",
+      area: "Manufacturing",
+      framework: "21 CFR 211",
+      severity: "Major",
+      status: "Open",
+      owner: "Dr. Priya Sharma",
+      targetDate: new Date("2026-05-27T14:16:16Z"),
+      evidenceLink: null as string | null,
+    },
+    {
+      id: "demo-find-002",
+      reference: "GAP-2026-002",
+      requirement: "Missing operator signature on batch record BMR-2026-0143",
+      area: "QC Lab",
+      framework: "21 CFR 211",
+      severity: "Minor",
+      status: "In Progress",
+      owner: "Anita Patel",
+      targetDate: new Date("2026-05-20T14:16:16Z"),
+      evidenceLink: null as string | null,
+    },
+    {
+      id: "demo-find-003",
+      reference: "GAP-2026-003",
+      requirement: "Validation gap in HVAC monitoring — no continuous data integrity",
+      area: "Utilities",
+      framework: "EU GMP Annex 11",
+      severity: "Critical",
+      status: "Open",
+      owner: "Vikram Singh",
+      targetDate: new Date("2026-05-16T14:16:16Z"),
+      evidenceLink: null as string | null,
+    },
+  ];
+  for (const f of findings) {
+    const evidenceLink = f.evidenceLink ?? null;
+    await prisma.finding.upsert({
+      where: { id: f.id },
+      update: { reference: f.reference, evidenceLink },
+      create: {
+        id: f.id,
+        reference: f.reference,
+        tenantId: demo.id,
+        siteId: bangalore.id,
+        requirement: f.requirement,
+        area: f.area,
+        framework: f.framework,
+        severity: f.severity,
+        status: f.status,
+        owner: f.owner,
+        targetDate: f.targetDate,
+        evidenceLink,
+        createdBy: f.owner,
+      },
+    });
+  }
+  console.log("  Findings:", findings.length);
+
   console.log("Seed complete.");
 }
 

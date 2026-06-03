@@ -48,6 +48,18 @@ export async function generateReference(
 }
 
 /**
+ * Display helper for a record's human-readable reference. Falls back to a
+ * stable "<PREFIX>-LEGACY-<8>" label for rows whose reference is null (legacy
+ * rows that predate the column). Mirrors the CAPA module's display pattern.
+ */
+export function formatReference(
+  prefix: string,
+  record: { reference?: string | null; id: string },
+): string {
+  return record.reference ?? `${prefix}-LEGACY-${record.id.slice(0, 8)}`;
+}
+
+/**
  * Helper that detects the specific Prisma error indicating a unique
  * constraint collision on the `reference` column. Use to decide whether
  * to retry or rethrow inside the caller's create loop.
