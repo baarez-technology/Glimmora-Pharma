@@ -22,7 +22,8 @@ const FRAMEWORK_LABELS: Record<string, string> = {
 const findingSchema = z.object({
   siteId: z.string().min(1, "Site required"),
   area: z.string().min(1, "Area required"),
-  requirement: z.string().min(5, "Requirement required"),
+  requirement: z.string().min(10, "Requirement must be at least 10 characters"),
+  purpose: z.string().optional(),
   framework: z.string().min(1, "Framework required"),
   severity: z.enum(["Critical", "High", "Low"]),
   owner: z.string().min(1, "Owner required"),
@@ -137,6 +138,10 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
             <label htmlFor="f-req" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Requirement <span className="text-(--danger)">*</span></label>
             <input id="f-req" type="text" className="input text-[12px]" placeholder="e.g. Annex 11 §11 — Audit trail completeness" {...reg("requirement")} />
             {errors.requirement && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.requirement.message}</p>}
+          </div>
+          <div className="col-span-2">
+            <label htmlFor="f-purpose" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Purpose <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></label>
+            <textarea id="f-purpose" rows={2} className="input text-[12px] resize-none" placeholder="Why this gap matters / what closing it achieves" {...reg("purpose")} />
           </div>
           <div className="col-span-2">
             <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Severity <span className="text-(--danger)">*</span></p>

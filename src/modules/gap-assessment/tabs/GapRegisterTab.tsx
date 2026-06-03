@@ -3,12 +3,15 @@ import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import {
   ClipboardList, Plus, Search, ChevronRight, Link2, Bot, Pencil, Save, History,
+  FileText, FileSpreadsheet,
 } from "lucide-react";
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
+import { formatReference } from "@/lib/reference";
+import { downloadCSV, downloadExcel } from "@/lib/exportTable";
 import type { Finding, FindingSeverity, FindingStatus } from "@/store/findings.slice";
 import { updateFinding as updateFindingAction } from "@/actions/findings";
 import type { CAPA } from "@/store/capa.slice";
@@ -49,6 +52,7 @@ const LOCKED_HINT = <span className="text-[10px] text-[#64748b] italic ml-1.5">(
 /* ── Form type ── */
 interface EditForm {
   requirement: string;
+  purpose: string;
   owner: string;
   targetDate: string;
   evidenceLink: string;
@@ -90,10 +94,14 @@ export function GapRegisterTab({
   const siteName = (id: string) => displaySiteName(id, accessibleSites);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Row selection for export (empty = export all currently displayed rows)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
   // Edit state
   const [isEditing, setIsEditing] = useState(false);
   const [editReason, setEditReason] = useState("");
   const [savedPopup, setSavedPopup] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const canEdit =
     !isViewOnly &&
@@ -103,6 +111,7 @@ export function GapRegisterTab({
   const form = useForm<EditForm>({
     defaultValues: {
       requirement: "",
+      purpose: "",
       owner: "",
       targetDate: "",
       evidenceLink: "",
@@ -114,34 +123,89 @@ export function GapRegisterTab({
     if (selectedFinding) {
       form.reset({
         requirement: selectedFinding.requirement,
+        purpose: selectedFinding.purpose ?? "",
         owner: selectedFinding.owner,
         targetDate: selectedFinding.targetDate ? dayjs.utc(selectedFinding.targetDate).format("YYYY-MM-DD") : "",
         evidenceLink: selectedFinding.evidenceLink ?? "",
       });
     }
     // Reset edit form when the selected finding changes.
-     
+
     setIsEditing(false);
     setEditReason("");
+    setSaveError("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFinding?.id]);
 
   function ownerName(uid: string) { return displayUserName(uid, users); }
+  function findingRef(f: Finding) { return formatReference("FND", f); }
 
   const displayed = searchQuery
     ? filteredFindings.filter((f) => {
         const q = searchQuery.toLowerCase();
-        return f.id.toLowerCase().includes(q) || f.area.toLowerCase().includes(q) || f.requirement.toLowerCase().includes(q);
+        return (
+          findingRef(f).toLowerCase().includes(q) ||
+          f.area.toLowerCase().includes(q) ||
+          f.requirement.toLowerCase().includes(q) ||
+          (f.purpose?.toLowerCase().includes(q) ?? false)
+        );
       })
     : filteredFindings;
 
+  /* ── Selection + export ── */
+  const allSelected = displayed.length > 0 && displayed.every((f) => selectedIds.has(f.id));
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(displayed.map((f) => f.id)));
+  }
+
+  const EXPORT_HEADERS = [
+    "Gap ID", "Area", "Requirement", "Purpose", "Framework",
+    "Severity", "Status", "Owner", "Target date", "Evidence", "Linked CAPA",
+  ];
+  function buildExportRows() {
+    const source = selectedIds.size > 0 ? displayed.filter((f) => selectedIds.has(f.id)) : displayed;
+    return source.map((f) => {
+      const linkedCapa = capas.find((c) => c.id === f.capaId) ?? capas.find((c) => c.findingId === f.id);
+      return [
+        findingRef(f),
+        f.area,
+        f.requirement,
+        f.purpose ?? "",
+        FRAMEWORK_LABELS[f.framework] ?? f.framework,
+        f.severity,
+        f.status,
+        ownerName(f.owner),
+        f.targetDate ? dayjs.utc(f.targetDate).tz(timezone).format(dateFormat) : "",
+        f.evidenceLink ?? "",
+        linkedCapa ? (linkedCapa.reference ?? linkedCapa.id) : "",
+      ];
+    });
+  }
+  function handleExport(format: "csv" | "excel") {
+    const rows = buildExportRows();
+    if (rows.length === 0) return;
+    const stamp = dayjs().format("YYYY-MM-DD");
+    if (format === "csv") downloadCSV(`findings-register-${stamp}`, EXPORT_HEADERS, rows);
+    else downloadExcel(`findings-register-${stamp}`, EXPORT_HEADERS, rows);
+  }
+
   async function onSave(data: EditForm) {
     if (!selectedFinding || !user) return;
+    setSaveError("");
 
     const targetDateISO = dayjs(data.targetDate).utc().toISOString();
 
     const noChange =
       data.requirement === selectedFinding.requirement &&
+      (data.purpose ?? "") === (selectedFinding.purpose ?? "") &&
       data.owner === selectedFinding.owner &&
       targetDateISO === selectedFinding.targetDate &&
       data.evidenceLink === (selectedFinding.evidenceLink ?? "");
@@ -153,13 +217,16 @@ export function GapRegisterTab({
 
     const result = await updateFindingAction(selectedFinding.id, {
       requirement: data.requirement,
+      purpose: data.purpose,
       owner: data.owner,
       targetDate: targetDateISO,
       evidenceLink: data.evidenceLink,
+      reason: editReason,
     });
 
     if (!result.success) {
       console.error("[gap] updateFinding failed:", result.error);
+      setSaveError(result.error || "Failed to save changes. Please try again.");
       return;
     }
 
@@ -180,13 +247,23 @@ export function GapRegisterTab({
           <input type="search" className="input pl-8 text-[12px]" placeholder="Search findings…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} aria-label="Search findings" />
         </div>
         {renderFilters(true)}
-        {!isViewOnly && <Button variant="primary" size="sm" icon={Plus} onClick={onAddOpen}>Report Gap</Button>}
+        {displayed.length > 0 && (
+          <div className="flex items-center gap-2 ml-auto">
+            {selectedIds.size > 0 && (
+              <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{selectedIds.size} selected</span>
+            )}
+            <Button variant="secondary" size="sm" icon={FileText} onClick={() => handleExport("csv")}>
+              {selectedIds.size > 0 ? "Export CSV" : "Export all (CSV)"}
+            </Button>
+            <Button variant="secondary" size="sm" icon={FileSpreadsheet} onClick={() => handleExport("excel")}>Excel</Button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto">
         {displayed.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
+          <div className="flex flex-col items-center justify-center py-10 gap-3">
             <ClipboardList className="w-12 h-12 text-[#334155]" aria-hidden="true" />
             {findingsTotal === 0 ? (
               <>
@@ -205,9 +282,13 @@ export function GapRegisterTab({
           <table className="data-table" aria-label="GxP/GMP findings register">
             <caption className="sr-only">List of all GxP/GMP findings with severity, status and target dates</caption>
             <thead><tr>
+              <th scope="col" className="w-8">
+                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                  className="w-3.5 h-3.5 cursor-pointer accent-(--brand)" aria-label="Select all findings" />
+              </th>
               <th scope="col">ID</th>
               {showSiteColumn && <th scope="col">Site</th>}
-              <th scope="col">Area</th><th scope="col">Requirement</th>
+              <th scope="col">Area</th><th scope="col">Requirement</th><th scope="col">Purpose</th>
               <th scope="col">Framework</th><th scope="col">Severity</th><th scope="col">Status</th>
               <th scope="col">CAPA</th>
               <th scope="col">Owner</th><th scope="col">Target date</th><th scope="col">Evidence</th>
@@ -220,12 +301,17 @@ export function GapRegisterTab({
                 return (
                 <tr key={f.id} onClick={() => onSelectFinding(f)} className="cursor-pointer" aria-selected={selectedFinding?.id === f.id}
                   style={selectedFinding?.id === f.id ? { background: isDark ? "#0c2f5a" : "#eff6ff" } : {}}>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={selectedIds.has(f.id)} onChange={() => toggleSelect(f.id)}
+                      className="w-3.5 h-3.5 cursor-pointer accent-(--brand)" aria-label={`Select ${findingRef(f)}`} />
+                  </td>
                   <th scope="row">
-                    <div className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{f.reference ?? f.id.slice(0, 8)}</div>
+                    <div className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{findingRef(f)}</div>
                   </th>
                   {showSiteColumn && <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{siteName(f.siteId)}</td>}
                   <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{f.area}</td>
                   <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 200, color: "var(--text-primary)" }}>{f.requirement}</span></td>
+                  <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 180, color: "var(--text-secondary)" }}>{f.purpose ? f.purpose : <span style={{ color: "var(--text-muted)" }}>&mdash;</span>}</span></td>
                   <td><span className="badge badge-blue text-[10px]">{FRAMEWORK_LABELS[f.framework] ?? f.framework}</span></td>
                   <td>{severityBadge(f.severity)}</td>
                   <td>{statusBadge(f.status)}</td>
@@ -261,22 +347,9 @@ export function GapRegisterTab({
       </div>
 
       {/* ── Finding detail popup ── */}
-      <Modal open={!!selectedFinding} onClose={() => { setIsEditing(false); onSelectFinding(null); }} title={selectedFinding?.id ?? "Finding Detail"}>
+      <Modal open={!!selectedFinding} onClose={() => { setIsEditing(false); onSelectFinding(null); }} title={selectedFinding ? findingRef(selectedFinding) : "Finding Detail"}>
         {selectedFinding && (
           <div className="space-y-4">
-            {/* Breadcrumb */}
-            <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[13px] -mt-1">
-              <button
-                type="button"
-                onClick={() => { setIsEditing(false); onSelectFinding(null); }}
-                className="bg-transparent border-none cursor-pointer p-0 hover:underline"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Gap Assessment &amp; Findings
-              </button>
-              <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>&rsaquo;</span>
-              <span className="font-mono font-medium" style={{ color: "var(--text-primary)" }}>{selectedFinding.id}</span>
-            </nav>
             {/* Header: badges + edit/save buttons */}
             <div className="flex items-center justify-between">
               <div className="flex gap-2 flex-wrap">{severityBadge(selectedFinding.severity)}{statusBadge(selectedFinding.status)}</div>
@@ -286,7 +359,7 @@ export function GapRegisterTab({
                 )}
                 {isEditing && (
                   <>
-                    <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); setEditReason(""); form.reset(); }}>Cancel</Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); setEditReason(""); setSaveError(""); form.reset(); }}>Cancel</Button>
                     <Button variant="primary" size="sm" icon={Save} onClick={form.handleSubmit(onSave)}>Save</Button>
                   </>
                 )}
@@ -300,7 +373,7 @@ export function GapRegisterTab({
                 <textarea
                   id="edit-requirement"
                   rows={3}
-                  {...form.register("requirement", { required: "Requirement is required", minLength: { value: 5, message: "Too short" } })}
+                  {...form.register("requirement", { required: "Requirement is required", minLength: { value: 10, message: "Requirement must be at least 10 characters" } })}
                   className="w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-all duration-150 resize-none bg-(--bg-elevated) border border-(--bg-border) text-(--text-primary) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
                 />
                 {form.formState.errors.requirement && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{form.formState.errors.requirement.message}</p>}
@@ -311,6 +384,25 @@ export function GapRegisterTab({
                 <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedFinding.requirement}</p>
               </div>
             )}
+
+            {/* ── Purpose ── */}
+            {isEditing ? (
+              <div>
+                <label className={LABEL} htmlFor="edit-purpose">Purpose <span className="text-[10px] font-normal italic">(optional)</span></label>
+                <textarea
+                  id="edit-purpose"
+                  rows={2}
+                  {...form.register("purpose")}
+                  className="w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-all duration-150 resize-none bg-(--bg-elevated) border border-(--bg-border) text-(--text-primary) placeholder:text-(--text-muted) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
+                  placeholder="Why this gap matters / what closing it achieves"
+                />
+              </div>
+            ) : selectedFinding.purpose ? (
+              <div>
+                <h3 className={LABEL}>Purpose</h3>
+                <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{selectedFinding.purpose}</p>
+              </div>
+            ) : null}
 
             {/* ── Area + Framework (LOCKED) ── */}
             <div className="grid grid-cols-2 gap-4">
@@ -418,6 +510,11 @@ export function GapRegisterTab({
                   placeholder="e.g. Wrong owner assigned, correcting typo..."
                 />
               </div>
+            )}
+
+            {/* ── Save error ── */}
+            {isEditing && saveError && (
+              <p role="alert" className="text-[11px] text-[#ef4444] p-2 rounded-lg" style={{ background: "var(--danger-bg)" }}>{saveError}</p>
             )}
 
             {/* ── AGI Risk Analysis ── */}

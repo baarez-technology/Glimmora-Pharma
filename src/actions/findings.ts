@@ -17,16 +17,25 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES, ADMIN_DELETE_ROLES } from "@/lib/auth";
+import { fileStorage } from "@/lib/fileStorage";
+import { sanitizeFilename } from "@/lib/sanitize";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { sanitizeServerError } from "@/lib/errors";
+
+// Shared with the create form (AddFindingModal) — keep this the single source
+// of truth for the minimum requirement length so client and server never
+// disagree (a mismatch made short edits fail silently).
+const MIN_REQUIREMENT = 10;
 
 // â”€â”€ Schemas â”€â”€
 
 const CreateFindingSchema = z.object({
-  requirement: z.string().min(10, "Requirement must be at least 10 characters"),
+  requirement: z.string().min(MIN_REQUIREMENT, `Requirement must be at least ${MIN_REQUIREMENT} characters`),
+  purpose: z.string().optional(),
   area: z.string().min(1, "Area is required"),
   framework: z.string().optional(),
   severity: z.enum(["Critical", "High", "Low"]),
@@ -40,7 +49,8 @@ const CreateFindingSchema = z.object({
 });
 
 const UpdateFindingSchema = z.object({
-  requirement: z.string().min(10).optional(),
+  requirement: z.string().min(MIN_REQUIREMENT).optional(),
+  purpose: z.string().optional(),
   area: z.string().min(1).optional(),
   severity: z.enum(["Critical", "High", "Low"]).optional(),
   status: z.enum(["Open", "In Progress", "Closed"]).optional(),
@@ -49,6 +59,9 @@ const UpdateFindingSchema = z.object({
   rootCause: z.string().optional(),
   evidenceLink: z.string().optional(),
   linkedCAPAId: z.string().optional(),
+  // Free-text rationale recorded alongside the edit-history diff. Not a column
+  // on Finding — it lands in FindingEdit.reason.
+  reason: z.string().optional(),
 });
 
 // â”€â”€ Return types â”€â”€
@@ -158,7 +171,9 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
         module: "Gap Assessment",
         action: "FINDING_CREATED",
         recordId: finding.id,
-        recordTitle: parsed.data.requirement.slice(0, 80),
+        recordTitle: finding.reference
+          ? `${finding.reference} — ${parsed.data.requirement.slice(0, 60)}`
+          : parsed.data.requirement.slice(0, 80),
         newValue: parsed.data.severity,
       },
     });
@@ -190,6 +205,26 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
   }
 }
 
+// Human-readable labels + value formatting for the edit-history diff. Only
+// the fields a user can actually change through the detail form are diffed.
+const DIFF_FIELDS: { key: "requirement" | "purpose" | "owner" | "targetDate" | "evidenceLink" | "status"; label: string }[] = [
+  { key: "requirement", label: "Requirement" },
+  { key: "purpose", label: "Purpose" },
+  { key: "owner", label: "Owner" },
+  { key: "targetDate", label: "Target date" },
+  { key: "evidenceLink", label: "Evidence link" },
+  { key: "status", label: "Status" },
+];
+
+function normalizeForDiff(key: string, value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (key === "targetDate") {
+    const d = value instanceof Date ? value : new Date(String(value));
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  }
+  return String(value);
+}
+
 export async function updateFinding(id: string, input: z.input<typeof UpdateFindingSchema>): Promise<ActionResult> {
   const session = await requireAuth();
   const parsed = UpdateFindingSchema.safeParse(input);
@@ -207,13 +242,42 @@ export async function updateFinding(id: string, input: z.input<typeof UpdateFind
     return { success: false, error: "Your role does not permit this action." };
   }
   try {
+    const before = await prisma.finding.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+    });
+    if (!before) return { success: false, error: "Finding not found" };
+
+    const { reason, ...updates } = parsed.data;
+
     const finding = await prisma.finding.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
-        ...parsed.data,
-        ...(parsed.data.targetDate ? { targetDate: new Date(parsed.data.targetDate) } : {}),
+        ...updates,
+        ...(updates.targetDate ? { targetDate: new Date(updates.targetDate) } : {}),
       },
     });
+
+    // Build the field-level diff for the append-only edit trail.
+    const changes = DIFF_FIELDS.flatMap(({ key, label }) => {
+      if (!(key in updates) || updates[key] === undefined) return [];
+      const oldValue = normalizeForDiff(key, (before as Record<string, unknown>)[key]);
+      const newValue = normalizeForDiff(key, (updates as Record<string, unknown>)[key]);
+      if (oldValue === newValue) return [];
+      return [{ field: label, oldValue, newValue }];
+    });
+
+    if (changes.length > 0) {
+      await prisma.findingEdit.create({
+        data: {
+          findingId: id,
+          tenantId: session.user.tenantId,
+          editedBy: session.user.id,
+          editedByName: session.user.name,
+          reason: reason?.trim() || null,
+          changes: JSON.stringify(changes),
+        },
+      });
+    }
 
     await prisma.auditLog.create({
       data: {
@@ -224,6 +288,8 @@ export async function updateFinding(id: string, input: z.input<typeof UpdateFind
         module: "Gap Assessment",
         action: "FINDING_UPDATED",
         recordId: id,
+        recordTitle: before.reference ?? undefined,
+        newValue: changes.length > 0 ? JSON.stringify(changes) : undefined,
       },
     });
 
@@ -313,5 +379,110 @@ export async function closeFinding(id: string): Promise<ActionResult> {
   } catch (err) {
     console.error("[action] closeFinding failed:", err);
     return { success: false, error: "Failed to close finding" };
+  }
+}
+
+// ── Evidence document upload ──
+
+const EVIDENCE_MAX_FILE_MB = Number(process.env.EVIDENCE_MAX_FILE_MB ?? "10");
+const EVIDENCE_MAX_BYTES = EVIDENCE_MAX_FILE_MB * 1024 * 1024;
+const EVIDENCE_ALLOWED_MIME = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "application/vnd.ms-excel",
+  "text/csv",
+  "text/plain",
+]);
+
+/**
+ * Upload a document as evidence for a finding. Stores the bytes via the file
+ * storage abstraction, records a Document row linked to the finding, and sets
+ * the finding's evidenceLink to the stored file name so the Evidence Index
+ * reflects it. Mirrors addEvidenceFile in actions/evidence.ts.
+ */
+export async function uploadFindingEvidence(
+  findingId: string,
+  formData: FormData,
+): Promise<ActionResult<{ fileName: string }>> {
+  const session = await requireAuth();
+
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { success: false, error: "No file provided" };
+  if (file.size === 0) return { success: false, error: "File is empty" };
+  if (file.size > EVIDENCE_MAX_BYTES) {
+    return { success: false, error: `File exceeds ${EVIDENCE_MAX_FILE_MB} MB limit` };
+  }
+  if (!EVIDENCE_ALLOWED_MIME.has(file.type)) {
+    return { success: false, error: "File type not allowed" };
+  }
+
+  const finding = await prisma.finding.findFirst({
+    where: { id: findingId, tenantId: session.user.tenantId },
+    select: { id: true, reference: true, requirement: true },
+  });
+  if (!finding) return { success: false, error: "Finding not found" };
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const contentHash = createHash("sha256").update(buffer).digest("hex");
+    const sanitized = sanitizeFilename(file.name);
+    const storageKey = `findings/${findingId}/${contentHash}-${sanitized}`;
+    await fileStorage.save(storageKey, buffer, file.type);
+
+    const sizeKb = Math.max(1, Math.round(file.size / 1024));
+
+    await prisma.$transaction(async (tx) => {
+      await tx.document.create({
+        data: {
+          tenantId: session.user.tenantId,
+          fileName: sanitized,
+          fileType: file.type,
+          fileSize: `${sizeKb} KB`,
+          version: "v1.0",
+          status: "draft",
+          uploadedBy: session.user.name,
+          description: `Evidence for ${finding.reference ?? findingId}`,
+          linkedModule: "Gap Assessment",
+          linkedRecordId: findingId,
+          // Persist the retrieval metadata so the Evidence Index can serve
+          // the bytes back via GET /api/findings/[id]/evidence. Without
+          // storageKey the uploaded file was written to disk but orphaned —
+          // there was no way to read it back.
+          sourceModule: "gap-assessment",
+          sourceId: findingId,
+          storageKey,
+          sha256: contentHash,
+          originalFileName: file.name,
+          fileExtension: sanitized.includes(".") ? sanitized.slice(sanitized.lastIndexOf(".") + 1).toLowerCase() : null,
+        },
+      });
+      await tx.finding.update({
+        where: { id: findingId, tenantId: session.user.tenantId },
+        data: { evidenceLink: sanitized },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userName: session.user.name,
+          userRole: session.user.role,
+          module: "Gap Assessment",
+          action: "FINDING_EVIDENCE_UPLOADED",
+          recordId: findingId,
+          recordTitle: finding.reference ?? undefined,
+          newValue: JSON.stringify({ fileName: sanitized, fileSize: file.size, contentHash }),
+        },
+      });
+    });
+
+    revalidatePath("/gap-assessment");
+    revalidatePath("/evidence");
+    return { success: true, data: { fileName: sanitized } };
+  } catch (err) {
+    console.error("[action] uploadFindingEvidence failed:", err);
+    return { success: false, error: "Failed to upload evidence file" };
   }
 }

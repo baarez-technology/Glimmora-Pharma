@@ -141,6 +141,9 @@ model Finding {
   tenantId     String
   siteId       String?
   requirement  String
+  // Why this gap matters / what closing it achieves. Surfaced in the report
+  // form, register table, and detail view.
+  purpose      String?
   area         String
   framework    String?
   severity     String
@@ -160,14 +163,34 @@ model Finding {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  site   Site?  @relation(fields: [siteId], references: [id])
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  site   Site?         @relation(fields: [siteId], references: [id])
   capa   CAPA?
   system    GxPSystem? @relation(fields: [systemId], references: [id], onDelete: SetNull)
   rtmEntries RTMEntry[]
   // SME Section 1, Stage 6 (FULL) — FK to the prior CAPA whose
   // recurrence this Finding represents.
   previousCAPA CAPA? @relation("FindingRecurrenceOf", fields: [previousCAPAId], references: [id], onDelete: SetNull)
+  edits  FindingEdit[]
+}
+
+// Append-only edit trail for findings (Part 11 ALCOA+). One row per save that
+// changed at least one field. `changes` is a JSON-encoded array of
+// { field, oldValue, newValue }. Never updated or deleted.
+model FindingEdit {
+  id           String   @id @default(cuid())
+  findingId    String
+  tenantId     String
+  editedBy     String   // acting user id (resolved to a name in the UI)
+  editedByName String
+  editedAt     DateTime @default(now())
+  reason       String?
+  changes      String
+  createdAt    DateTime @default(now())
+
+  finding Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  @@index([findingId])
 }
 
 // ── CAPA ──

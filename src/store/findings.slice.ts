@@ -20,6 +20,7 @@ export interface Finding {
   siteId: string;
   area: string;
   requirement: string;
+  purpose?: string;
   framework: string;
   severity: FindingSeverity;
   status: FindingStatus;

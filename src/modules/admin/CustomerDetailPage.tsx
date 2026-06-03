@@ -113,7 +113,7 @@ export function CustomerDetailPage() {
           <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Back to Customer Accounts
         </Link>
         <div className="card">
-          <div className="card-body text-center py-16">
+          <div className="card-body text-center py-10">
             <Building2 className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
             <p className="text-[14px] font-semibold" style={{ color: "var(--text-primary)" }}>
               Customer not found

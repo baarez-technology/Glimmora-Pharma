@@ -24,7 +24,9 @@ import {
 import {
   createFinding as createFindingAction,
   updateFinding as updateFindingAction,
+  uploadFindingEvidence as uploadFindingEvidenceAction,
 } from "@/actions/findings";
+import { formatReference } from "@/lib/reference";
 import { createCAPA as createCAPAAction } from "@/actions/capas";
 import { linkFindingToSystem as linkFindingToSystemAction } from "@/actions/systems";
 import { Button } from "@/components/ui/Button";
@@ -37,8 +39,19 @@ import { GapEvidenceTab } from "./tabs/GapEvidenceTab";
 import { AddFindingModal, type FindingForm } from "./modals/AddFindingModal";
 import { EvidenceLinkModal } from "./modals/EvidenceLinkModal";
 
+/** Prisma Finding plus the edit-history rows the page query includes. */
+type FindingWithEdits = PrismaFinding & {
+  edits?: {
+    editedBy: string;
+    editedByName: string;
+    editedAt: Date;
+    reason: string | null;
+    changes: string;
+  }[];
+};
+
 /* ── Adapt Prisma Finding → slice Finding shape ── */
-function adaptFinding(p: PrismaFinding): Finding {
+function adaptFinding(p: FindingWithEdits): Finding {
   return {
     id: p.id,
     reference: p.reference ?? undefined,
@@ -46,6 +59,7 @@ function adaptFinding(p: PrismaFinding): Finding {
     siteId: p.siteId ?? "",
     area: p.area,
     requirement: p.requirement,
+    purpose: p.purpose ?? undefined,
     framework: p.framework ?? "",
     severity: p.severity as FindingSeverity,
     status: (p.status ?? "Open") as Finding["status"],
@@ -55,6 +69,20 @@ function adaptFinding(p: PrismaFinding): Finding {
     rootCause: p.rootCause ?? undefined,
     capaId: p.linkedCAPAId ?? undefined,
     createdAt: p.createdAt.toISOString(),
+    editHistory: p.edits?.length
+      ? p.edits.map((e) => ({
+          editedBy: e.editedBy,
+          editedAt: e.editedAt.toISOString(),
+          reason: e.reason ?? undefined,
+          changes: (() => {
+            try {
+              return JSON.parse(e.changes) as { field: string; oldValue: unknown; newValue: unknown }[];
+            } catch {
+              return [];
+            }
+          })(),
+        }))
+      : undefined,
   };
 }
 
@@ -110,10 +138,13 @@ function getAreaStatus(rows: { status: "Complete" | "Partial" | "Missing" }[]): 
 
 export interface GapPageProps {
   /** Server-fetched findings (Prisma rows) — seeded into Redux on mount. */
-  findings?: PrismaFinding[];
+  findings?: FindingWithEdits[];
+  /** Finding IDs that have an uploaded evidence document retrievable via the
+   *  download route. Used by the Evidence Index to make the link clickable. */
+  evidenceDocFindingIds?: string[];
 }
 
-export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
+export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: GapPageProps = {}) {
   const router = useRouter();
   const dispatch = useAppDispatch();
 
@@ -161,7 +192,6 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
   const [evidenceFindingId, setEvidenceFindingId] = useState("");
   const [evidenceCurrentLink, setEvidenceCurrentLink] = useState("");
   const [evidenceLinkedPopup, setEvidenceLinkedPopup] = useState(false);
-  const [exportPopup, setExportPopup] = useState(false);
   const [noSitesOpen, setNoSitesOpen] = useState(false);
   const [planLimitOpen, setPlanLimitOpen] = useState(false);
 
@@ -219,20 +249,39 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
   );
 
   /* ── Evidence data ── */
+  // Finding IDs whose evidence is a retrievable uploaded document (vs. a typed
+  // reference). Resolves the link to the in-app download route below.
+  const evidenceDocIds = useMemo(
+    () => new Set(evidenceDocFindingIds ?? []),
+    [evidenceDocFindingIds],
+  );
+  // Resolve an evidence link to a clickable, viewable URL:
+  //  • http(s) link → open the external URL directly
+  //  • uploaded document → stream it from the authenticated download route
+  //  • typed reference with no file → no href (rendered as plain text)
+  function resolveEvidenceHref(findingId: string, link: string): string | undefined {
+    const v = link?.trim();
+    if (!v) return undefined;
+    if (/^https?:\/\//i.test(v)) return v;
+    if (evidenceDocIds.has(findingId)) return `/api/findings/${findingId}/evidence`;
+    return undefined;
+  }
   const evidenceAreas = useMemo(() =>
     AREAS.map((area) => {
       const areaFindings = findings.filter((f) => f.area === area);
       const rows = areaFindings.map((f) => ({
-        findingId: f.id, framework: f.framework,
+        findingId: f.id, reference: formatReference("GAP", f), framework: f.framework,
         docType: DOC_TYPE_MAP[f.framework] ?? "Record",
         name: f.requirement, evidenceLink: f.evidenceLink,
+        evidenceHref: resolveEvidenceHref(f.id, f.evidenceLink),
         status: getEvidenceStatus(f), severity: f.severity,
         findingStatus: f.status, owner: f.owner,
         linkedCapa: capas.find((c) => c.id === f.capaId),
       }));
       return { area, rows, status: getAreaStatus(rows) };
     }).filter((a) => a.rows.length > 0),
-  [findings, capas]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [findings, capas, evidenceDocIds]);
 
   const allEvidenceRows = evidenceAreas.flatMap((a) => a.rows);
   const completeCount = allEvidenceRows.filter((r) => r.status === "Complete").length;
@@ -290,6 +339,7 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
     const evidenceReference = rest.evidenceLink?.trim() || evidenceFile?.name || "";
     const result = await createFindingAction({
       requirement: rest.requirement,
+      purpose: rest.purpose || undefined,
       area: rest.area,
       framework: rest.framework,
       severity: rest.severity,
@@ -329,10 +379,24 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
     const result = await updateFindingAction(findingId, { evidenceLink });
     if (!result.success) {
       console.error("[gap] handleLinkEvidence failed:", result.error);
-      return;
+      return { ok: false, error: result.error };
     }
     setEvidenceLinkedPopup(true);
     router.refresh();
+    return { ok: true };
+  }
+
+  async function handleUploadEvidence(findingId: string, file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const result = await uploadFindingEvidenceAction(findingId, fd);
+    if (!result.success) {
+      console.error("[gap] handleUploadEvidence failed:", result.error);
+      return { ok: false, error: result.error };
+    }
+    setEvidenceLinkedPopup(true);
+    router.refresh();
+    return { ok: true };
   }
 
   function toggleArea(a: string) {
@@ -370,7 +434,7 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
             const closed = baseFindings.filter((f) => f.status === "Closed");
             if (closed.length === 0) return null;
             const latest = closed.reduce((a, b) => (dayjs(a.createdAt).isAfter(b.createdAt) ? a : b));
-            return { id: latest.id, closedAt: latest.createdAt ? dayjs.utc(latest.createdAt).format("DD MMM YYYY") : undefined };
+            return { id: formatReference("GAP", latest), closedAt: latest.createdAt ? dayjs.utc(latest.createdAt).format("DD MMM YYYY") : undefined };
           })()}
         />
       )}
@@ -394,7 +458,6 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
           expandedAreas={expandedAreas} onToggleArea={toggleArea} isViewOnly={isViewOnly} users={users}
           onLinkEvidence={(fid, link) => { setEvidenceFindingId(fid); setEvidenceCurrentLink(link); setEvidenceModalOpen(true); }}
           onFindingClick={(fid) => { setActiveTab("register"); const f = findings.find((x) => x.id === fid); if (f) setSelectedFinding(f); }}
-          onExport={() => setExportPopup(true)}
           onGoToRegister={() => setActiveTab("register")}
         />
       )}
@@ -410,6 +473,7 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
         isOpen={evidenceModalOpen}
         onClose={() => { setEvidenceModalOpen(false); setEvidenceFindingId(""); setEvidenceCurrentLink(""); }}
         onSave={handleLinkEvidence}
+        onUpload={handleUploadEvidence}
         findingId={evidenceFindingId} currentLink={evidenceCurrentLink}
         finding={findings.find((f) => f.id === evidenceFindingId)} />
 
@@ -419,10 +483,7 @@ export function GapPage({ findings: serverFindings }: GapPageProps = {}) {
         description={`${raisedCapaId} created and linked. Go to CAPA Tracker to add RCA.`}
         onDismiss={() => setCapaRaisedPopup(false)}
         actions={[{ label: "Go to CAPA Tracker", style: "primary", onClick: () => { setCapaRaisedPopup(false); router.push("/capa"); } }]} />
-      <Popup isOpen={evidenceLinkedPopup} variant="success" title="Evidence linked" description="Document reference saved. Close the finding to mark evidence as Complete." onDismiss={() => setEvidenceLinkedPopup(false)} />
-      <Popup isOpen={exportPopup} variant="success" title="Evidence pack exported"
-        description={`${allEvidenceRows.length} evidence items across ${evidenceAreas.length} areas. ${missingCount > 0 ? `${missingCount} items still missing.` : "All areas have evidence linked."}`}
-        onDismiss={() => setExportPopup(false)} />
+      <Popup isOpen={evidenceLinkedPopup} variant="success" title="Evidence saved" description="Evidence document saved. Close the finding to mark evidence as Complete." onDismiss={() => setEvidenceLinkedPopup(false)} />
       <NoSitesPopup isOpen={noSitesOpen} onClose={() => setNoSitesOpen(false)} feature="Gap Assessment" />
       <PlanLimitPopup isOpen={planLimitOpen} onClose={() => setPlanLimitOpen(false)} resource="finding" plan={tenantPlan} limit={getLimit("findings")} />
     </main>

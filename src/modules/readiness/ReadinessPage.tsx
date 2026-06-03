@@ -517,7 +517,7 @@ export function ReadinessPage({ inspections: prismaInspections, playbooks }: Rea
             <RoadmapPrismaTab inspection={selectedPrismaInspection} isAdmin={isAdmin} />
           ) : (
             <div
-              className="text-center py-16 rounded-xl border"
+              className="text-center py-10 rounded-xl border"
               style={{ borderColor: "var(--bg-border)", background: "var(--bg-elevated)" }}
             >
               <Map className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
@@ -821,7 +821,7 @@ export function ReadinessPage({ inspections: prismaInspections, playbooks }: Rea
           <TrainingPrismaTab inspection={selectedPrismaInspection} isAdmin={isAdmin} />
         ) : (
           <div
-            className="text-center py-16 rounded-xl border"
+            className="text-center py-10 rounded-xl border"
             style={{ borderColor: "var(--bg-border)", background: "var(--bg-elevated)" }}
           >
             <GraduationCap className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
