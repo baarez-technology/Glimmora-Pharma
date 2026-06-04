@@ -15,6 +15,7 @@ const queryClient = new QueryClient({
 
 function ThemeSync() {
   const theme = useAppSelector((s) => s.theme?.mode);
+  const density = useAppSelector((s) => s.theme?.density);
   const mounted = useRef(false);
 
   useEffect(() => {
@@ -25,6 +26,12 @@ function ThemeSync() {
     const root = document.documentElement;
     root.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
   }, [theme]);
+
+  // Keep [data-density] in sync after rehydrate (the pre-paint script in
+  // layout.tsx sets it before first paint; this covers Redux-driven changes).
+  useEffect(() => {
+    if (density) document.documentElement.setAttribute("data-density", density);
+  }, [density]);
 
   return null;
 }

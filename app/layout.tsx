@@ -39,6 +39,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
+        {/* Pre-paint theme application — eliminates the light-flash (FOUC) a
+            dark-mode user otherwise sees before <ThemeSync> runs in an effect.
+            Reads the same two keys the theme slice persists (glimmora-theme /
+            glimmora-color-theme) and mirrors its "stored value or light"
+            default, so this never disagrees with Redux's initial state. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var d=document.documentElement;" +
+              "var t=localStorage.getItem('glimmora-theme');" +
+              "d.setAttribute('data-theme',t==='dark'?'dark':'light');" +
+              "var c=localStorage.getItem('glimmora-color-theme');" +
+              "if(c)d.setAttribute('data-color-theme',c);" +
+              "var de=localStorage.getItem('glimmora-density');" +
+              "if(de)d.setAttribute('data-density',de);}catch(e){}",
+          }}
+        />
       </head>
       <body>
         <Providers>{children}</Providers>

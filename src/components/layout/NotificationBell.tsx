@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import dayjs from "@/lib/dayjs";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import {
@@ -214,7 +215,7 @@ export function NotificationBell() {
                       {!notif.read && <div className="w-2 h-2 rounded-full bg-[#0ea5e9] flex-shrink-0 mt-1" aria-label="Unread" />}
                     </div>
                     <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{notif.message}</p>
-                    <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>{dayjs(notif.createdAt).fromNow()}</p>
+                    <RelativeTime value={notif.createdAt} className="block text-[10px] mt-1" style={{ color: "var(--text-muted)" }} />
                   </div>
                 </div>
               );

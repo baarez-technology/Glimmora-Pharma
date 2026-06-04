@@ -8,6 +8,7 @@ import type { UserRole } from "@/hooks/useRole";
 import { setActiveSite, setSelectedSite } from "@/store/auth.slice";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ColorThemePicker } from "@/components/ui/ColorThemePicker";
+import { DensityToggle } from "@/components/ui/DensityToggle";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { NotificationBell } from "./NotificationBell";
 import dayjs from "@/lib/dayjs";
@@ -147,6 +148,7 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
       {/* ── Right actions ── */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         <div className="hidden md:block"><ColorThemePicker /></div>
+        <div className="hidden lg:block"><DensityToggle /></div>
         <ThemeToggle />
 
         {/* Help (hidden below sm) */}

@@ -376,7 +376,7 @@ export function LoginPage() {
                 aria-label={showPassword ? "Hide passcode" : "Show passcode"}
                 aria-pressed={showPassword}
                 tabIndex={-1}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-[#f5f1ea] text-[#a39e96] hover:text-[#302d29] transition-colors"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex items-center justify-center min-w-[24px] min-h-[24px] rounded hover:bg-[#f5f1ea] text-[#a39e96] hover:text-[#302d29] transition-colors"
               >
                 {showPassword
                   ? <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />

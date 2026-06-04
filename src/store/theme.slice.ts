@@ -1,6 +1,7 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
 type Theme = "dark" | "light";
+type Density = "comfortable" | "compact";
 
 export type ColorTheme =
   | "sky-blue"
@@ -49,12 +50,34 @@ function getInitialColorTheme(): ColorTheme {
   }
 }
 
+function getInitialDensity(): Density {
+  if (typeof window === "undefined") return "comfortable";
+  try {
+    const stored = localStorage.getItem("glimmora-density");
+    if (stored === "comfortable" || stored === "compact") return stored;
+  } catch {
+    // ignore
+  }
+  return "comfortable";
+}
+
+function persistDensity(next: Density) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem("glimmora-density", next);
+    document.documentElement.setAttribute("data-density", next);
+  } catch {
+    // ignore
+  }
+}
+
 const themeSlice = createSlice({
   name: "theme",
   initialState: {
     mode: getInitialTheme(),
     colorTheme: getInitialColorTheme(),
-  } as { mode: Theme; colorTheme: ColorTheme },
+    density: getInitialDensity(),
+  } as { mode: Theme; colorTheme: ColorTheme; density: Density },
   reducers: {
     toggleTheme(state) {
       const next: Theme = state.mode === "dark" ? "light" : "dark";
@@ -68,8 +91,18 @@ const themeSlice = createSlice({
     setColorTheme(state, { payload }: PayloadAction<ColorTheme>) {
       state.colorTheme = payload;
     },
+    toggleDensity(state) {
+      const next: Density = state.density === "compact" ? "comfortable" : "compact";
+      state.density = next;
+      persistDensity(next);
+    },
+    setDensity(state, { payload }: PayloadAction<Density>) {
+      state.density = payload;
+      persistDensity(payload);
+    },
   },
 });
 
-export const { toggleTheme, setTheme, setColorTheme } = themeSlice.actions;
+export const { toggleTheme, setTheme, setColorTheme, toggleDensity, setDensity } =
+  themeSlice.actions;
 export default themeSlice.reducer;

@@ -139,7 +139,7 @@ export function ActionPlanTable({ items, ownerName, timezone, dateFormat, router
                   {item.dueDate ? (
                     <>
                       <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(item.dueDate).tz(timezone).format(dateFormat)}</div>
-                      {overdue && <div className="text-[10px] text-[#ef4444]">Overdue</div>}
+                      {overdue && <div className="text-[10px] font-semibold text-[#b91c1c]">Overdue</div>}
                     </>
                   ) : (
                     <span className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>&mdash;</span>

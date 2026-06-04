@@ -118,10 +118,15 @@ function ToastViewport({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: 
 function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
   const palette = PALETTE[toast.kind];
   const Icon = palette.Icon;
+  // Errors interrupt (assertive/alert) so a failed save is announced even if a
+  // screen reader is mid-utterance; success/info stay polite to avoid stepping
+  // on the user's flow.
+  const isError = toast.kind === "error";
   return (
     <div
-      role="status"
-      aria-live="polite"
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
+      aria-atomic="true"
       className="pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2.5 shadow-lg min-w-[260px] max-w-[380px] animate-in slide-in-from-top-4 fade-in duration-200"
       style={{ background: palette.bg, borderColor: palette.border, color: palette.text }}
     >
@@ -131,7 +136,7 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
         type="button"
         onClick={onDismiss}
         aria-label="Dismiss notification"
-        className="ml-1 -mr-1 -mt-0.5 p-1 rounded hover:bg-black/5 transition-colors border-none bg-transparent cursor-pointer"
+        className="ml-1 -mr-1 -mt-0.5 inline-flex items-center justify-center min-w-[24px] min-h-[24px] rounded hover:bg-black/5 transition-colors border-none bg-transparent cursor-pointer"
         style={{ color: palette.text }}
       >
         <X className="h-3.5 w-3.5" aria-hidden="true" />

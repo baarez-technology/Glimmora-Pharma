@@ -23,7 +23,6 @@ import { StatCard, CardSection, SetupChecklist } from "@/components/shared";
 import { isOverdue } from "@/types/capa";
 import { displayUserName } from "@/lib/identity-display";
 import { ActionPlanTable } from "./ActionPlanTable";
-import { GapDetectionPanel } from "./GapDetectionPanel";
 
 /* ══════════════════════════════════════ */
 
@@ -344,15 +343,6 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
               ))}
             </div>
           </aside>
-
-          {/* ④b Gap Detection (mock AI 03) — severity-ranked nightly-scan view
-              over the SAME live gap data AGI Insights uses (shared counts, so
-              the two panels can't contradict each other). AGI Insights above is
-              left exactly as-is. */}
-          <GapDetectionPanel
-            counts={{ criticalCount, overdueCAPAs: overdueCAPAs.length, csvHighRisk, overdueVal, diOpen, reviewOverdue, pending }}
-            router={router}
-          />
 
           {/* ⑤ Risk signals */}
           <CardSection icon={Activity} iconColor="#ef4444" title="Risk signals">

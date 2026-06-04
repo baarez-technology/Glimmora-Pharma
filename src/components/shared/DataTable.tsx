@@ -35,7 +35,10 @@ export function DataTable<T>({
   const isFixed = variant === "table-fixed";
 
   return (
-    <div className={isFixed ? "" : "overflow-x-auto"}>
+    // @container makes the table respond to its own width (e.g. dropped into a
+    // narrow side panel) instead of the viewport — see the @container rule in
+    // index.css.
+    <div className={isFixed ? "@container" : "@container overflow-x-auto"}>
       <table
         className={
           isFixed ? "w-full border-collapse table-fixed" : "data-table"
