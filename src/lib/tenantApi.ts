@@ -4,7 +4,7 @@ import {
   createTenant as createTenantAction,
   updateTenant as updateTenantAction,
   deleteTenant as deleteTenantAction,
-  createSubscription as createSubscriptionAction,
+  assignPlan as assignPlanAction,
   listTenants as listTenantsAction,
 } from "@/actions/tenants";
 
@@ -88,9 +88,9 @@ export async function fetchTenants(): Promise<Tenant[]> {
  * config.users[0] supplies email/username/password, and the tenant.id is
  * reused as the customerCode so subsequent lookups can correlate.
  *
- * After the tenant row exists, each entry in tenant.subscriptionPlans is
- * upserted via createSubscription so the subscription gate (AppShell) sees
- * a live plan for the new account.
+ * After the tenant row exists, the tenant's single plan (if any) is assigned
+ * via assignPlan so the plan gate (AppShell) sees a live plan for the new
+ * account.
  */
 export async function createTenantApi(tenant: Tenant): Promise<void> {
   return logCall("POST", "/tenants (server action)", async () => {
@@ -117,17 +117,21 @@ export async function createTenantApi(tenant: Tenant): Promise<void> {
     const created = result.data as { id: string } | undefined;
     if (!created?.id) return;
 
-    // Subscriptions: create one row per plan in the Redux payload.
-    for (const plan of tenant.subscriptionPlans ?? []) {
-      const subRes = await createSubscriptionAction({
+    // Plan: assign the tenant's single plan (if one was configured).
+    const plan = tenant.plan;
+    if (plan) {
+      const planRes = await assignPlanAction({
         tenantId: created.id,
-        maxAccounts: plan.maxAccounts,
+        tier: plan.tier,
+        displayName: plan.displayName ?? undefined,
+        maxUsers: plan.maxUsers,
+        maxSites: plan.maxSites,
+        minRetentionYears: plan.minRetentionYears,
         startDate: plan.startDate,
-        expiryDate: plan.endDate,
-        status: plan.status,
+        expiryDate: plan.expiryDate,
       });
-      if (!subRes.success) {
-        console.warn("[tenantApi] createSubscription failed:", subRes.error);
+      if (!planRes.success) {
+        console.warn("[tenantApi] assignPlan failed:", planRes.error);
       }
     }
   });

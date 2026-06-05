@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { BCRYPT_COST } from "../src/lib/passwords";
+import { PLAN_TIERS } from "../src/lib/plans";
 
 const prisma = new PrismaClient();
 
@@ -58,18 +59,97 @@ async function main() {
   });
   console.log("  Demo tenant:", demo.id);
 
-  // ── Subscription ──
-  await prisma.subscription.upsert({
+  // ── Plan (Subscription Phase A) ──
+  // Demo tenant is PROFESSIONAL. Caps are FROZEN onto the row from the tier
+  // defaults (30 users / 5 sites / 3yr min retention).
+  await prisma.plan.upsert({
     where: { tenantId: demo.id },
     update: {},
     create: {
       tenantId: demo.id,
-      maxAccounts: 15,
+      tier: "PROFESSIONAL",
+      displayName: null,
+      maxUsers: PLAN_TIERS.PROFESSIONAL.maxUsers,
+      maxSites: PLAN_TIERS.PROFESSIONAL.maxSites,
+      minRetentionYears: PLAN_TIERS.PROFESSIONAL.minRetentionYears,
       startDate: new Date("2026-01-01"),
       expiryDate: new Date("2026-12-31"),
-      status: "Active",
     },
   });
+
+  // ── Additional tenants: one per remaining tier so smoke tests can exercise
+  // all four plans. Each gets a customer_admin (the tenant row itself), a
+  // frozen plan, and a few users/sites kept comfortably under their caps. ──
+  const tierHash = await bcrypt.hash("Admin@123", BCRYPT_COST);
+  const extraTenants = [
+    {
+      code: "ESS_001", name: "Wellspring Generics", username: "wellspring", email: "admin@wellspring.test",
+      tier: "ESSENTIALS" as const, displayName: null as string | null,
+      caps: { maxUsers: PLAN_TIERS.ESSENTIALS.maxUsers, maxSites: PLAN_TIERS.ESSENTIALS.maxSites, minRetentionYears: PLAN_TIERS.ESSENTIALS.minRetentionYears },
+      sites: [{ name: "Pune Plant", code: "PUN" }],
+      users: [{ name: "Ravi Kumar", email: "ravi@wellspring.test", username: "ravi", role: "qa_head" }],
+    },
+    {
+      code: "ENT_001", name: "Helios Biologics", username: "helios", email: "admin@helios.test",
+      tier: "ENTERPRISE" as const, displayName: null as string | null,
+      caps: { maxUsers: PLAN_TIERS.ENTERPRISE.maxUsers, maxSites: PLAN_TIERS.ENTERPRISE.maxSites, minRetentionYears: PLAN_TIERS.ENTERPRISE.minRetentionYears },
+      sites: [{ name: "Vizag Biologics", code: "VTZ" }, { name: "Goa Fill-Finish", code: "GOA" }],
+      users: [
+        { name: "Meera Nair", email: "meera@helios.test", username: "meera", role: "qa_head" },
+        { name: "Arjun Rao", email: "arjun@helios.test", username: "arjun", role: "csv_val_lead" },
+      ],
+    },
+    {
+      code: "TLR_001", name: "Custom Pilot Pharma", username: "custompilot", email: "admin@custompilot.test",
+      tier: "TAILORED" as const, displayName: "Custom Pilot" as string | null,
+      caps: { maxUsers: 250, maxSites: 20, minRetentionYears: 10 },
+      sites: [{ name: "Ahmedabad Plant", code: "AMD" }],
+      users: [{ name: "Sana Shaikh", email: "sana@custompilot.test", username: "sana", role: "qa_head" }],
+    },
+  ];
+
+  for (const t of extraTenants) {
+    const tenant = await prisma.tenant.upsert({
+      where: { email: t.email },
+      update: { passwordHash: tierHash, isActive: true },
+      create: {
+        customerCode: t.code, name: t.name, username: t.username, email: t.email,
+        passwordHash: tierHash, role: "customer_admin", isActive: true,
+      },
+    });
+    await prisma.plan.upsert({
+      where: { tenantId: tenant.id },
+      update: {},
+      create: {
+        tenantId: tenant.id,
+        tier: t.tier,
+        displayName: t.displayName,
+        maxUsers: t.caps.maxUsers,
+        maxSites: t.caps.maxSites,
+        minRetentionYears: t.caps.minRetentionYears,
+        startDate: new Date("2026-01-01"),
+        expiryDate: new Date("2026-12-31"),
+      },
+    });
+    for (const s of t.sites) {
+      await prisma.site.upsert({
+        where: { tenantId_name: { tenantId: tenant.id, name: s.name } },
+        update: { code: s.code, isActive: true },
+        create: { tenantId: tenant.id, name: s.name, code: s.code, risk: "MEDIUM" },
+      });
+    }
+    for (const u of t.users) {
+      await prisma.user.upsert({
+        where: { tenantId_email: { tenantId: tenant.id, email: u.email } },
+        update: { isActive: true },
+        create: {
+          tenantId: tenant.id, name: u.name, email: u.email, username: u.username,
+          passwordHash: tierHash, role: u.role,
+        },
+      });
+    }
+  }
+  console.log("  Extra tier tenants:", extraTenants.map((t) => `${t.code}(${t.tier})`).join(", "));
 
   // ── Sites ──
   // Upsert keyed on (tenantId, name) so re-seeding doesn't duplicate rows.

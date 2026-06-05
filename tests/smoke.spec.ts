@@ -118,12 +118,14 @@ test.beforeAll(async () => {
       role: "customer_admin",
       mfaEnabled: true,
       isActive: true,
-      subscription: {
+      plan: {
         create: {
-          maxAccounts: 5,
+          tier: "PROFESSIONAL",
+          maxUsers: 30,
+          maxSites: 5,
+          minRetentionYears: 3,
           startDate: new Date(),
           expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-          status: "Active",
         },
       },
     },

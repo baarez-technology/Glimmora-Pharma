@@ -303,7 +303,7 @@ export function SitesTab({ readOnly = false }: { readOnly?: boolean }) {
         label="Sites"
         count={siteCount}
         limit={siteLimit}
-        plan={tenantPlan}
+        plan={tenantPlan ?? ""}
         atLimit={atLimit}
         nearLimit={nearLimit}
       />

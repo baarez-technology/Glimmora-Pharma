@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/Badge";
 import { StatCard, CardSection, SetupChecklist } from "@/components/shared";
 import { isOverdue } from "@/types/capa";
 import { displayUserName } from "@/lib/identity-display";
+import { planLabel } from "@/lib/plans";
 import { ActionPlanTable } from "./ActionPlanTable";
 import { GapDetectionPanel } from "./GapDetectionPanel";
 
@@ -230,7 +231,7 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
           <h1 className="page-title">Dashboard</h1>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <p className="page-subtitle">{currentTenant?.name || companyName || "Pharma Glimmora"} &middot; {dayjs().format("MMMM YYYY")}</p>
-            {currentTenant?.plan && <Badge variant={currentTenant.plan === "enterprise" ? "green" : currentTenant.plan === "professional" ? "blue" : "gray"}>{currentTenant.plan}</Badge>}
+            {currentTenant?.plan && <Badge variant={currentTenant.plan.tier === "ENTERPRISE" ? "green" : currentTenant.plan.tier === "PROFESSIONAL" ? "blue" : "gray"}>{planLabel(currentTenant.plan.tier, currentTenant.plan.displayName)}</Badge>}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">

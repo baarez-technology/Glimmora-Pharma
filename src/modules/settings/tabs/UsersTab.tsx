@@ -29,6 +29,7 @@ import {
   type TenantUserConfig,
 } from "@/store/auth.slice";
 import { aiSignup, generateUserId, AiAuthError } from "@/lib/aiAuth";
+import { planLabel } from "@/lib/plans";
 import { Popup } from "@/components/ui/Popup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -358,7 +359,7 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
   const dispatch = useAppDispatch();  const {
     users,
     tenantId,
-    activePlan,
+    plan,
     daysRemaining,
     isExpired,
     isNearExpiry,
@@ -582,11 +583,11 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
               className="text-[12px] font-medium"
               style={{ color: "var(--text-primary)" }}
             >
-              {activePlan
-                ? `${activePlan.status} plan`
-                : "No active subscription"}
+              {plan
+                ? `${planLabel(plan.tier, plan.displayName)} plan`
+                : "No plan assigned"}
             </span>
-            {activePlan && (
+            {plan && (
               <Badge
                 variant={isExpired ? "red" : isNearExpiry ? "amber" : "green"}
               >
@@ -597,25 +598,24 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
             )}
           </div>
 
-          {activePlan && (
+          {plan && (
             <>
               <div
                 className="flex items-center gap-3 text-[11px] mb-2 flex-wrap"
                 style={{ color: "var(--text-muted)" }}
               >
                 <span>
-                  {usedAccounts} of{" "}
-                  {maxAccounts === -1 ? "unlimited" : maxAccounts} accounts used
+                  {usedAccounts} of {maxAccounts} accounts used
                 </span>
                 <span aria-hidden="true">·</span>
                 <span>
-                  {dayjs.utc(activePlan.startDate).format("DD MMM YYYY")}
+                  {dayjs.utc(plan.startDate).format("DD MMM YYYY")}
                   {" — "}
-                  {dayjs.utc(activePlan.endDate).format("DD MMM YYYY")}
+                  {dayjs.utc(plan.expiryDate).format("DD MMM YYYY")}
                 </span>
               </div>
 
-              {maxAccounts !== -1 && (
+              {maxAccounts > 0 && (
                 <div
                   className={clsx(
                     "h-1.5 rounded-full",

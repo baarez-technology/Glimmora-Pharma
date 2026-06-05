@@ -26,7 +26,7 @@ model Tenant {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  subscription  Subscription?
+  plan          Plan?
   sites         Site[]
   users         User[]
   findings      Finding[]
@@ -44,17 +44,32 @@ model Tenant {
   capaActionItems CAPAActionItem[]
 }
 
-model Subscription {
-  id          String   @id @default(cuid())
-  tenantId    String   @unique
-  maxAccounts Int      @default(5)
-  startDate   DateTime
-  expiryDate  DateTime
-  status      String   @default("Active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+enum PlanTier {
+  ESSENTIALS
+  PROFESSIONAL
+  ENTERPRISE
+  TAILORED
+}
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+// Subscription Phase A — exactly one Plan per Tenant (optional until assigned).
+// Caps are FROZEN onto the row at assignment time (copied from the tier
+// defaults in src/lib/plans.ts, or set within ceilings for TAILORED) so a
+// later change to the tier-default constants never silently re-caps a live
+// tenant. minRetentionYears is a promise only — there is NO purge logic in
+// Phase 1.
+model Plan {
+  id                String   @id @default(cuid())
+  tenantId          String   @unique
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tier              PlanTier
+  displayName       String?  // TAILORED only; null => UI shows "TAILORED"
+  maxUsers          Int      // frozen at assignment
+  maxSites          Int      // frozen at assignment
+  minRetentionYears Int      // promise only; NO purge logic in Phase 1
+  startDate         DateTime
+  expiryDate        DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 // ── SETTINGS ──

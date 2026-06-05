@@ -9,6 +9,7 @@ import { BCRYPT_COST } from "@/lib/passwords";
 import { getTenants } from "@/lib/queries/tenants";
 import type { Tenant as ReduxTenant } from "@/store/auth.slice";
 import { sanitizeServerError } from "@/lib/errors";
+import { resolvePlanCaps, validateTailoredCaps, type PlanTier } from "@/lib/plans";
 
 export async function listTenants(): Promise<ReduxTenant[]> {
   const session = await requireAuth();
@@ -37,12 +38,16 @@ const UpdateTenantSchema = CreateTenantSchema.partial().extend({
   password: z.string().min(6).optional(),
 });
 
-const CreateSubscriptionSchema = z.object({
+const AssignPlanSchema = z.object({
   tenantId: z.string().min(1),
-  maxAccounts: z.number().int().positive(),
+  tier: z.enum(["ESSENTIALS", "PROFESSIONAL", "ENTERPRISE", "TAILORED"]),
+  // TAILORED only — ignored for fixed tiers (caps come from PLAN_TIERS).
+  displayName: z.string().optional(),
+  maxUsers: z.number().int().positive().optional(),
+  maxSites: z.number().int().positive().optional(),
+  minRetentionYears: z.number().int().positive().optional(),
   startDate: z.string().min(1),
   expiryDate: z.string().min(1),
-  status: z.enum(["Active", "Inactive"]).default("Active"),
 });
 
 export async function createTenant(
@@ -239,34 +244,59 @@ export async function deleteTenant(id: string): Promise<ActionResult> {
   }
 }
 
-export async function createSubscription(
-  input: z.input<typeof CreateSubscriptionSchema>,
+/**
+ * Subscription Phase A — assign (or replace) a tenant's single plan.
+ *
+ * Caps are FROZEN onto the row at assignment: fixed tiers copy from
+ * PLAN_TIERS; TAILORED uses the supplied custom caps, validated against the
+ * ceilings. Lifecycle (Active/Suspended) stays on Tenant.isActive and is NOT
+ * touched here. No purge logic — minRetentionYears is a promise only.
+ */
+export async function assignPlan(
+  input: z.input<typeof AssignPlanSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
   if (session.user.role !== "super_admin") {
     return { success: false, error: "Access denied" };
   }
-  const parsed = CreateSubscriptionSchema.safeParse(input);
+  const parsed = AssignPlanSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+  const tier = parsed.data.tier as PlanTier;
+
+  // TAILORED custom caps must be within ceilings; fixed tiers ignore them.
+  if (tier === "TAILORED") {
+    const reason = validateTailoredCaps({
+      maxUsers: parsed.data.maxUsers,
+      maxSites: parsed.data.maxSites,
+      minRetentionYears: parsed.data.minRetentionYears,
+    });
+    if (reason) return { success: false, error: reason };
+  }
+
+  const caps = resolvePlanCaps(tier, {
+    maxUsers: parsed.data.maxUsers,
+    maxSites: parsed.data.maxSites,
+    minRetentionYears: parsed.data.minRetentionYears,
+  });
+  const displayName = tier === "TAILORED" ? (parsed.data.displayName?.trim() || null) : null;
+
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
-    const sub = await prisma.subscription.upsert({
+    const frozen = {
+      tier,
+      displayName,
+      maxUsers: caps.maxUsers,
+      maxSites: caps.maxSites,
+      minRetentionYears: caps.minRetentionYears,
+      startDate: new Date(parsed.data.startDate),
+      expiryDate: new Date(parsed.data.expiryDate),
+    };
+    const plan = await prisma.plan.upsert({
       where: { tenantId: parsed.data.tenantId },
-      update: {
-        maxAccounts: parsed.data.maxAccounts,
-        startDate: new Date(parsed.data.startDate),
-        expiryDate: new Date(parsed.data.expiryDate),
-        status: parsed.data.status,
-      },
-      create: {
-        tenantId: parsed.data.tenantId,
-        maxAccounts: parsed.data.maxAccounts,
-        startDate: new Date(parsed.data.startDate),
-        expiryDate: new Date(parsed.data.expiryDate),
-        status: parsed.data.status,
-      },
+      update: frozen,
+      create: { tenantId: parsed.data.tenantId, ...frozen },
     });
     await prisma.auditLog.create({
       data: {
@@ -275,15 +305,15 @@ export async function createSubscription(
         userName: actor.displayName,
         userRole: actor.role,
         module: "Admin",
-        action: "SUBSCRIPTION_UPSERTED",
+        action: "PLAN_ASSIGNED",
         recordId: parsed.data.tenantId,
-        newValue: parsed.data.status,
+        newValue: JSON.stringify({ tier, maxUsers: caps.maxUsers, maxSites: caps.maxSites, minRetentionYears: caps.minRetentionYears }),
       },
     });
     revalidatePath("/admin");
-    return { success: true, data: sub };
+    return { success: true, data: plan };
   } catch (err) {
-    console.error("[action] createSubscription failed:", err);
-    return { success: false, error: "Failed to save subscription" };
+    console.error("[action] assignPlan failed:", err);
+    return { success: false, error: "Failed to save plan" };
   }
 }

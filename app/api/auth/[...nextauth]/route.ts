@@ -129,7 +129,7 @@ export const authOptions: NextAuthOptions = {
           const isEmail = email.includes("@");
           const tenantMatches = await prisma.tenant.findMany({
             where: isEmail ? { email } : { username: email },
-            include: { subscription: true },
+            include: { plan: true },
           });
           if (tenantMatches.length > 1) {
             await auditAuthEvent({
@@ -184,14 +184,15 @@ export const authOptions: NextAuthOptions = {
               return null;
             }
 
-            // Subscription gate — super_admin bypasses; customer_admin still
-            // checks because lapsed tenants should not be able to use the app.
+            // Plan gate — super_admin bypasses; customer_admin still checks
+            // because lapsed tenants should not be able to use the app. A plan
+            // is "usable" when it exists and has not expired (lifecycle
+            // suspension is handled separately by tenant.isActive above).
             if (tenant.role !== "super_admin") {
-              const sub = tenant.subscription;
+              const plan = tenant.plan;
               const hasActiveSub =
-                !!sub &&
-                sub.status?.toLowerCase() === "active" &&
-                new Date(sub.expiryDate) > new Date();
+                !!plan &&
+                new Date(plan.expiryDate) > new Date();
               if (!hasActiveSub && tenant.role !== "customer_admin") {
                 await auditAuthEvent({
                   action: "SUBSCRIPTION_BLOCKED",
@@ -294,7 +295,7 @@ export const authOptions: NextAuthOptions = {
           // tenantId, so the same ambiguity guard applies.
           const userMatches = await prisma.user.findMany({
             where: isEmail ? { email } : { username: email },
-            include: { tenant: { include: { subscription: true } } },
+            include: { tenant: { include: { plan: true } } },
           });
           if (userMatches.length > 1) {
             await auditAuthEvent({
@@ -345,11 +346,10 @@ export const authOptions: NextAuthOptions = {
               return null;
             }
 
-            const sub = user.tenant?.subscription;
+            const plan = user.tenant?.plan;
             const hasActiveSub =
-              !!sub &&
-              sub.status?.toLowerCase() === "active" &&
-              new Date(sub.expiryDate) > new Date();
+              !!plan &&
+              new Date(plan.expiryDate) > new Date();
             if (!hasActiveSub) {
               await auditAuthEvent({
                 action: "SUBSCRIPTION_BLOCKED",
