@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { UserCircle, Hash, Copy, ChevronRight, ChevronDown, Check } from "lucide-react";
 import type { AuditLog } from "@prisma/client";
+import { roleLabel } from "@/lib/labels/roles";
 
 export type Severity = "critical" | "status_change" | "create" | "other";
 
@@ -36,14 +37,6 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 /** "qa_head" → "QA Head", "regulatory_affairs" → "Regulatory Affairs".
  *  Short tokens (≤3 chars) get fully-uppercased because they're acronyms
  *  more often than not in this product (QA, QC, IT, CDO, RA). */
-function prettyRole(role: string | null): string {
-  if (!role) return "—";
-  return role
-    .split("_")
-    .map((w) => (w.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)))
-    .join(" ");
-}
-
 function truncateMiddle(s: string, head: number, tail: number): string {
   if (s.length <= head + tail + 1) return s;
   return s.slice(0, head) + "…" + s.slice(-tail);
@@ -104,7 +97,7 @@ export function AuditEventRow({ event, severity, actionLabel, timestampLabel, ti
               <UserCircle className="h-3.5 w-3.5 text-[#999]" aria-hidden="true" />
               <span className="font-medium text-[#3a3530]">{event.userName}</span>
               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-[#f0ece5] text-[#6b6b6b]">
-                {prettyRole(event.userRole)}
+                {event.userRole ? roleLabel(event.userRole) : "—"}
               </span>
             </span>
 

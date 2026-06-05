@@ -234,7 +234,7 @@ export function AGIPolicyTab({ readOnly = false }: { readOnly?: boolean }) {
                     <Toggle id={`agent-${agent.key}`} checked={agi.agents[agent.key]} onChange={() => !readOnly && dispatch(toggleAgent(agent.key))} label={agent.name} description={agent.desc} disabled={readOnly} hideLabel />
                   </div>
                   {isExpanded && (
-                    <div className={clsx("mt-3 rounded-lg p-3 text-[11px] space-y-2", isDark ? "bg-[#071526] border border-[#1e3a5a]" : "bg-[#f8fafc] border border-[#e2e8f0]")}>
+                    <div className={clsx("mt-3 rounded-lg p-3 text-[11px] space-y-2", "bg-(--bg-elevated) border border-(--bg-border)")}>
                       <div>
                         <p className="font-semibold mb-1" style={{ color: "#10b981" }}>CAN DO (AI-assisted)</p>
                         <ul className="list-none p-0 m-0 space-y-0.5">{agent.canDo.map((t) => <li key={t} className="flex items-start gap-1.5"><span className="text-[#10b981] shrink-0">✅</span><span style={{ color: "var(--text-secondary)" }}>{t}</span></li>)}</ul>

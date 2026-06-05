@@ -9,7 +9,6 @@ import {
   Info,
   Check,
 } from "lucide-react";
-import clsx from "clsx";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -42,7 +41,6 @@ export function SitePicker() {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
-  const isDark = useAppSelector((s) => s.theme.mode) === "dark";
   const { sites } = useTenantConfig();
   const activeSites = sites.filter((s) => s.status === "Active");
 
@@ -112,12 +110,7 @@ export function SitePicker() {
         {activeSites.length === 0 ? (
           /* ── No sites fallback ── */
           <div className="px-6 py-8">
-            <div className={clsx(
-              "rounded-xl p-5 text-center border",
-              isDark
-                ? "bg-[#242019] border-[#3d362c]"
-                : "bg-[#faf9f7] border-[#e8e4dd]"
-            )}>
+            <div className="rounded-xl p-5 text-center border bg-(--bg-elevated) border-(--bg-border)">
               <MapPin className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
               <p className="text-[14px] font-semibold mb-1" style={{ color: "var(--text-primary)" }}>No sites configured</p>
               <p className="text-[12px] mb-4" style={{ color: "var(--text-secondary)" }}>

@@ -9,11 +9,11 @@ import { getToken } from "next-auth/jwt";
  *   2. Redirects unauthenticated requests to /login with a callbackUrl.
  *   3. For /admin routes, requires role === super_admin or customer_admin (E1=B).
  *
- * Pages can still call `requireAuth()` for the session object — middleware
+ * Pages can still call `requireAuth()` for the session object — proxy
  * coverage is defense-in-depth, not a replacement for the per-page session
  * lookup that supplies tenantId for Prisma queries.
  */
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const token = await getToken({
     req,
     secret: process.env.NEXTAUTH_SECRET,
@@ -55,7 +55,7 @@ export async function middleware(req: NextRequest) {
  *   - any static asset by extension               (images, css, js, sourcemaps, json/txt/xml as defense-in-depth)
  *
  * Everything else — including /site-picker (E2), /(app)/*, and /(admin)/* —
- * passes through this middleware.
+ * passes through this proxy.
  *
  * Without the manifest.json carve-out, the browser's PWA-manifest fetch
  * round-trips through the auth gate and shows up in dev logs as

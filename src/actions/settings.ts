@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { BCRYPT_COST } from "@/lib/passwords";
 import { sanitizeServerError } from "@/lib/errors";
+import { assertCanAddUser, assertCanAddSite, type CapBlockCode } from "@/lib/planCaps";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -57,6 +58,26 @@ export async function createSite(
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  // Hard cap enforcement (Phase 1) — blocks creation past plan.maxSites, and on
+  // no-plan / expired-plan. Runs AFTER the role gate; never a bypass. For
+  // super_admin this is the platform tenant (no plan) → NO_PLAN_ASSIGNED.
+  const cap = await assertCanAddSite(session.user.tenantId);
+  if (!cap.ok) {
+    const code: CapBlockCode = cap.code ?? "SITE_CAP_EXCEEDED";
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: "Settings",
+        action: "SITE_CREATE_BLOCKED",
+        recordTitle: parsed.data.name,
+        newValue: code,
+      },
+    });
+    return { success: false, error: code };
+  }
   try {
     const site = await prisma.site.create({
       data: {
@@ -186,6 +207,26 @@ export async function createUser(
     };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  // Hard cap enforcement (Phase 1) — blocks creation past plan.maxUsers, and on
+  // no-plan / expired-plan. Runs AFTER the role gate; never a bypass. For
+  // super_admin this is the platform tenant (no plan) → NO_PLAN_ASSIGNED.
+  const cap = await assertCanAddUser(session.user.tenantId);
+  if (!cap.ok) {
+    const code: CapBlockCode = cap.code ?? "PLAN_CAP_EXCEEDED";
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: "Settings",
+        action: "USER_CREATE_BLOCKED",
+        recordTitle: parsed.data.name,
+        newValue: code,
+      },
+    });
+    return { success: false, error: code };
+  }
   try {
     const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_COST);
     const user = await prisma.user.create({
@@ -223,6 +264,38 @@ export async function createUser(
     console.error("[action] createUser failed:", err);
     return { success: false, error: "Failed to create user" };
   }
+}
+
+/**
+ * Server-side cap pre-check for the Settings → Users "Add user" flow.
+ *
+ * The Settings UsersTab provisions users through the AI backend + Redux (it
+ * does not call createUser), so this lets that flow enforce the SAME hard cap
+ * server-side before it proceeds — a disabled button alone is not enforcement.
+ * Records a USER_CREATE_BLOCKED audit on a block. Returns the cap block code as
+ * `error` (the UI maps it through errorCodeLabel).
+ */
+export async function checkUserCap(): Promise<ActionResult> {
+  const session = await requireAuth();
+  if (!isAdmin(session.user.role)) {
+    return { success: false, error: "Access denied" };
+  }
+  const cap = await assertCanAddUser(session.user.tenantId);
+  if (cap.ok) return { success: true, data: null };
+  const code: CapBlockCode = cap.code ?? "PLAN_CAP_EXCEEDED";
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  await prisma.auditLog.create({
+    data: {
+      tenantId: session.user.tenantId,
+      userId: actor.userId,
+      userName: actor.displayName,
+      userRole: actor.role,
+      module: "Settings",
+      action: "USER_CREATE_BLOCKED",
+      newValue: code,
+    },
+  });
+  return { success: false, error: code };
 }
 
 export async function updateUser(

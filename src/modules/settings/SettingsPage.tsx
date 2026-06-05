@@ -1,19 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, MapPin, Users, BookOpen, Bot, Shield, Info } from "lucide-react";
+import { Building2, MapPin, Users, BookOpen, Bot, Shield, CreditCard, Info } from "lucide-react";
 import { OrgTab } from "./tabs/OrgTab";
 import { SitesTab } from "./tabs/SitesTab";
 import { UsersTab } from "./tabs/UsersTab";
 import { FrameworksTab } from "./tabs/FrameworksTab";
 import { AGIPolicyTab } from "./tabs/AGIPolicyTab";
 import { PermissionsTab } from "./tabs/PermissionsTab";
+import { SubscriptionTab } from "./tabs/SubscriptionTab";
 import { usePermissions } from "@/hooks/usePermissions";
 
 const ALL_TABS = [
   { id: "org", label: "Organization", icon: Building2 },
   { id: "sites", label: "Sites", icon: MapPin },
   { id: "users", label: "Users & Roles", icon: Users },
+  // Read-only plan view — customer_admin sees their own plan/caps/usage but
+  // cannot change anything (tier/caps/dates/MFA are super_admin-only).
+  { id: "subscription", label: "Subscription", icon: CreditCard },
   { id: "frameworks", label: "Frameworks", icon: BookOpen },
   { id: "agi", label: "AGI Policy", icon: Bot },
   { id: "permissions", label: "Permissions", icon: Shield },
@@ -81,6 +85,8 @@ export function SettingsPage() {
             {tab.id === "org" && <OrgTab readOnly={readOnly} />}
             {tab.id === "sites" && <SitesTab readOnly={readOnly} />}
             {tab.id === "users" && <UsersTab readOnly={readOnly} />}
+            {/* Subscription is inherently read-only — no readOnly prop / no controls. */}
+            {tab.id === "subscription" && <SubscriptionTab />}
             {tab.id === "frameworks" && <FrameworksTab readOnly={readOnly} />}
             {tab.id === "agi" && <AGIPolicyTab readOnly={readOnly && role !== "it_cdo"} />}
             {tab.id === "permissions" && <PermissionsTab />}

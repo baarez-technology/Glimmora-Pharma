@@ -1,6 +1,6 @@
 import { requireAuth } from "@/lib/auth";
 import { requireRoleOrDeny } from "@/lib/authz";
-import { CustomerDetailPage } from "@/modules/admin/CustomerDetailPage";
+import { CustomerDetailPage } from "@/modules/admin/customer-detail";
 
 const ALLOWED_ROLES = new Set(["super_admin", "customer_admin"]);
 

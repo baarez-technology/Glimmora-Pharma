@@ -6,18 +6,12 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Building2,
-  MapPin,
-  Users,
   CreditCard,
   Mail,
   Calendar,
   Globe,
   Clock,
-  Shield,
   ShieldCheck,
-  CheckCircle2,
-  XCircle,
-  Pencil,
 } from "lucide-react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -28,50 +22,24 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import dayjs from "@/lib/dayjs";
 import { planLabel } from "@/lib/plans";
-
-const planVariant: Record<string, "green" | "blue" | "amber" | "gray"> = {
-  ENTERPRISE: "green",
-  PROFESSIONAL: "blue",
-  ESSENTIALS: "amber",
-  TAILORED: "gray",
-};
-
-const riskVariant: Record<string, "red" | "amber" | "green" | "gray"> = {
-  HIGH: "red",
-  MEDIUM: "amber",
-  LOW: "green",
-};
-
-const roleVariant: Record<string, "red" | "blue" | "green" | "amber" | "purple" | "gray"> = {
-  super_admin: "red",
-  customer_admin: "blue",
-  qa_head: "purple",
-  qc_lab_director: "green",
-  regulatory_affairs: "amber",
-  csv_val_lead: "blue",
-  it_cdo: "purple",
-  operations_head: "amber",
-  viewer: "gray",
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Admin",
-  customer_admin: "Customer Admin",
-  qa_head: "QA Head",
-  qc_lab_director: "QC/Lab Director",
-  regulatory_affairs: "Regulatory Affairs",
-  csv_val_lead: "CSV/Val Lead",
-  it_cdo: "IT/CDO",
-  operations_head: "Operations Head",
-  viewer: "Viewer",
-};
+import { DetailHeader } from "./_components/DetailHeader";
+import { DetailSummaryCards } from "./_components/DetailSummaryCards";
 
 export function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id ?? "";
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const tenant = useAppSelector((s) => s.auth.tenants.find((t) => t.id === id));
+  // The [id] route segment now carries the human-readable customerCode
+  // (e.g. "PGI_001"). Resolve by customerCode first, then fall back to the
+  // cuid id so old/bookmarked cuid URLs and optimistic post-create rows
+  // (which may lack customerCode until the next getTenants() reload) still
+  // resolve. The cuid PK is unchanged — only the URL key moved.
+  const tenant = useAppSelector(
+    (s) =>
+      s.auth.tenants.find((t) => t.customerCode === id) ??
+      s.auth.tenants.find((t) => t.id === id),
+  );
   const currentRole = useAppSelector((s) => s.auth.user?.role);
   const isSuperAdmin = currentRole === "super_admin";
 
@@ -146,62 +114,15 @@ export function CustomerDetailPage() {
         <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Back to Customer Accounts
       </Link>
 
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <div
-            className="w-14 h-14 rounded-xl flex items-center justify-center"
-            style={{ background: "var(--brand-muted)", border: "1px solid var(--brand-border)" }}
-          >
-            <Building2 className="w-7 h-7" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          </div>
-          <div>
-            <h1 className="text-[24px] font-bold" style={{ color: "var(--text-primary)" }}>
-              {tenant.name}
-            </h1>
-            <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-              Code: <span className="font-mono font-medium" style={{ color: "var(--text-secondary)" }}>{tenant.customerCode ?? "—"}</span>
-            </p>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant={plan ? (planVariant[plan.tier] ?? "gray") : "gray"}>
-                {plan ? planLabel(plan.tier, plan.displayName) : "No plan"}
-              </Badge>
-              <Badge variant={tenant.active ? "green" : "red"}>
-                {tenant.active ? "Active" : "Suspended"}
-              </Badge>
-              <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                Created {tenant.createdAt ? dayjs(tenant.createdAt).format("MMM D, YYYY") : "—"}
-              </span>
-            </div>
-          </div>
-        </div>
-        <Button variant="primary" icon={Pencil} onClick={() => router.push(`/admin?edit=${tenant.id}`)}>
-          Edit Account
-        </Button>
-      </div>
+      <DetailHeader tenant={tenant} plan={plan} onEdit={() => router.push(`/admin?edit=${tenant.id}`)} />
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        {[
-          { label: "Sites", value: tenant.config.sites.length, icon: MapPin, color: "var(--brand)" },
-          { label: "Users", value: tenant.config.users.length, icon: Users, color: "var(--success)" },
-          { label: "Plan", value: plan ? planLabel(plan.tier, plan.displayName) : "None", icon: CreditCard, color: "var(--warning)" },
-          { label: "Plan valid", value: plan && !planExpired ? "Yes" : "No", icon: CheckCircle2, color: plan && !planExpired ? "var(--success)" : "var(--text-muted)" },
-        ].map((stat) => (
-          <div key={stat.label} className="stat-card flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-              style={{ background: stat.color + "15" }}
-            >
-              <stat.icon className="w-5 h-5" style={{ color: stat.color }} aria-hidden="true" />
-            </div>
-            <div>
-              <p className="stat-label">{stat.label}</p>
-              <p className="text-[20px] font-bold" style={{ color: "var(--card-text)" }}>{stat.value}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Container-level utilisation — aggregate counts vs plan cap, no rosters. */}
+      <DetailSummaryCards
+        userCount={tenant.config.users.length}
+        siteCount={tenant.config.sites.length}
+        plan={plan}
+        planExpired={planExpired}
+      />
 
       {/* Organization Info */}
       <div className="card mb-6">
@@ -294,14 +215,13 @@ export function CustomerDetailPage() {
         </div>
       )}
 
-      {/* Customer Admin */}
+      {/* Primary Administrator — container-level CONTACT only (the provisioning
+          handshake). Role / GxP-signatory and the full user roster are
+          inside-tenant details and intentionally not shown to super_admin. */}
       {adminUser && (
         <div className="card mb-6">
           <div className="card-header">
             <span className="card-title">Primary Administrator</span>
-            <Badge variant={roleVariant[adminUser.role] ?? "gray"}>
-              {ROLE_LABELS[adminUser.role] ?? adminUser.role}
-            </Badge>
           </div>
           <div className="card-body">
             <div className="grid grid-cols-2 gap-x-8 gap-y-4">
@@ -314,22 +234,6 @@ export function CustomerDetailPage() {
                 <p className="text-[14px] font-mono" style={{ color: "var(--text-primary)" }}>{adminUser.email}</p>
               </div>
               <div>
-                <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>GxP Signatory</p>
-                <p className="text-[14px] font-medium flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-                  {adminUser.gxpSignatory ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" style={{ color: "var(--success)" }} aria-hidden="true" />
-                      Enabled
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="w-4 h-4" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-                      Not enabled
-                    </>
-                  )}
-                </p>
-              </div>
-              <div>
                 <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Status</p>
                 <Badge variant={adminUser.status === "Active" ? "green" : "gray"}>{adminUser.status}</Badge>
               </div>
@@ -338,113 +242,7 @@ export function CustomerDetailPage() {
         </div>
       )}
 
-      {/* Sites */}
-      <div className="card mb-6">
-        <div className="card-header">
-          <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4" style={{ color: "var(--brand)" }} aria-hidden="true" />
-            <span className="card-title">Sites</span>
-          </div>
-          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-            {tenant.config.sites.length} total
-          </span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="data-table" aria-label="Customer sites">
-            <thead>
-              <tr>
-                <th scope="col">Site Name</th>
-                <th scope="col">Location</th>
-                <th scope="col">GMP Scope</th>
-                <th scope="col">Risk</th>
-                <th scope="col">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tenant.config.sites.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="text-center py-8">
-                    <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No sites configured yet.</p>
-                  </td>
-                </tr>
-              ) : (
-                tenant.config.sites.map((site) => (
-                  <tr key={site.id}>
-                    <td>
-                      <span className="font-medium" style={{ color: "var(--text-primary)" }}>{site.name}</span>
-                    </td>
-                    <td>{site.location}</td>
-                    <td>{site.gmpScope}</td>
-                    <td><Badge variant={riskVariant[site.risk] ?? "gray"}>{site.risk}</Badge></td>
-                    <td><Badge variant={site.status === "Active" ? "green" : "gray"}>{site.status}</Badge></td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Users */}
-      <div className="card mb-6">
-        <div className="card-header">
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4" style={{ color: "var(--brand)" }} aria-hidden="true" />
-            <span className="card-title">Users</span>
-          </div>
-          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-            {tenant.config.users.length} total
-          </span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="data-table" aria-label="Customer users">
-            <thead>
-              <tr>
-                <th scope="col">Name</th>
-                <th scope="col">Email</th>
-                <th scope="col">Role</th>
-                <th scope="col">GxP Signatory</th>
-                <th scope="col">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tenant.config.users.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="text-center py-8">
-                    <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No users yet.</p>
-                  </td>
-                </tr>
-              ) : (
-                tenant.config.users.map((user) => (
-                  <tr key={user.id}>
-                    <td>
-                      <span className="font-medium" style={{ color: "var(--text-primary)" }}>{user.name}</span>
-                    </td>
-                    <td>
-                      <span className="text-[12px] font-mono" style={{ color: "var(--text-secondary)" }}>{user.email}</span>
-                    </td>
-                    <td>
-                      <Badge variant={roleVariant[user.role] ?? "gray"}>
-                        {ROLE_LABELS[user.role] ?? user.role}
-                      </Badge>
-                    </td>
-                    <td>
-                      {user.gxpSignatory ? (
-                        <Shield className="w-4 h-4" style={{ color: "var(--success)" }} aria-hidden="true" />
-                      ) : (
-                        <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>—</span>
-                      )}
-                    </td>
-                    <td><Badge variant={user.status === "Active" ? "green" : "gray"}>{user.status}</Badge></td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Subscription Plans */}
+      {/* Plan */}
       <div className="card">
         <div className="card-header">
           <div className="flex items-center gap-2">

@@ -123,6 +123,18 @@ export async function updateTenant(
     if (rest.email) data.email = rest.email.toLowerCase();
     if (password) data.passwordHash = await bcrypt.hash(password, BCRYPT_COST);
 
+    // Prefer the specific lifecycle event over the generic TENANT_UPDATED when
+    // this edit actually flips isActive — "Account suspended/reactivated" reads
+    // truer in the compliance trail. Only when the value genuinely changes; a
+    // no-op or non-active-state edit stays TENANT_UPDATED.
+    let auditAction = "TENANT_UPDATED";
+    if (rest.isActive !== undefined) {
+      const prior = await prisma.tenant.findUnique({ where: { id }, select: { isActive: true } });
+      if (prior && prior.isActive !== rest.isActive) {
+        auditAction = rest.isActive ? "TENANT_REACTIVATED" : "TENANT_SUSPENDED";
+      }
+    }
+
     const tenant = await prisma.tenant.update({
       where: { id },
       data,
@@ -134,7 +146,7 @@ export async function updateTenant(
         userName: actor.displayName,
         userRole: actor.role,
         module: "Admin",
-        action: "TENANT_UPDATED",
+        action: auditAction,
         recordId: id,
       },
     });

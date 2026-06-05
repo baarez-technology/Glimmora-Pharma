@@ -230,7 +230,7 @@ export function LoginPage() {
     toast.success(`Signed in as ${me.name || "team"}.`);
 
     // Defense-in-depth: router.push (SPA navigation) preserves React state
-    // across the navigation so that if middleware ever bounces this request
+    // across the navigation so that if the proxy ever bounces this request
     // back to /login, errors.root and the toast survive the round-trip
     // instead of disappearing into a fresh page load.
     if (user.role === "super_admin") {

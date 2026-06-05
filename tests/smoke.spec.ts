@@ -9,7 +9,7 @@ import bcrypt from "bcryptjs";
  *   1. Login page renders.
  *   2. Super admin sign-in works and lands on /admin.
  *   3. Logged-out access to /capa redirects to /login with callbackUrl
- *      (proves middleware.ts auth gate runs).
+ *      (proves proxy.ts auth gate runs).
  *   4. Customer admin sign-in (non-MFA tenant) lands on /.
  *   5. MFA-enabled tenant opens the OTP modal on submit.
  *      (We do NOT submit a real OTP — reading the code requires test infra

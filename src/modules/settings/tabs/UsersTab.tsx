@@ -29,7 +29,10 @@ import {
   type TenantUserConfig,
 } from "@/store/auth.slice";
 import { aiSignup, generateUserId, AiAuthError } from "@/lib/aiAuth";
+import { checkUserCap } from "@/actions/settings";
 import { planLabel } from "@/lib/plans";
+import { roleLabel } from "@/lib/labels/roles";
+import { errorCodeLabel } from "@/lib/labels/errorCodes";
 import { Popup } from "@/components/ui/Popup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -39,16 +42,18 @@ import { Toggle } from "@/components/ui/Toggle";
 import { Badge } from "@/components/ui/Badge";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 
-const ROLES = [
-  { value: "super_admin", label: "Super Admin" },
-  { value: "customer_admin", label: "Customer Admin" },
-  { value: "qa_head", label: "QA Head" },
-  { value: "qc_lab_director", label: "QC/Lab Director" },
-  { value: "regulatory_affairs", label: "Regulatory Affairs" },
-  { value: "csv_val_lead", label: "CSV/Val Lead" },
-  { value: "it_cdo", label: "IT/CDO" },
-  { value: "operations_head", label: "Operations Head" },
-  { value: "viewer", label: "Viewer" },
+// Role ordering for the dropdowns. Display text comes from roleLabel() — the
+// shared label layer — so labels never drift between screens.
+const ROLE_ORDER = [
+  "super_admin",
+  "customer_admin",
+  "qa_head",
+  "qc_lab_director",
+  "regulatory_affairs",
+  "csv_val_lead",
+  "it_cdo",
+  "operations_head",
+  "viewer",
 ] as const;
 
 const TENANT_ROLES_FOR_CUSTOMER_ADMIN = [
@@ -98,10 +103,10 @@ function makeUserSchema(mode: "add" | "edit") {
 
 type UserFormValues = z.infer<ReturnType<typeof makeUserSchema>>;
 
-const ROLE_OPTIONS_ALL = ROLES.map((r) => ({ value: r.value, label: r.label }));
-const ROLE_OPTIONS_CUSTOMER_ADMIN = ROLES.filter((r) =>
-  TENANT_ROLES_FOR_CUSTOMER_ADMIN.includes(r.value),
-).map((r) => ({ value: r.value, label: r.label }));
+const ROLE_OPTIONS_ALL = ROLE_ORDER.map((v) => ({ value: v, label: roleLabel(v) }));
+const ROLE_OPTIONS_CUSTOMER_ADMIN = ROLE_ORDER.filter((v) =>
+  TENANT_ROLES_FOR_CUSTOMER_ADMIN.includes(v),
+).map((v) => ({ value: v, label: roleLabel(v) }));
 const STATUS_OPTIONS = [
   { value: "Active", label: "Active" },
   { value: "Inactive", label: "Inactive" },
@@ -388,16 +393,24 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
   const [deactivatePopup, setDeactivatePopup] = useState(false);
   const [userToDeactivate, setUserToDeactivate] = useState<string | null>(null);
   const [planLimitOpen, setPlanLimitOpen] = useState(false);
+  // Human-labelled message from a server-side cap block (hard enforcement).
+  const [capError, setCapError] = useState<string | null>(null);
   const [subPopupOpen, setSubPopupOpen] = useState(false);
 
   const roleOptions = isSuperAdmin
     ? ROLE_OPTIONS_ALL
     : ROLE_OPTIONS_CUSTOMER_ADMIN;
 
-  const getRoleLabel = (value: string) =>
-    ROLES.find((r) => r.value === value)?.label ?? value;
 
   const handleAdd = async (data: UserFormValues) => {
+    // Server-side hard cap gate. The Add button is also client-disabled at the
+    // limit, but a disabled button is not enforcement — this is the real block
+    // (and it covers NO_PLAN_ASSIGNED / PLAN_EXPIRED / PLAN_CAP_EXCEEDED).
+    const cap = await checkUserCap();
+    if (!cap.success) {
+      setCapError(errorCodeLabel(cap.error ?? "PLAN_CAP_EXCEEDED"));
+      return;
+    }
     const userId = generateUserId();
     // For non-(super|customer)-admin users, customer_id is inherited from the
     // tenant's customer admin (their aiUserId). If no admin has signed up yet
@@ -734,7 +747,7 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
                 <span
                   className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold ${roleChip[u.role] ?? "bg-(--bg-elevated) text-(--text-secondary)"}`}
                 >
-                  {getRoleLabel(u.role)}
+                  {roleLabel(u.role)}
                 </span>
               ),
             },
@@ -922,6 +935,13 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
         plan={tenantPlan}
         limit={userLimit}
         count={userCount}
+      />
+      <Popup
+        isOpen={!!capError}
+        variant="error"
+        title="Cannot add user"
+        description={capError ?? ""}
+        onDismiss={() => setCapError(null)}
       />
       <Popup
         isOpen={deactivatePopup}

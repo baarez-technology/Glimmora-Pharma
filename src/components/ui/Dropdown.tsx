@@ -44,6 +44,12 @@ export interface DropdownProps {
   width?: string;
   menuWidth?: string;
   actionMode?: boolean;
+  /** Hide the trailing chevron caret — for icon-only triggers (e.g. a ⋮ menu). */
+  hideCaret?: boolean;
+  /** Trigger size. 'md' (default) keeps the current chrome; 'sm' matches the
+   *  ui/Input + DatePicker form-field height (py-2.5) so it aligns pixel-for-
+   *  pixel when placed inline with those fields. */
+  size?: "sm" | "md";
   disabled?: boolean;
   className?: string;
 }
@@ -70,6 +76,8 @@ export function Dropdown({
   width = "w-48",
   menuWidth,
   actionMode = false,
+  hideCaret = false,
+  size = "md",
   disabled = false,
   className,
 }: DropdownProps) {
@@ -344,7 +352,9 @@ export function Dropdown({
         aria-expanded={open}
         className={clsx(
           "w-full flex items-center justify-between gap-2",
-          "px-3 py-2 rounded-lg text-[13px] font-medium",
+          "px-3 rounded-lg text-[13px] font-medium",
+          // 'sm' matches ui/Input / DatePicker (py-2.5); 'md' is the original py-2.
+          size === "sm" ? "py-2.5" : "py-2",
           "border outline-none transition-all duration-150",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           "bg-(--bg-elevated) border-(--bg-border) text-(--text-primary)",
@@ -361,13 +371,15 @@ export function Dropdown({
             )
           )}
         </span>
-        <ChevronDown
-          className={clsx(
-            "w-3.5 h-3.5 shrink-0 transition-transform duration-150 text-(--text-muted)",
-            open && "rotate-180",
-          )}
-          strokeWidth={2}
-        />
+        {!hideCaret && (
+          <ChevronDown
+            className={clsx(
+              "w-3.5 h-3.5 shrink-0 transition-transform duration-150 text-(--text-muted)",
+              open && "rotate-180",
+            )}
+            strokeWidth={2}
+          />
+        )}
       </button>
 
       {/* Menu rendered via portal to escape overflow clipping */}

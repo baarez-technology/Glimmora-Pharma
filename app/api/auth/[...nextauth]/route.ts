@@ -503,13 +503,13 @@ export const authOptions: NextAuthOptions = {
       // session), compare the token's iat against the parent tenant's
       // sessionsValidAfter. If the tenant's MFA flag was flipped on after
       // this token was issued, sessionsValidAfter > token.iat and we return
-      // an empty token, which middleware/getServerSession see as no session
+      // an empty token, which the proxy/getServerSession see as no session
       // and redirect to /login.
       //
       // This adds one Prisma read per authenticated request. Acceptable for
       // a multi-tenant SaaS at this scale; revisit with a cache if needed.
-      // The check lives here (Pages Router = Node runtime) because Edge
-      // middleware can't import the Prisma client.
+      // The check lives here (Pages Router = Node runtime) because the Edge
+      // proxy can't import the Prisma client.
       const tenantId = token.tenantId as string | undefined;
       const iat = typeof token.iat === "number" ? token.iat : undefined;
       if (tenantId && iat) {

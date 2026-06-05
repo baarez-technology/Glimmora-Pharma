@@ -1,13 +1,13 @@
 import { requireAuth } from "@/lib/auth";
 import { requireRoleOrDeny } from "@/lib/authz";
 import { getTenants } from "@/lib/queries/tenants";
-import { CustomerAccountsPage } from "@/modules/admin/CustomerAccountsPage";
+import { CustomerAccountsPage } from "@/modules/admin/customer-accounts";
 
 const ALLOWED_ROLES = new Set(["super_admin", "customer_admin"]);
 
 export default async function Page() {
   const session = await requireAuth();
-  // Role gate enforced by middleware.ts AND this server-side check (defense-in-depth).
+  // Role gate enforced by proxy.ts AND this server-side check (defense-in-depth).
   await requireRoleOrDeny(session, ALLOWED_ROLES, {
     module: "admin",
     recordId: "admin-index",
