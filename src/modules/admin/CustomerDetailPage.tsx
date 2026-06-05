@@ -27,11 +27,13 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import dayjs from "@/lib/dayjs";
+import { planLabel } from "@/lib/plans";
 
 const planVariant: Record<string, "green" | "blue" | "amber" | "gray"> = {
-  enterprise: "green",
-  professional: "blue",
-  trial: "amber",
+  ENTERPRISE: "green",
+  PROFESSIONAL: "blue",
+  ESSENTIALS: "amber",
+  TAILORED: "gray",
 };
 
 const riskVariant: Record<string, "red" | "amber" | "green" | "gray"> = {
@@ -130,7 +132,8 @@ export function CustomerDetailPage() {
   const adminUser = tenant.config.users.find(
     (u) => u.role === "customer_admin" || u.role === "super_admin",
   );
-  const activePlan = tenant.subscriptionPlans?.find((p) => p.status === "Active");
+  const plan = tenant.plan ?? null;
+  const planExpired = plan ? dayjs().isAfter(dayjs.utc(plan.expiryDate)) : false;
 
   return (
     <div className="w-full max-w-[1200px] mx-auto">
@@ -156,12 +159,15 @@ export function CustomerDetailPage() {
             <h1 className="text-[24px] font-bold" style={{ color: "var(--text-primary)" }}>
               {tenant.name}
             </h1>
+            <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+              Code: <span className="font-mono font-medium" style={{ color: "var(--text-secondary)" }}>{tenant.customerCode ?? "—"}</span>
+            </p>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant={planVariant[tenant.plan] ?? "gray"}>
-                {tenant.plan.charAt(0).toUpperCase() + tenant.plan.slice(1)}
+              <Badge variant={plan ? (planVariant[plan.tier] ?? "gray") : "gray"}>
+                {plan ? planLabel(plan.tier, plan.displayName) : "No plan"}
               </Badge>
-              <Badge variant={tenant.active ? "green" : "gray"}>
-                {tenant.active ? "Active" : "Inactive"}
+              <Badge variant={tenant.active ? "green" : "red"}>
+                {tenant.active ? "Active" : "Suspended"}
               </Badge>
               <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
                 Created {tenant.createdAt ? dayjs(tenant.createdAt).format("MMM D, YYYY") : "—"}
@@ -179,8 +185,8 @@ export function CustomerDetailPage() {
         {[
           { label: "Sites", value: tenant.config.sites.length, icon: MapPin, color: "var(--brand)" },
           { label: "Users", value: tenant.config.users.length, icon: Users, color: "var(--success)" },
-          { label: "Subscription Plans", value: tenant.subscriptionPlans?.length ?? 0, icon: CreditCard, color: "var(--warning)" },
-          { label: "Active Plan", value: activePlan ? "Yes" : "None", icon: CheckCircle2, color: activePlan ? "var(--success)" : "var(--text-muted)" },
+          { label: "Plan", value: plan ? planLabel(plan.tier, plan.displayName) : "None", icon: CreditCard, color: "var(--warning)" },
+          { label: "Plan valid", value: plan && !planExpired ? "Yes" : "No", icon: CheckCircle2, color: plan && !planExpired ? "var(--success)" : "var(--text-muted)" },
         ].map((stat) => (
           <div key={stat.label} className="stat-card flex items-center gap-3">
             <div
@@ -443,39 +449,40 @@ export function CustomerDetailPage() {
         <div className="card-header">
           <div className="flex items-center gap-2">
             <CreditCard className="w-4 h-4" style={{ color: "var(--brand)" }} aria-hidden="true" />
-            <span className="card-title">Subscription Plans</span>
+            <span className="card-title">Plan</span>
           </div>
-          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-            {tenant.subscriptionPlans?.length ?? 0} total
-          </span>
+          {plan && (
+            <Badge variant={planExpired ? "red" : "green"}>{planExpired ? "Expired" : "Valid"}</Badge>
+          )}
         </div>
         <div className="overflow-x-auto">
-          <table className="data-table" aria-label="Subscription plans">
+          <table className="data-table" aria-label="Assigned plan">
             <thead>
               <tr>
+                <th scope="col">Tier</th>
+                <th scope="col">Max Users</th>
+                <th scope="col">Max Sites</th>
+                <th scope="col">Min Retention</th>
                 <th scope="col">Start Date</th>
                 <th scope="col">Expiry Date</th>
-                <th scope="col">Max Accounts</th>
-                <th scope="col">Status</th>
               </tr>
             </thead>
             <tbody>
-              {!tenant.subscriptionPlans || tenant.subscriptionPlans.length === 0 ? (
+              {!plan ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-8">
-                    <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No subscription plans yet.</p>
+                  <td colSpan={6} className="text-center py-8">
+                    <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>No plan assigned yet.</p>
                   </td>
                 </tr>
               ) : (
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                tenant.subscriptionPlans.map((plan: any) => (
-                  <tr key={plan.id}>
-                    <td>{plan.startDate || plan.start_date || "—"}</td>
-                    <td>{plan.endDate || plan.expiryDate || "—"}</td>
-                    <td>{plan.maxAccounts ?? "—"}</td>
-                    <td><Badge variant={plan.status === "Active" ? "green" : "gray"}>{plan.status}</Badge></td>
-                  </tr>
-                ))
+                <tr>
+                  <td>{planLabel(plan.tier, plan.displayName)}</td>
+                  <td>{plan.maxUsers}</td>
+                  <td>{plan.maxSites}</td>
+                  <td>{plan.minRetentionYears} yr</td>
+                  <td>{dayjs.utc(plan.startDate).format("DD MMM YYYY")}</td>
+                  <td style={{ color: planExpired ? "var(--danger)" : undefined }}>{dayjs.utc(plan.expiryDate).format("DD MMM YYYY")}</td>
+                </tr>
               )}
             </tbody>
           </table>

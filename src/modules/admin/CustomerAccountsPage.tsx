@@ -26,12 +26,15 @@ import {
   updateTenant,
   removeTenant,
   setTenants,
+  setTenantPlan,
   type Tenant,
+  type PlanConfig,
 } from "@/store/auth.slice";
 import { fetchTenants, createTenantApi, updateTenantApi, deleteTenantApi, TenantApiError } from "@/lib/tenantApi";
-import { toggleTenantMFA } from "@/actions/tenants";
+import { toggleTenantMFA, assignPlan } from "@/actions/tenants";
+import { TAILORED_CEILINGS, resolvePlanCaps, planLabel, type PlanTier } from "@/lib/plans";
 import { friendlyAiError } from "@/lib/friendlyError";
-import { isTenantEffectivelyActive, getInactiveReason } from "@/lib/tenantStatus";
+import { planState } from "@/lib/tenantStatus";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
@@ -42,273 +45,59 @@ import dayjs from "@/lib/dayjs";
 
 /* ── Helpers ── */
 
-/* ── Yes / No toggle button ── */
 
-function YesNo({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div>
-      <span className="block text-[11px] font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>{label}</span>
-      <div className="flex gap-0 rounded-lg overflow-hidden" style={{ border: "1px solid var(--bg-border)" }}>
-        <button
-          type="button"
-          onClick={() => onChange(true)}
-          className="px-3 py-1.5 text-[11px] font-semibold border-none cursor-pointer transition-all"
-          style={{
-            background: value ? "var(--brand)" : "var(--bg-surface)",
-            color: value ? "#fff" : "var(--text-muted)",
-          }}
-        >
-          Yes
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange(false)}
-          className="px-3 py-1.5 text-[11px] font-semibold border-none cursor-pointer transition-all"
-          style={{
-            background: !value ? "var(--danger)" : "var(--bg-surface)",
-            color: !value ? "#fff" : "var(--text-muted)",
-            borderLeft: "1px solid var(--bg-border)",
-          }}
-        >
-          No
-        </button>
-      </div>
-    </div>
-  );
-}
+/* ── Plan draft (Subscription Phase A) ── */
 
-/* ── Subscription Plan types & modal ── */
-
-interface SubPlan {
-  id: string;
-  startDate: string;
+interface PlanDraft {
+  tier: PlanTier;
+  displayName: string; // TAILORED only
+  maxUsers: number;
+  maxSites: number;
+  minRetentionYears: number;
+  startDate: string; // YYYY-MM-DD
   expiryDate: string;
-  maxAccounts: number;
-  status: "Active" | "Inactive";
 }
 
-export function SubscriptionPlansModal({
-  open,
-  onClose,
-  plans,
-  onSave,
-}: {
-  open: boolean;
-  onClose: () => void;
-  plans: SubPlan[];
-  onSave: (plans: SubPlan[]) => void;
-}) {
-  const [items, setItems] = useState<SubPlan[]>(plans);
-  const [editModal, setEditModal] = useState<SubPlan | null>(null);
-  const [isNew, setIsNew] = useState(false);
-
-  // Sync local items with props only when modal opens, not on every render
-  useEffect(() => {
-    if (open) setItems(plans);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const [planErrors, setPlanErrors] = useState<Record<string, string>>({});
-
-  const openNew = () => {
-    setEditModal({
-      id: `sp-${Date.now()}`,
-      startDate: "",
-      expiryDate: "",
-      maxAccounts: 0,
-      status: "Active",
-    });
-    setIsNew(true);
-    setPlanErrors({});
+/** A fresh plan draft for the given tier, caps resolved from the tier defaults. */
+function makePlanDraft(tier: PlanTier = "PROFESSIONAL"): PlanDraft {
+  const caps = resolvePlanCaps(tier);
+  return {
+    tier,
+    displayName: "",
+    maxUsers: caps.maxUsers,
+    maxSites: caps.maxSites,
+    minRetentionYears: caps.minRetentionYears,
+    startDate: dayjs().format("YYYY-MM-DD"),
+    expiryDate: dayjs().add(1, "year").format("YYYY-MM-DD"),
   };
+}
 
-  const openEdit = (p: SubPlan) => {
-    setEditModal({ ...p });
-    setIsNew(false);
-    setPlanErrors({});
+/** Map a Redux PlanConfig to the editable draft. */
+function planConfigToDraft(pc: PlanConfig): PlanDraft {
+  return {
+    tier: pc.tier,
+    displayName: pc.displayName ?? "",
+    maxUsers: pc.maxUsers,
+    maxSites: pc.maxSites,
+    minRetentionYears: pc.minRetentionYears,
+    startDate: dayjs.utc(pc.startDate).format("YYYY-MM-DD"),
+    expiryDate: dayjs.utc(pc.expiryDate).format("YYYY-MM-DD"),
   };
+}
 
-  const handleDelete = (id: string) => {
-    const next = items.filter((i) => i.id !== id);
-    setItems(next);
-    onSave(next);
+/** Map an editable draft to a Redux PlanConfig; caps are frozen via resolvePlanCaps. */
+function draftToPlanConfig(d: PlanDraft, id: string): PlanConfig {
+  const caps = resolvePlanCaps(d.tier, { maxUsers: d.maxUsers, maxSites: d.maxSites, minRetentionYears: d.minRetentionYears });
+  return {
+    id,
+    tier: d.tier,
+    displayName: d.tier === "TAILORED" ? (d.displayName.trim() || null) : null,
+    maxUsers: caps.maxUsers,
+    maxSites: caps.maxSites,
+    minRetentionYears: caps.minRetentionYears,
+    startDate: dayjs.utc(d.startDate).toISOString(),
+    expiryDate: dayjs.utc(d.expiryDate).toISOString(),
   };
-
-  const validatePlan = (): boolean => {
-    if (!editModal) return false;
-    const e: Record<string, string> = {};
-    if (!editModal.startDate) e.startDate = "Start date is required";
-    if (!editModal.expiryDate) e.expiryDate = "Expiry date is required";
-    if (editModal.startDate && editModal.expiryDate && editModal.expiryDate <= editModal.startDate) {
-      e.expiryDate = "Expiry must be after start date";
-    }
-    if (editModal.maxAccounts < 1) e.maxAccounts = "Must be at least 1";
-    setPlanErrors(e);
-    return Object.keys(e).length === 0;
-  };
-
-  const handleSavePlan = () => {
-    if (!editModal || !validatePlan()) return;
-    let next: SubPlan[];
-    if (isNew) {
-      next = [...items, editModal];
-    } else {
-      next = items.map((i) => (i.id === editModal.id ? editModal : i));
-    }
-    setItems(next);
-    onSave(next);
-    setEditModal(null);
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Subscription Plans">
-      {/* Plans table */}
-      <div className="card mb-4">
-        <div className="overflow-x-auto">
-          <table className="data-table" aria-label="Subscription plans">
-            <thead>
-              <tr>
-                <th scope="col">Accounts Available</th>
-                <th scope="col">Expiry Date</th>
-                <th scope="col">Status</th>
-                <th scope="col">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="text-center py-10">
-                    <FileText className="w-8 h-8 mx-auto mb-2" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-                    <p className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>No Subscription Plans Found</p>
-                    <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>Add a subscription plan to get started.</p>
-                  </td>
-                </tr>
-              ) : (
-                items.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.maxAccounts}</td>
-                    <td>{p.expiryDate || "—"}</td>
-                    <td>
-                      <Badge variant={p.status === "Active" ? "green" : "gray"}>{p.status}</Badge>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(p)}
-                          className="p-1 rounded border-none cursor-pointer bg-transparent"
-                          style={{ color: "var(--text-secondary)" }}
-                          aria-label="Edit plan"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(p.id)}
-                          className="p-1 rounded border-none cursor-pointer bg-transparent"
-                          style={{ color: "var(--danger)" }}
-                          aria-label="Delete plan"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="flex gap-3">
-        <Button variant="primary" size="sm" icon={Plus} onClick={openNew}>New Subscription Plan</Button>
-        <Button variant="secondary" size="sm" onClick={onClose}>Close</Button>
-      </div>
-
-      {/* New / Edit subscription modal */}
-      {editModal && (
-        <Modal open onClose={() => setEditModal(null)} title={isNew ? "New Subscription" : "Edit Subscription"}>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[11px] font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                  Start date <span style={{ color: "var(--danger)" }}>*</span>
-                </label>
-                <input
-                  type="date"
-                  value={editModal.startDate}
-                  onChange={(e) => setEditModal({ ...editModal, startDate: e.target.value })}
-                  className="input"
-                  style={planErrors.startDate ? { borderColor: "var(--danger)" } : undefined}
-                />
-                {planErrors.startDate && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{planErrors.startDate}</p>}
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                  Expiry date <span style={{ color: "var(--danger)" }}>*</span>
-                </label>
-                <input
-                  type="date"
-                  value={editModal.expiryDate}
-                  onChange={(e) => setEditModal({ ...editModal, expiryDate: e.target.value })}
-                  className="input"
-                  style={planErrors.expiryDate ? { borderColor: "var(--danger)" } : undefined}
-                />
-                {planErrors.expiryDate && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{planErrors.expiryDate}</p>}
-              </div>
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                Max accounts <span style={{ color: "var(--danger)" }}>*</span>
-              </label>
-              <input
-                type="number"
-                min={1}
-                value={editModal.maxAccounts}
-                onChange={(e) => setEditModal({ ...editModal, maxAccounts: Number(e.target.value) })}
-                className="input"
-                style={planErrors.maxAccounts ? { borderColor: "var(--danger)" } : undefined}
-              />
-              {planErrors.maxAccounts && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{planErrors.maxAccounts}</p>}
-            </div>
-            <div>
-              <span className="block text-[11px] font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Status</span>
-              <div className="flex gap-0 rounded-lg overflow-hidden" style={{ border: "1px solid var(--bg-border)", display: "inline-flex" }}>
-                <button
-                  type="button"
-                  onClick={() => setEditModal({ ...editModal, status: "Active" })}
-                  className="px-4 py-1.5 text-[12px] font-semibold border-none cursor-pointer transition-all"
-                  style={{
-                    background: editModal.status === "Active" ? "var(--brand)" : "var(--bg-surface)",
-                    color: editModal.status === "Active" ? "#fff" : "var(--text-muted)",
-                  }}
-                >
-                  Active
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditModal({ ...editModal, status: "Inactive" })}
-                  className="px-4 py-1.5 text-[12px] font-semibold border-none cursor-pointer transition-all"
-                  style={{
-                    background: editModal.status === "Inactive" ? "var(--danger)" : "var(--bg-surface)",
-                    color: editModal.status === "Inactive" ? "#fff" : "var(--text-muted)",
-                    borderLeft: "1px solid var(--bg-border)",
-                  }}
-                >
-                  Inactive
-                </button>
-              </div>
-            </div>
-            <div className="flex gap-3 pt-2">
-              <Button variant="primary" size="sm" icon={Save} onClick={handleSavePlan}>Save</Button>
-              <Button variant="secondary" size="sm" onClick={() => setEditModal(null)}>Cancel</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
-    </Modal>
-  );
 }
 
 /* ── Account form data ── */
@@ -327,7 +116,7 @@ interface AccountFormData {
   mfaEnabled: boolean;
   newPassword: string;
   confirmPassword: string;
-  subscriptionPlans: SubPlan[];
+  plan: PlanDraft | null;
   logoFile: File | null;
 }
 
@@ -342,12 +131,24 @@ function makeEmptyForm(): AccountFormData {
     mfaEnabled: false,
     newPassword: "",
     confirmPassword: "",
-    subscriptionPlans: [],
+    plan: null,
     logoFile: null,
   };
 }
 
 /* ── Account Drawer (replaces nested modals) ── */
+
+/** Derive a username from an email local-part, sanitised to the existing
+ *  ^[a-z0-9_]+$ rule: drop the domain, lowercase, collapse any run of
+ *  disallowed chars into a single underscore, and trim edge underscores.
+ *  e.g. "Admin.User@novagen.com" -> "admin_user". */
+function deriveUsername(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  return local
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
 
 function AccountDrawer({
   open,
@@ -377,7 +178,7 @@ function AccountDrawer({
   // just clicked Save" path.
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [subModalOpen, setSubModalOpen] = useState(false);
-  const [subSnapshot, setSubSnapshot] = useState<SubPlan[] | null>(null);
+  const [subSnapshot, setSubSnapshot] = useState<PlanDraft | null>(null);
   // Drag-drop overlay: only shown when the user is actively dragging a file
   // over the modal. Keeps the body uncluttered in the common no-drag state.
   const [isDragging, setIsDragging] = useState(false);
@@ -386,6 +187,11 @@ function AccountDrawer({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [pwToast, setPwToast] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Username auto-derive (create form only): while true, the username field
+  // mirrors a sanitised version of the email local-part. Flips false the
+  // moment super_admin edits the username manually, handing them control.
+  // Edit mode starts false so an existing username is never overwritten.
+  const [usernameAuto, setUsernameAuto] = useState(mode === "create");
 
   useEffect(() => {
     if (open) {
@@ -393,6 +199,7 @@ function AccountDrawer({
       setTouched({});
       setSubmitAttempted(false);
       setSubModalOpen(false);
+      setUsernameAuto(mode === "create");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -484,15 +291,24 @@ function AccountDrawer({
   // Drop handler is on the modal root (via onDrop) — no separate helper needed.
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => set("logoFile", e.target.files?.[0] ?? null);
 
-  // Subscription helpers
-  const activeSub = form.subscriptionPlans[0] ?? null;
-  const updateSub = (patch: Partial<SubPlan>) => {
-    if (activeSub) {
-      set("subscriptionPlans", form.subscriptionPlans.map((p) => p.id === activeSub.id ? { ...p, ...patch } : p));
+  // Plan helpers (single plan per tenant)
+  const activeSub = form.plan;
+  const updateSub = (patch: Partial<PlanDraft>) => {
+    if (activeSub) set("plan", { ...activeSub, ...patch });
+  };
+  // Switching tier re-freezes caps from the tier defaults. TAILORED keeps its
+  // editable caps; fixed tiers reset to preset caps and clear displayName.
+  const changeTier = (tier: PlanTier) => {
+    if (!activeSub) return;
+    if (tier === "TAILORED") {
+      set("plan", { ...activeSub, tier });
+    } else {
+      const caps = resolvePlanCaps(tier);
+      set("plan", { ...activeSub, tier, displayName: "", maxUsers: caps.maxUsers, maxSites: caps.maxSites, minRetentionYears: caps.minRetentionYears });
     }
   };
   const addSub = () => {
-    set("subscriptionPlans", [{ id: `sp-${Date.now()}`, startDate: dayjs().format("YYYY-MM-DD"), expiryDate: dayjs().add(1, "year").format("YYYY-MM-DD"), maxAccounts: 15, status: "Active" }]);
+    set("plan", makePlanDraft());
   };
 
   const LABEL = "block text-[11px] font-medium mb-1" as const;
@@ -500,11 +316,11 @@ function AccountDrawer({
   if (!open) return null;
 
   const openSubModal = () => {
-    setSubSnapshot(JSON.parse(JSON.stringify(form.subscriptionPlans)));
+    setSubSnapshot(activeSub ? { ...activeSub } : null);
     setSubModalOpen(true);
   };
   const cancelSubModal = () => {
-    if (subSnapshot) set("subscriptionPlans", subSnapshot);
+    set("plan", subSnapshot);
     setSubSnapshot(null);
     setSubModalOpen(false);
   };
@@ -589,7 +405,7 @@ function AccountDrawer({
                 id="acct-username"
                 type="text"
                 value={form.username}
-                onChange={(e) => set("username", e.target.value)}
+                onChange={(e) => { setUsernameAuto(false); set("username", e.target.value); }}
                 onBlur={() => markTouched("username")}
                 placeholder="e.g. acme_admin"
                 aria-invalid={errorVisible("username")}
@@ -608,7 +424,11 @@ function AccountDrawer({
                 id="acct-email"
                 type="email"
                 value={form.email}
-                onChange={(e) => set("email", e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  set("email", v);
+                  if (usernameAuto) set("username", deriveUsername(v));
+                }}
                 onBlur={() => markTouched("email")}
                 placeholder="admin@company.com"
                 aria-invalid={errorVisible("email")}
@@ -788,19 +608,19 @@ function AccountDrawer({
               <div className="rounded-lg p-3 flex items-start justify-between" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: activeSub.status === "Active" ? "var(--success-bg)" : "var(--danger-bg)", color: activeSub.status === "Active" ? "var(--success)" : "var(--danger)" }}>{activeSub.status}</span>
-                    <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>&middot; {activeSub.maxAccounts === -1 ? "Unlimited" : activeSub.maxAccounts} accounts</span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--brand-muted)", color: "var(--brand)" }}>{planLabel(activeSub.tier, activeSub.displayName)}</span>
+                    <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>&middot; {activeSub.maxUsers} users \u00b7 {activeSub.maxSites} sites \u00b7 {activeSub.minRetentionYears}yr retention</span>
                   </div>
                   <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Expires {activeSub.expiryDate ? dayjs(activeSub.expiryDate).format("MMM D, YYYY") : "\u2014"}</p>
                 </div>
-                <button type="button" onClick={openSubModal} className="text-[11px] font-medium border-none bg-transparent cursor-pointer shrink-0" style={{ color: "var(--brand)" }}>Edit Subscription</button>
+                <button type="button" onClick={openSubModal} className="text-[11px] font-medium border-none bg-transparent cursor-pointer shrink-0" style={{ color: "var(--brand)" }}>Edit Plan</button>
               </div>
             ) : (
               // Neutral card — "no subscription" is the default state for a fresh tenant,
               // not a warning. Warning amber reserved for actual expiry/inactive cases.
               <div className="rounded-lg p-4 flex items-center justify-between" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
-                <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No active subscription</span>
-                <button type="button" onClick={() => { addSub(); openSubModal(); }} className="text-[11px] font-semibold border-none bg-transparent cursor-pointer" style={{ color: "var(--brand)" }}>+ Add Subscription</button>
+                <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No plan assigned</span>
+                <button type="button" onClick={() => { addSub(); openSubModal(); }} className="text-[11px] font-semibold border-none bg-transparent cursor-pointer" style={{ color: "var(--brand)" }}>+ Assign Plan</button>
               </div>
             )}
           </div>
@@ -878,12 +698,35 @@ function AccountDrawer({
               <button type="button" onClick={cancelSubModal} aria-label="Close" className="p-1 rounded border-none cursor-pointer bg-transparent" style={{ color: "var(--text-muted)" }}><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-4">
+              <div>
+                <label className={LABEL} style={{ color: "var(--text-secondary)" }}>Plan tier <span style={{ color: "var(--danger)" }}>*</span></label>
+                <select value={activeSub.tier} onChange={(e) => changeTier(e.target.value as PlanTier)} className="input text-[12px]">
+                  <option value="ESSENTIALS">Essentials</option>
+                  <option value="PROFESSIONAL">Professional</option>
+                  <option value="ENTERPRISE">Enterprise</option>
+                  <option value="TAILORED">Tailored</option>
+                </select>
+              </div>
+              {activeSub.tier === "TAILORED" && (
+                <div>
+                  <label className={LABEL} style={{ color: "var(--text-secondary)" }}>Display name</label>
+                  <input type="text" placeholder="TAILORED" value={activeSub.displayName} onChange={(e) => updateSub({ displayName: e.target.value })} className="input text-[12px]" />
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Start date <span style={{ color: "var(--danger)" }}>*</span></label><input type="date" value={activeSub.startDate} onChange={(e) => updateSub({ startDate: e.target.value })} className="input text-[12px]" /></div>
                 <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Expiry date <span style={{ color: "var(--danger)" }}>*</span></label><input type="date" value={activeSub.expiryDate} onChange={(e) => updateSub({ expiryDate: e.target.value })} className="input text-[12px]" /></div>
               </div>
-              <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Max accounts <span style={{ color: "var(--danger)" }}>*</span></label><input type="number" min={1} value={activeSub.maxAccounts} onChange={(e) => updateSub({ maxAccounts: Number(e.target.value) })} className="input text-[12px]" /></div>
-              <YesNo label="Status" value={activeSub.status === "Active"} onChange={(v) => updateSub({ status: v ? "Active" : "Inactive" })} />
+              <div className="grid grid-cols-3 gap-3">
+                <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Max users</label><input type="number" min={1} max={TAILORED_CEILINGS.maxUsers} value={activeSub.maxUsers} disabled={activeSub.tier !== "TAILORED"} onChange={(e) => updateSub({ maxUsers: Number(e.target.value) })} className="input text-[12px]" /></div>
+                <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Max sites</label><input type="number" min={1} max={TAILORED_CEILINGS.maxSites} value={activeSub.maxSites} disabled={activeSub.tier !== "TAILORED"} onChange={(e) => updateSub({ maxSites: Number(e.target.value) })} className="input text-[12px]" /></div>
+                <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Retention (yr)</label><input type="number" min={1} max={TAILORED_CEILINGS.minRetentionYears} value={activeSub.minRetentionYears} disabled={activeSub.tier !== "TAILORED"} onChange={(e) => updateSub({ minRetentionYears: Number(e.target.value) })} className="input text-[12px]" /></div>
+              </div>
+              {activeSub.tier !== "TAILORED" ? (
+                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Caps are fixed for this tier. Choose Tailored to set custom caps.</p>
+              ) : (
+                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Tailored ceilings: {TAILORED_CEILINGS.maxUsers} users / {TAILORED_CEILINGS.maxSites} sites / {TAILORED_CEILINGS.minRetentionYears}yr.</p>
+              )}
             </div>
             <div className="flex justify-end gap-3 px-5 py-3" style={{ borderTop: "1px solid var(--bg-border)" }}>
               <Button variant="secondary" size="sm" onClick={cancelSubModal}>Cancel</Button>
@@ -965,7 +808,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
   // Post-create subscription flow
   const [postCreateSubOpen, setPostCreateSubOpen] = useState(false);
   const [postCreateTenantId, setPostCreateTenantId] = useState<string | null>(null);
-  const [postCreateSubData, setPostCreateSubData] = useState<{ startDate: string; expiryDate: string; maxAccounts: number; status: "Active" | "Inactive" }>({ startDate: dayjs().format("YYYY-MM-DD"), expiryDate: dayjs().add(1, "year").format("YYYY-MM-DD"), maxAccounts: 15, status: "Active" });
+  const [postCreateSubData, setPostCreateSubData] = useState<PlanDraft>(makePlanDraft());
   const [savedPopup, setSavedPopup] = useState<string | null>(null);
   const toast = useToast();
 
@@ -1045,13 +888,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
         name: data.customerName,
         adminEmail: data.email,
         active: data.active,
-        subscriptionPlans: data.subscriptionPlans.map((sp) => ({
-          id: sp.id,
-          startDate: sp.startDate,
-          endDate: sp.expiryDate,
-          maxAccounts: sp.maxAccounts,
-          status: sp.status,
-        })),
+        plan: data.plan ? draftToPlanConfig(data.plan, editingTenant.plan?.id ?? `plan-${Date.now()}`) : null,
         config: {
           ...editingTenant.config,
           org: {
@@ -1068,6 +905,21 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       try {
         await updateTenantApi(editingTenant.id, patch);
         dispatch(updateTenant({ id: editingTenant.id, patch }));
+        // updateTenantApi only carries name/email/active — persist the plan
+        // separately via assignPlan (caps are frozen server-side).
+        if (data.plan) {
+          const planRes = await assignPlan({
+            tenantId: editingTenant.id,
+            tier: data.plan.tier,
+            displayName: data.plan.tier === "TAILORED" ? (data.plan.displayName || undefined) : undefined,
+            maxUsers: data.plan.maxUsers,
+            maxSites: data.plan.maxSites,
+            minRetentionYears: data.plan.minRetentionYears,
+            startDate: data.plan.startDate,
+            expiryDate: data.plan.expiryDate,
+          });
+          if (!planRes.success) console.warn("[admin] assignPlan failed:", planRes.error);
+        }
         setSyncError(null);
         toast.success(`Customer ${data.customerName} updated.`);
       } catch (err) {
@@ -1107,17 +959,10 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       const newTenant: Tenant = {
         id: tenantId,
         name: data.customerName,
-        plan: "enterprise",
         adminEmail: data.email,
         active: data.active,
         mfaEnabled: data.mfaEnabled,
-        subscriptionPlans: data.subscriptionPlans.map((sp) => ({
-          id: sp.id,
-          startDate: sp.startDate,
-          endDate: sp.expiryDate,
-          maxAccounts: sp.maxAccounts,
-          status: sp.status,
-        })),
+        plan: data.plan ? draftToPlanConfig(data.plan, `plan-${Date.now()}`) : null,
         config: {
           org: {
             companyName: data.customerName,
@@ -1158,13 +1003,13 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       setSyncError(null);
       toast.success(`Customer ${data.customerName} created.`);
 
-      // Auto-open subscription modal if no plan was added in the drawer
-      if (data.subscriptionPlans.length === 0) {
+      // Auto-open the plan-assignment modal if no plan was set in the drawer
+      if (!data.plan) {
         setPostCreateTenantId(tenantId);
-        setPostCreateSubData({ startDate: dayjs().format("YYYY-MM-DD"), expiryDate: dayjs().add(1, "year").format("YYYY-MM-DD"), maxAccounts: 15, status: "Active" });
+        setPostCreateSubData(makePlanDraft());
         setPostCreateSubOpen(true);
       } else {
-        setSavedPopup("Account and subscription created");
+        setSavedPopup("Account and plan created");
       }
     }
   };
@@ -1234,13 +1079,7 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
       mfaEnabled: !!editingTenant.mfaEnabled,
       newPassword: "",
       confirmPassword: "",
-      subscriptionPlans: (editingTenant.subscriptionPlans ?? []).map((sp) => ({
-        id: sp.id,
-        startDate: sp.startDate,
-        expiryDate: sp.endDate,
-        maxAccounts: sp.maxAccounts,
-        status: sp.status,
-      })),
+      plan: editingTenant.plan ? planConfigToDraft(editingTenant.plan) : null,
       logoFile: null,
     };
   };
@@ -1361,10 +1200,9 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
             </thead>
             <tbody>
               {filtered.map((tenant) => {
-                const effective = isTenantEffectivelyActive(tenant);
-                const reason = getInactiveReason(tenant);
-                const activeSub = (tenant.subscriptionPlans ?? []).find((p) => (p.status ?? "").toLowerCase() === "active");
-                const expiry = activeSub ? ((activeSub as unknown as Record<string, unknown>).expiryDate ?? activeSub.endDate) as string | undefined : undefined;
+                const tenantPlan = tenant.plan;
+                const expiry = tenantPlan?.expiryDate;
+                const plState = planState(tenant);
                 const initial = tenant.name.charAt(0).toUpperCase();
                 return (
                   <tr key={tenant.id}>
@@ -1381,11 +1219,11 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
                     {/* Plan */}
                     <td>
                       <div className="text-[12px]">
-                        <p className="font-medium capitalize" style={{ color: "var(--text-primary)" }}>{tenant.plan}</p>
-                        {activeSub ? (
+                        <p className="font-medium" style={{ color: "var(--text-primary)" }}>{tenantPlan ? planLabel(tenantPlan.tier, tenantPlan.displayName) : "—"}</p>
+                        {tenantPlan ? (
                           <>
-                            <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{activeSub.maxAccounts === -1 ? "Unlimited" : `${activeSub.maxAccounts} accounts`}</p>
-                            {expiry && <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Expires {dayjs(expiry).format("MMM D, YYYY")}</p>}
+                            <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{tenantPlan.maxUsers} users · {tenantPlan.maxSites} sites</p>
+                            {expiry && <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Expires {dayjs.utc(expiry).format("MMM D, YYYY")}</p>}
                           </>
                         ) : (
                           <p className="text-[10px]" style={{ color: "var(--danger)" }}>No plan</p>
@@ -1400,10 +1238,10 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
                     </td>
                     {/* Status */}
                     <td>
-                      <Badge variant={effective ? "green" : "red"}>{effective ? "Active" : "Inactive"}</Badge>
-                      {!effective && reason && (
-                        <span className="block text-[10px] mt-0.5 max-w-[120px] truncate" style={{ color: "var(--text-muted)" }} title={reason}>
-                          {reason.includes("expired") ? "Subscription expired" : reason.includes("deactivated") ? "Deactivated" : "No subscription"}
+                      <Badge variant={tenant.active ? "green" : "red"}>{tenant.active ? "Active" : "Suspended"}</Badge>
+                      {tenant.active && plState !== "ok" && (
+                        <span className="block text-[10px] mt-0.5 max-w-[120px] truncate" style={{ color: "var(--text-muted)" }}>
+                          {plState === "none" ? "No plan" : "Plan expired"}
                         </span>
                       )}
                     </td>
@@ -1588,10 +1426,18 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
               </div>
             </div>
             <div>
-              <label className="block text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Max accounts <span style={{ color: "var(--danger)" }}>*</span></label>
-              <input type="number" min={1} value={postCreateSubData.maxAccounts} onChange={(e) => setPostCreateSubData((p) => ({ ...p, maxAccounts: Number(e.target.value) }))} className="input text-[12px]" />
+              <label className="block text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Plan tier <span style={{ color: "var(--danger)" }}>*</span></label>
+              <select value={postCreateSubData.tier} onChange={(e) => {
+                const tier = e.target.value as PlanTier;
+                setPostCreateSubData((p) => tier === "TAILORED" ? { ...p, tier } : { ...p, tier, displayName: "", ...resolvePlanCaps(tier) });
+              }} className="input text-[12px]">
+                <option value="ESSENTIALS">Essentials</option>
+                <option value="PROFESSIONAL">Professional</option>
+                <option value="ENTERPRISE">Enterprise</option>
+                <option value="TAILORED">Tailored</option>
+              </select>
             </div>
-            <YesNo label="Status" value={postCreateSubData.status === "Active"} onChange={(v) => setPostCreateSubData((p) => ({ ...p, status: v ? "Active" : "Inactive" }))} />
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{postCreateSubData.maxUsers} users · {postCreateSubData.maxSites} sites · {postCreateSubData.minRetentionYears}yr retention</p>
           </div>
           <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: "1px solid var(--bg-border)" }}>
             <button
@@ -1604,19 +1450,26 @@ export function CustomerAccountsPage({ initialTenants, isSuperAdmin: isSuperAdmi
             <Button variant="primary" size="sm" icon={Save} onClick={async () => {
               const tenant = tenants.find((t) => t.id === postCreateTenantId);
               if (!tenant) return;
-              const plan = { id: `sp-${Date.now()}`, startDate: postCreateSubData.startDate, endDate: postCreateSubData.expiryDate, maxAccounts: postCreateSubData.maxAccounts, status: postCreateSubData.status };
-              const patch: Partial<Tenant> = { subscriptionPlans: [...(tenant.subscriptionPlans ?? []), plan] };
-              try {
-                await updateTenantApi(postCreateTenantId, patch);
-                dispatch(updateTenant({ id: postCreateTenantId, patch }));
-              } catch (err) {
-                toast.error(`Could not add subscription: ${mapCustomerError(err)}`);
+              const draft = postCreateSubData;
+              const res = await assignPlan({
+                tenantId: postCreateTenantId,
+                tier: draft.tier,
+                displayName: draft.tier === "TAILORED" ? (draft.displayName || undefined) : undefined,
+                maxUsers: draft.maxUsers,
+                maxSites: draft.maxSites,
+                minRetentionYears: draft.minRetentionYears,
+                startDate: draft.startDate,
+                expiryDate: draft.expiryDate,
+              });
+              if (!res.success) {
+                toast.error(`Could not assign plan: ${res.error}`);
                 return;
               }
+              dispatch(setTenantPlan({ tenantId: postCreateTenantId, plan: draftToPlanConfig(draft, `plan-${Date.now()}`) }));
               setPostCreateSubOpen(false);
               setPostCreateTenantId(null);
-              setSavedPopup("Account and subscription created");
-            }}>Save Plan</Button>
+              setSavedPopup("Account and plan created");
+            }}>Assign Plan</Button>
           </div>
         </Modal>
       )}
