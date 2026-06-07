@@ -110,6 +110,7 @@ export async function reviewRCA(
       rca: true,
       rcaApproved: true,
       createdBy: true,
+      createdById: true,
     },
   });
   if (!existing) return { success: false, error: "CAPA not found" };
@@ -123,11 +124,14 @@ export async function reviewRCA(
     };
   }
 
-  // SoD â€” creator cannot review their own RCA. Display-name comparison
-  // (CAPA.createdBy is a string, not a userId FK). Same brittleness
-  // caveat as approveCAPA's self-approval guard; promoted to a userId
-  // FK in the future createdBy â†’ createdById migration.
-  if (existing.createdBy && existing.createdBy === session.user.name) {
+  // SoD â€” creator cannot review their own RCA. Prefer the authoritative
+  // createdById userId FK; fall back to display-name comparison only for
+  // legacy rows whose createdById is null (predate the FK / unresolvable
+  // backfill). ID comparison is robust against duplicate names and renames.
+  const isSelfReview = existing.createdById
+    ? existing.createdById === session.user.id
+    : Boolean(existing.createdBy) && existing.createdBy === session.user.name;
+  if (isSelfReview) {
     try {
       await prisma.auditLog.create({
         data: {
@@ -142,7 +146,7 @@ export async function reviewRCA(
           newValue: JSON.stringify({
             attemptedBy: session.user.id,
             capaCreator: existing.createdBy,
-            comparedBy: "displayName",
+            comparedBy: existing.createdById ? "userId" : "displayName",
           }),
         },
       });

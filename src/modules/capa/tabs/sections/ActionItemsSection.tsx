@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Dropdown } from "@/components/ui/Dropdown";
-import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import {
   addActionItem,
@@ -64,7 +64,15 @@ const STATUS_VARIANT: Record<CAPAActionItem["status"], "gray" | "amber" | "green
 };
 
 export function ActionItemsSection({ capa }: { capa: CAPA }) {
-  const { role } = useRole();
+  // FIX 3 â€” the action-item mutation server actions (addActionItem /
+  // updateActionItem / deleteActionItem / reorderActionItems) all gate on
+  // COMPLIANCE_AUTHOR_ROLES. capaCan.canEdit mirrors that exact set, so the
+  // UI stops advertising controls (status updates + structural edits) to
+  // roles the server rejects (e.g. qc_lab_director, operations_head). NOTE:
+  // this also hides the controls from action OWNERS who aren't authors today
+  // â€” correct for now (the server already blocks them; owner-access is a
+  // later phase). canView stays open so they can still read the plan.
+  const capaCan = usePermissions("capa");
   const { users } = useTenantConfig();
   // Live items — seeded from the Redux CAPA prop, refetched on every
   // successful mutation so the row state stays consistent with the
@@ -123,16 +131,9 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
   // status-only updates allowed.
   const isTerminal = capa.status === "closed" || capa.status === "rejected";
   const isLocked = LOCKED_CAPA_STATUSES.has(capa.status);
-  const canStructuralEdit =
-    !isTerminal && !isLocked &&
-    (role === "qa_head" ||
-      role === "super_admin" ||
-      role === "customer_admin" ||
-      role === "qc_lab_director" ||
-      role === "regulatory_affairs" ||
-      role === "csv_val_lead" ||
-      role === "operations_head");
-  const canStatusUpdate = !isTerminal;
+  // Gated on capaCan.canEdit (COMPLIANCE_AUTHOR_ROLES) to match the server.
+  const canStructuralEdit = !isTerminal && !isLocked && capaCan.canEdit;
+  const canStatusUpdate = !isTerminal && capaCan.canEdit;
 
   // Add-row state.
   const [addOpen, setAddOpen] = useState(false);

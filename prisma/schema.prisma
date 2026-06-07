@@ -133,6 +133,8 @@ model User {
   // CAPAActionItem.ownerId / completedById FKs.
   ownedCAPAActionItems     CAPAActionItem[] @relation("CAPAActionItemOwner")
   completedCAPAActionItems CAPAActionItem[] @relation("CAPAActionItemCompletedBy")
+  // SoD integrity (CAPA audit FIX 1) — reverse field for the CAPA.createdById FK.
+  createdCAPAs             CAPA[]           @relation("CAPACreatedBy")
   // FDA 483 events this user owns internally (notifications/reminders target).
   fda483EventsAsOwner      FDA483Event[]    @relation("FDA483EventInternalOwner")
   // FDA 483 first-class commitments — created / completed by this user, plus
@@ -340,7 +342,16 @@ model CAPA {
   // verifies they agree before allowing closure. Unifying on this
   // relation alone is a future rung.
   deviationId        String?  @unique
+  // createdBy is the denormalised display-name cache (kept for join-free
+  // reads). createdById is the authoritative userId FK used by the CAPA
+  // segregation-of-duties guards (RCA review / approval / verification:
+  // actor must differ from the creator). Nullable for the backfill window
+  // — legacy rows whose createdBy name doesn't resolve to exactly one User
+  // stay null and fall back to name comparison. Mirrors Deviation.createdBy
+  // / createdById. onDelete: SetNull because the CAPA is an independent
+  // regulatory record that must survive User deletion.
   createdBy          String
+  createdById        String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -352,6 +363,7 @@ model CAPA {
   // SME Section 1, Stage 6 (FULL) — Effectiveness review signature.
   effectivenessSignature SignedRecord?                @relation("CAPAEffectivenessSignature", fields: [effectivenessSignatureId], references: [id])
   deviation              Deviation?                   @relation("CAPADeviationSource", fields: [deviationId], references: [id], onDelete: SetNull)
+  createdByUser          User?                        @relation("CAPACreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   documents              CAPADocument[]
   evidenceItems          EvidenceItem[]
   effectivenessCriteria  CAPAEffectivenessCriterion[]

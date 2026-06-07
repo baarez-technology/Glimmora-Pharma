@@ -192,6 +192,10 @@ export async function createCAPA(
               tenantId: session.user.tenantId,
               status: "open",
               createdBy: session.user.name,
+              // Authoritative creator FK for SoD guards. Null for admin
+              // actors with no User row (resolveUserFk returns null); those
+              // fall back to name comparison in the review/approve/verify gates.
+              createdById: actor.userId,
               dueDate: new Date(dueDate),
               findingId: linkedFindingId ?? null,
               // SME Section 1, Stage 2 (FULL) â€” write the new bidirectional
@@ -554,6 +558,17 @@ export async function submitForReview(id: string): Promise<ActionResult> {
       return { success: false, error: "CAPA not found" };
     }
 
+    // FIX 2 â€” status invariant. Only a CAPA still under investigation
+    // (in_progress) may be submitted for QA review. Without this a direct
+    // API call could "submit" a CAPA already in review / verification /
+    // closed / rejected. Enforced again optimistically on the write below.
+    if (existing.status !== "in_progress") {
+      return {
+        success: false,
+        error: "Only a CAPA under investigation (in progress) can be submitted for QA review.",
+      };
+    }
+
     // SME Section 1, Stage 3 (FULL) â€” RCA QA gate. The CAPA cannot leave
     // in_progress without a QA reviewer (different from the creator)
     // approving the root cause analysis. rcaApproved=true is the only
@@ -621,9 +636,21 @@ export async function submitForReview(id: string): Promise<ActionResult> {
       role: actor.role,
     });
 
-    const capa = await prisma.cAPA.update({
-      where: { id, tenantId: session.user.tenantId },
+    // Optimistic lock â€” re-assert status="in_progress" in the WHERE so a
+    // concurrent transition can't double-fire. count===0 means the status
+    // moved between the read above and this write.
+    const updated = await prisma.cAPA.updateMany({
+      where: { id, tenantId: session.user.tenantId, status: "in_progress" },
       data: { status: "pending_qa_review" },
+    });
+    if (updated.count === 0) {
+      return {
+        success: false,
+        error: "Only a CAPA under investigation (in progress) can be submitted for QA review.",
+      };
+    }
+    const capa = await prisma.cAPA.findFirst({
+      where: { id, tenantId: session.user.tenantId },
     });
 
     await prisma.auditLog.create({
@@ -675,6 +702,26 @@ export async function rejectCAPA(
   }
 
   try {
+    // FIX 2 â€” status invariant. Rejection is the QA reviewer's verdict at the
+    // pending_qa_review stage; before this guard rejectCAPA had NO status
+    // check, so a direct API call could reject a CAPA from ANY state â€”
+    // including a signed, closed record. Reject only from pending_qa_review.
+    // (Post-approval inadequacy is handled by revokeCAPAApproval, which
+    // returns the CAPA to pending_qa_review; closed/rejected use reopenCAPA.)
+    const existing = await prisma.cAPA.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+      select: { status: true },
+    });
+    if (!existing) {
+      return { success: false, error: "CAPA not found" };
+    }
+    if (existing.status !== "pending_qa_review") {
+      return {
+        success: false,
+        error: "Only a CAPA awaiting QA review (pending QA review) can be rejected.",
+      };
+    }
+
     // Rejection ends investigation activity â€” lock both evidence and
     // criteria the same way submitForReview/signAndCloseCAPA do so the
     // trail is consistent.
@@ -684,12 +731,23 @@ export async function rejectCAPA(
       role: actor.role,
     });
 
-    const capa = await prisma.cAPA.update({
-      where: { id, tenantId: session.user.tenantId },
+    // Optimistic lock â€” re-assert status in the WHERE so a concurrent
+    // transition (e.g. an approval landing) can't be clobbered by a reject.
+    const rejectedCount = await prisma.cAPA.updateMany({
+      where: { id, tenantId: session.user.tenantId, status: "pending_qa_review" },
       data: {
         status: "rejected",
         diGateNotes: parsed.data.reason,
       },
+    });
+    if (rejectedCount.count === 0) {
+      return {
+        success: false,
+        error: "Only a CAPA awaiting QA review (pending QA review) can be rejected.",
+      };
+    }
+    const capa = await prisma.cAPA.findFirst({
+      where: { id, tenantId: session.user.tenantId },
     });
 
     await prisma.auditLog.create({
