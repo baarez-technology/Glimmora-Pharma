@@ -228,7 +228,18 @@ export async function updateEvidenceStatus(
       }
       await tx.evidenceItem.update({
         where: { id: evidenceItemId },
-        data: { status: newStatus, notes: newNotes },
+        data: {
+          status: newStatus,
+          notes: newNotes,
+          // Phase 2 — dual-write the N/A rationale to the first-class column
+          // (in addition to the note-row above). Set on entry to NOT_APPLICABLE,
+          // cleared on exit. Reads still use the note-row path for now.
+          ...(transitioningToNA
+            ? { naReason: parsed.data.naReason!.trim() }
+            : transitioningFromNA
+              ? { naReason: null }
+              : {}),
+        },
       });
       // Differentiate audit action so the trail distinguishes status changes
       // from notes-only edits (REQ-2 / REQ-4).
@@ -269,6 +280,10 @@ export async function updateEvidenceStatus(
 export async function addEvidenceFile(
   evidenceItemId: string,
   formData: FormData,
+  // Phase 2 — optional per-action attachment link. When provided, the file is
+  // additionally scoped to a specific action item of the same CAPA (it still
+  // belongs to its EvidenceItem/category). No UI passes this yet.
+  actionItemId?: string,
 ): Promise<ActionResult<{ id: string; fileName: string }>> {
   const file = formData.get("file");
   if (!(file instanceof File)) {
@@ -307,6 +322,16 @@ export async function addEvidenceFile(
   if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
     return { success: false, error: "Your role does not permit this action." };
   }
+  // If an action item is supplied, it must belong to the same CAPA + tenant.
+  if (actionItemId) {
+    const ai = await prisma.cAPAActionItem.findFirst({
+      where: { id: actionItemId, capaId: item.capa.id, tenantId: item.capa.tenantId },
+      select: { id: true },
+    });
+    if (!ai) {
+      return { success: false, error: "Action item not found on this CAPA." };
+    }
+  }
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentHashSha256 = createHash("sha256").update(buffer).digest("hex");
@@ -333,6 +358,11 @@ export async function addEvidenceFile(
         contentHashSha256,
         retainUntil: nowPlusYears(RETENTION_YEARS),
         uploadedBy: session.user.name,
+        // Phase 2 — authoritative uploader FK (null for admin actors with no
+        // User row); the uploadedBy name string stays for display/legacy.
+        uploadedById: actor.userId,
+        // Phase 2 — optional per-action scope (validated above).
+        actionItemId: actionItemId ?? null,
       },
     });
 

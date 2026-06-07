@@ -42,6 +42,10 @@ export const ACTION_ITEM_STATUSES = [
   "in_progress",
   "complete",
   "skipped",
+  // Phase 2 — an item the QA review returned for revision. Flow wiring
+  // (targeted reject) is Phase 4; this only registers the value so the zod
+  // enum accepts it.
+  "rework",
 ] as const;
 export type ActionItemStatus = (typeof ACTION_ITEM_STATUSES)[number];
 

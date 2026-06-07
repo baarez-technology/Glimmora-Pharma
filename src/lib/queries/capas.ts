@@ -142,3 +142,61 @@ export const getCAPAStats = cache(async (tenantId: string) => {
     closed: capas.filter((c) => c.status === "closed").length,
   };
 });
+
+/**
+ * Phase 2 — effectiveness due-surfacing FOUNDATION (no UI yet; the tracker
+ * queue is Phase 6). Returns closed CAPAs whose committed 90-day effectiveness
+ * check has come due (effectivenessDate <= now) and has not yet been reviewed
+ * (effectivenessVerdict is null). Oldest-due first. Backed by the new
+ * CAPA.effectivenessDate index. Tenant-scoped; read-only.
+ */
+export const getEffectivenessChecksDue = cache(async (tenantId: string) => {
+  const now = new Date();
+  return prisma.cAPA.findMany({
+    where: {
+      tenantId,
+      status: "closed",
+      effectivenessDate: { lte: now },
+      effectivenessVerdict: null,
+    },
+    orderBy: { effectivenessDate: "asc" },
+    select: {
+      id: true,
+      reference: true,
+      description: true,
+      risk: true,
+      closedAt: true,
+      effectivenessDate: true,
+      owner: true,
+      siteId: true,
+    },
+  });
+});
+
+/**
+ * Phase 2 — Worklist FOUNDATION (no UI yet; Phase 3 owns access, Phase 6 the
+ * screen). Returns the action items assigned to one user (ownerId = userId),
+ * tenant-scoped, joined with their parent CAPA's reference / title / status /
+ * dueDate, ordered by the ACTION ITEM's own dueDate (soonest first). Backed by
+ * the new CAPAActionItem.ownerId index. Read-only; applies NO permission
+ * filtering — callers/Phase 3 decide who may invoke it.
+ */
+export const getMyActionItems = cache(
+  async (userId: string, tenantId: string) => {
+    return prisma.cAPAActionItem.findMany({
+      where: { ownerId: userId, tenantId },
+      orderBy: { dueDate: "asc" },
+      include: {
+        capa: {
+          select: {
+            id: true,
+            reference: true,
+            description: true,
+            status: true,
+            dueDate: true,
+          },
+        },
+      },
+    });
+  },
+);

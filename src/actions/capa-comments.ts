@@ -47,6 +47,9 @@ const AddCommentSchema = z.object({
     .max(4000, "Comment must be 4000 characters or fewer"),
   isConcern: z.boolean().default(false),
   parentId: z.string().min(1).optional(),
+  // Phase 2 — optional action-level scope. Null/absent = CAPA-level comment
+  // (unchanged). No UI passes this yet.
+  actionItemId: z.string().min(1).optional(),
 });
 
 const ResolveSchema = z.object({
@@ -178,6 +181,17 @@ export async function addCAPAComment(
     }
   }
 
+  // If an action item is given, verify it belongs to the same CAPA.
+  if (parsed.data.actionItemId) {
+    const ai = await prisma.cAPAActionItem.findFirst({
+      where: { id: parsed.data.actionItemId, capaId, tenantId: capa.tenantId },
+      select: { id: true },
+    });
+    if (!ai) {
+      return { success: false, error: "Action item not found on this CAPA." };
+    }
+  }
+
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
   try {
@@ -196,6 +210,8 @@ export async function addCAPAComment(
         tenantId: capa.tenantId,
         capaId,
         parentId: parsed.data.parentId ?? null,
+        // Phase 2 — optional action-level scope (validated above).
+        actionItemId: parsed.data.actionItemId ?? null,
         body: parsed.data.body,
         isConcern: parsed.data.isConcern,
         authorId: session.user.id,
