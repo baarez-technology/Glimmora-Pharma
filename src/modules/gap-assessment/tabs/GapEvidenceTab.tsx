@@ -7,6 +7,7 @@ import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
 import { downloadCSV, downloadExcel } from "@/lib/exportTable";
 import { Button } from "@/components/ui/Button";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Badge } from "@/components/ui/Badge";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import type { FindingSeverity } from "@/store/findings.slice";
@@ -55,6 +56,8 @@ export function GapEvidenceTab({
   expandedAreas, onToggleArea, isViewOnly, users,
   onLinkEvidence, onFindingClick, onGoToRegister,
 }: GapEvidenceTabProps) {
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const gapCan = usePermissions("gap");
   function ownerName(uid: string) { return displayUserName(uid, users); }
 
   // Row selection for export, keyed by findingId (empty = export all rows)
@@ -198,7 +201,7 @@ export function GapEvidenceTab({
                                   <td className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{ownerName(row.owner)}</td>
                                   <td>
                                     <div className="flex items-center gap-1">
-                                      {!isViewOnly && (
+                                      {!isViewOnly && gapCan.canEdit && (
                                         <Button variant="ghost" size="xs" icon={Paperclip}
                                           aria-label={row.evidenceLink ? `Update evidence for ${row.findingId}` : `Link evidence to ${row.findingId}`}
                                           onClick={() => onLinkEvidence(row.findingId, row.evidenceLink ?? "")} />

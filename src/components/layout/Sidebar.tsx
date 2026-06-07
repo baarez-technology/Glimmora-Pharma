@@ -112,19 +112,22 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     });
   };
 
-  const visibleGroups = NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((item) => {
-      if (item.path === "readiness" || item.path === "deviation") return true;
-      if (item.path === "audit-trail")
-        return (
-          role === "qa_head" ||
-          role === "customer_admin" ||
-          role === "super_admin"
-        );
-      return allowedPaths.includes(item.path);
-    }),
-  })).filter((g) => g.items.length > 0);
+  // Bright line: super_admin's world is the admin console only — it must never
+  // see any customer/compliance module in this (customer-app) sidebar. The
+  // (app) layout + proxy already redirect super_admin to /admin so this sidebar
+  // shouldn't render for it at all; blanking the nav here is defense-in-depth.
+  const visibleGroups = role === "super_admin"
+    ? []
+    : NAV_GROUPS.map((g) => ({
+        ...g,
+        items: g.items.filter((item) => {
+          if (item.path === "readiness" || item.path === "deviation") return true;
+          if (item.path === "audit-trail")
+            // super_admin already returned [] above, so it's excluded here.
+            return role === "qa_head" || role === "customer_admin";
+          return allowedPaths.includes(item.path);
+        }),
+      })).filter((g) => g.items.length > 0);
 
   const handleLogout = async () => {
     // AUTH-03: Clear next-auth session cookie first (server-side), then

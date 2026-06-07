@@ -1,18 +1,10 @@
 "use client";
 
 import { Building2, Pencil } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import dayjs from "@/lib/dayjs";
 import { planLabel } from "@/lib/plans";
 import { type Tenant, type PlanConfig } from "@/store/auth.slice";
-
-const planVariant: Record<string, "green" | "blue" | "amber" | "gray"> = {
-  ENTERPRISE: "green",
-  PROFESSIONAL: "blue",
-  ESSENTIALS: "amber",
-  TAILORED: "gray",
-};
 
 interface DetailHeaderProps {
   tenant: Tenant;
@@ -20,6 +12,11 @@ interface DetailHeaderProps {
   onEdit: () => void;
 }
 
+/**
+ * Header: org icon + name + a single identity subline
+ * "CODE · TIER · STATUS · created DATE". The subline replaces the old separate
+ * tier + status badges (which duplicated facts shown elsewhere on the page).
+ */
 export function DetailHeader({ tenant, plan, onEdit }: DetailHeaderProps) {
   return (
     <div className="flex items-start justify-between mb-6">
@@ -34,20 +31,12 @@ export function DetailHeader({ tenant, plan, onEdit }: DetailHeaderProps) {
           <h1 className="text-[24px] font-bold" style={{ color: "var(--text-primary)" }}>
             {tenant.name}
           </h1>
-          <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-            Code: <span className="font-mono font-medium" style={{ color: "var(--text-secondary)" }}>{tenant.customerCode ?? "—"}</span>
+          <p className="text-[12.5px] mt-1" style={{ color: "var(--text-secondary)" }}>
+            <span className="font-mono font-medium">{tenant.customerCode ?? "—"}</span>
+            {" · "}{plan ? planLabel(plan.tier, plan.displayName) : "No plan"}
+            {" · "}{tenant.active ? "Active" : "Suspended"}
+            {" · created "}{tenant.createdAt ? dayjs(tenant.createdAt).format("D MMM YYYY") : "—"}
           </p>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant={plan ? (planVariant[plan.tier] ?? "gray") : "gray"}>
-              {plan ? planLabel(plan.tier, plan.displayName) : "No plan"}
-            </Badge>
-            <Badge variant={tenant.active ? "green" : "red"}>
-              {tenant.active ? "Active" : "Suspended"}
-            </Badge>
-            <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-              Created {tenant.createdAt ? dayjs(tenant.createdAt).format("MMM D, YYYY") : "—"}
-            </span>
-          </div>
         </div>
       </div>
       <Button variant="primary" icon={Pencil} onClick={onEdit}>

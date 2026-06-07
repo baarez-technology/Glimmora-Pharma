@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES, ADMIN_DELETE_ROLES } from "@/lib/auth";
+import { CAPA_DI_GATE_ROLES, CAPA_REJECT_ROLES, CAPA_REOPEN_ROLES } from "@/lib/permissions/roleSets";
 import {
   lockCAPAArtifacts,
   unlockCAPAArtifacts,
@@ -481,7 +482,7 @@ export async function clearDIGate(
 ): Promise<ActionResult> {
   const session = await requireAuth();
 
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!CAPA_DI_GATE_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can clear the Data Integrity gate" };
   }
 
@@ -652,7 +653,7 @@ export async function rejectCAPA(
 ): Promise<ActionResult> {
   const session = await requireAuth();
 
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!CAPA_REJECT_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can reject CAPAs" };
   }
 
@@ -767,11 +768,7 @@ export async function reopenCAPA(
   input: z.input<typeof ReopenCAPASchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
-  if (
-    session.user.role !== "qa_head" &&
-    session.user.role !== "customer_admin" &&
-    session.user.role !== "super_admin"
-  ) {
+  if (!CAPA_REOPEN_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only a QA Head or an admin can reopen a CAPA." };
   }
   const parsed = ReopenCAPASchema.safeParse(input);

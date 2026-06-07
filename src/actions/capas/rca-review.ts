@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { canReviewRCA } from "@/lib/permissions/roleSets";
 import {
   RCA_REVIEW_AUDIT_MODULE,
   RCA_REVIEW_INVALID_STATUS_MESSAGE,
@@ -59,9 +60,8 @@ const OverrideRCASchema = z.object({
 
 // Roles authorised to set / override / clear an RCA review. Same role
 // gate as alignment review â€” RCA quality is a QA procedural decision.
-function canReviewRCA(role: string): boolean {
-  return role === "qa_head" || role === "super_admin" || role === "customer_admin";
-}
+// canReviewRCA is imported from the shared role-set module (see import above)
+// so the server gate and the client usePermissions hook share ONE definition.
 
 // "in_progress" is the only valid status for an RCA review. "open" has
 // no RCA yet, anything >= "pending_qa_review" is past this gate.

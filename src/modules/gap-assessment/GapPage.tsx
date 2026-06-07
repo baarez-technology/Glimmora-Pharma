@@ -155,7 +155,11 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
     }
   }, [serverFindings, dispatch]);
   const { isViewOnly } = useRole();
-  const { canCreateFindings, isCustomerAdmin } = usePermissions();
+  // Capability mirror of the server author set (COMPLIANCE_AUTHOR_ROLES) —
+  // includes customer_admin, excludes non-author roles. Replaces the old
+  // ad-hoc canCreateFindings = !isCustomerAdmin && !isViewer (which wrongly
+  // hid customer_admin).
+  const gapCan = usePermissions("gap");
   const { hasSites } = useSetupStatus();
   const { isAtLimit, getLimit, tenantPlan } = usePlanLimits();
   const atFindingLimit = isAtLimit("findings");
@@ -416,7 +420,7 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
       <PageHeader
         title="Gap Assessment &amp; Findings"
         subtitle={findings.length === 0 ? "No findings logged yet" : `${findings.length} findings \u00b7 ${criticalCount} critical \u00b7 ${openCount} open`}
-        actions={canCreateFindings ? <Button variant="primary" icon={Plus} onClick={() => { if (!hasSites) { setNoSitesOpen(true); return; } if (atFindingLimit) { setPlanLimitOpen(true); return; } setAddOpen(true); }}>Report Gap</Button> : isCustomerAdmin ? <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>Contact QA Head or team member to log findings</p> : undefined}
+        actions={gapCan.canCreate ? <Button variant="primary" icon={Plus} onClick={() => { if (!hasSites) { setNoSitesOpen(true); return; } if (atFindingLimit) { setPlanLimitOpen(true); return; } setAddOpen(true); }}>Report Gap</Button> : undefined}
       />
       <StatusGuide module="Gap Assessment" statuses={FINDING_STATUSES} />
 
@@ -442,7 +446,7 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
       {activeTab === "register" && (
         <GapRegisterTab
           filteredFindings={baseFindings} findingsTotal={findings.length}
-          selectedFinding={selectedFinding} onSelectFinding={setSelectedFinding} isViewOnly={isViewOnly || isCustomerAdmin} users={users}
+          selectedFinding={selectedFinding} onSelectFinding={setSelectedFinding} isViewOnly={isViewOnly} users={users}
           timezone={timezone} dateFormat={dateFormat} capas={capas}
           agiMode={agiMode} agiCapa={agiCapa} isAnyFilterActive={isAnyFilterActive}
           renderFilters={renderFilters}

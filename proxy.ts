@@ -30,12 +30,22 @@ export async function proxy(req: NextRequest) {
     );
   }
 
+  const role = token.role as string | undefined;
+
   // 2. Admin route role gate — allow super_admin OR customer_admin (per E1=B).
   if (req.nextUrl.pathname.startsWith("/admin")) {
-    const role = token.role as string | undefined;
     if (role !== "super_admin" && role !== "customer_admin") {
       return NextResponse.redirect(new URL("/", req.url));
     }
+  }
+
+  // 3. Bright-line inverse gate — super_admin's world is the admin console
+  //    ONLY. Bounce it off every non-/admin route (the customer/compliance
+  //    modules: /, /capa, /deviation, /gap-assessment, /csv-csa, /fda-483,
+  //    /evidence, /readiness, /governance, /settings, …) to /admin. The
+  //    customer-app (app) layout enforces the same server-side.
+  if (role === "super_admin" && !req.nextUrl.pathname.startsWith("/admin")) {
+    return NextResponse.redirect(new URL("/admin", req.url));
   }
 
   // MFA session invalidation is enforced in the JWT callback

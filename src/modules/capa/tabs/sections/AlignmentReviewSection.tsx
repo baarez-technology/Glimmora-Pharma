@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   setCAPAAlignmentStatus,
   overrideCAPAAlignmentFlag,
@@ -55,8 +56,10 @@ export function AlignmentReviewSection({
 }) {
   const { role } = useRole();
   const currentUser = useAppSelector((s) => s.auth.user);
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const capaCan = usePermissions("capa");
   const canReview =
-    role === "qa_head" || role === "super_admin" || role === "customer_admin";
+    (role === "qa_head" || role === "super_admin" || role === "customer_admin") && capaCan.canReview;
 
   const isLocked = LOCKED_CAPA_STATUSES.has(capa.status);
   const status = capa.alignmentStatus;

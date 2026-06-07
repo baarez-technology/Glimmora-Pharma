@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
 import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
 import { EvidenceCollectionPanel } from "../tabs/EvidenceCollectionPanel";
 import { EffectivenessCriteriaPanel } from "../tabs/EffectivenessCriteriaPanel";
 import { ActionsPanel } from "../tabs/ActionsPanel";
@@ -81,6 +82,8 @@ export function CAPADetailModal({
   onClose, onEditOpen, onSignOpen, onSubmitForReview, onNavigateGap,
 }: CAPADetailModalProps) {
   const { canSign, canCloseCapa, isViewOnly } = useRole();
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const capaCan = usePermissions("capa", { capaRisk: capa.risk });
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<DetailSubTab>("overview");
   const [evidenceCounts, setEvidenceCounts] = useState<EvidenceCounts | null>(null);
@@ -126,7 +129,7 @@ export function CAPADetailModal({
   const ownerName = displayUserName(capa.owner, users);
   const dueText = dayjs.utc(capa.dueDate).tz(timezone).format(dateFormat);
   const overdue = isOverdueHelper(capa);
-  const editAllowed = !isViewOnly && capa.status !== "closed";
+  const editAllowed = !isViewOnly && capa.status !== "closed" && capaCan.canEdit;
   const closeReadOnly = isViewOnly || capa.status === "closed";
 
   const evidenceBadge = evidenceCounts ? `${evidenceCounts.complete}/${evidenceCounts.total}` : null;
@@ -326,8 +329,8 @@ export function CAPADetailModal({
           actionLines={actionLines}
           users={users}
           dateFormat={dateFormat}
-          canSign={canSign}
-          canCloseCapa={canCloseCapa}
+          canSign={canSign && capaCan.canSign}
+          canCloseCapa={canCloseCapa && capaCan.canSign}
           isOwner={user?.id === capa.owner}
           onSubmitForReview={() => onSubmitForReview(capa.id)}
           onSignOpen={onSignOpen}

@@ -184,16 +184,21 @@ export const authOptions: NextAuthOptions = {
               return null;
             }
 
-            // Plan gate — super_admin bypasses; customer_admin still checks
-            // because lapsed tenants should not be able to use the app. A plan
-            // is "usable" when it exists and has not expired (lifecycle
-            // suspension is handled separately by tenant.isActive above).
-            if (tenant.role !== "super_admin") {
+            // Plan gate. Two roles are exempt from needing an active (present,
+            // non-expired) plan to LOG IN:
+            //   - super_admin: the platform account has no plan at all.
+            //   - customer_admin: allowed in even with an expired / no plan so they
+            //     can reach the read-only Subscription view (which explains the
+            //     expiry and says to contact the platform admin). Their WRITES are
+            //     blocked separately by server-side cap enforcement
+            //     (assertCanAddUser / assertCanAddSite), so login itself is safe.
+            // Any other tenant-path role without an active plan IS blocked here.
+            // (Lifecycle suspension is handled separately by tenant.isActive above.)
+            const planExempt = tenant.role === "super_admin" || tenant.role === "customer_admin";
+            if (!planExempt) {
               const plan = tenant.plan;
-              const hasActiveSub =
-                !!plan &&
-                new Date(plan.expiryDate) > new Date();
-              if (!hasActiveSub && tenant.role !== "customer_admin") {
+              const hasActiveSub = !!plan && new Date(plan.expiryDate) > new Date();
+              if (!hasActiveSub) {
                 await auditAuthEvent({
                   action: "SUBSCRIPTION_BLOCKED",
                   tenantId: tenant.id,

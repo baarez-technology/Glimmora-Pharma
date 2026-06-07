@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   reviewRCA,
   overrideRCAReview,
@@ -46,8 +47,10 @@ export function RcaReviewSection({
 }) {
   const { role } = useRole();
   const currentUser = useAppSelector((s) => s.auth.user);
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const capaCan = usePermissions("capa");
   const canReview =
-    role === "qa_head" || role === "super_admin" || role === "customer_admin";
+    (role === "qa_head" || role === "super_admin" || role === "customer_admin") && capaCan.canReview;
 
   // Tighter status window than alignment review — only valid in_progress.
   // open: nothing to review yet. pending_qa_review onward: past this gate.

@@ -15,6 +15,7 @@ import { displayUserName } from "@/lib/identity-display";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import {
@@ -192,6 +193,8 @@ export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePa
   const companyName = org.companyName;
   const user = useAppSelector((s) => s.auth.user);
   const { role } = useRole();
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const evCan = usePermissions("evidence");
 
   /* ── Aggregate documents ── */
   function getAllDocuments(): EvidenceDocument[] {
@@ -585,7 +588,7 @@ export function EvidencePage({ docs: prismaDocs, capaEvidenceFiles }: EvidencePa
           </p>
         </div>
         <div className="flex gap-2">
-          {role !== "viewer" && (
+          {role !== "viewer" && evCan.canCreate && (
             <Button
               variant="primary"
               icon={Plus}

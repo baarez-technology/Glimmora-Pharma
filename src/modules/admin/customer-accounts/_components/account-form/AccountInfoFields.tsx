@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef } from "react";
-import { Upload, FileText } from "lucide-react";
+import { useRef, useMemo, useEffect } from "react";
+import { Upload, Image as ImageIcon } from "lucide-react";
 import { type AccountFormData, type AccountFormSetter } from "../../helpers";
 
 const LABEL = "block text-[11px] font-medium mb-1" as const;
@@ -32,6 +32,11 @@ export function AccountInfoFields({ form, set, markTouched, errorVisible, errors
   const fileRef = useRef<HTMLInputElement>(null);
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => set("logoFile", e.target.files?.[0] ?? null);
 
+  // Object URL for the selected logo, so we can show an actual image thumbnail.
+  // Created in render (no flash) and revoked when it changes / on unmount.
+  const logoPreview = useMemo(() => (form.logoFile ? URL.createObjectURL(form.logoFile) : null), [form.logoFile]);
+  useEffect(() => () => { if (logoPreview) URL.revokeObjectURL(logoPreview); }, [logoPreview]);
+
   return (
     <div>
       <h3 className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Account Information</h3>
@@ -54,25 +59,8 @@ export function AccountInfoFields({ form, set, markTouched, errorVisible, errors
           <p id="customerName-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.customerName}</p>
         )}
       </div>
-      <div className="mb-3">
-        <label htmlFor="acct-username" className={LABEL} style={{ color: "var(--text-secondary)" }}>
-          Username <span style={{ color: "var(--danger)" }}>*</span>
-        </label>
-        <input
-          id="acct-username"
-          type="text"
-          value={form.username}
-          onChange={(e) => { setUsernameAuto(false); set("username", e.target.value); }}
-          onBlur={() => markTouched("username")}
-          placeholder="e.g. acme_admin"
-          aria-invalid={errorVisible("username")}
-          aria-describedby={errorVisible("username") ? "username-error" : undefined}
-          className={`input ${errorVisible("username") ? "border-[#dc2626] focus:border-[#dc2626]" : ""}`}
-        />
-        {errorVisible("username") && (
-          <p id="username-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.username}</p>
-        )}
-      </div>
+      {/* Email is positioned BEFORE Username so the natural top-down flow types
+          the email first, auto-deriving the username (until manually edited). */}
       <div className="mb-3">
         <label htmlFor="acct-email" className={LABEL} style={{ color: "var(--text-secondary)" }}>
           Email <span style={{ color: "var(--danger)" }}>*</span>
@@ -96,13 +84,37 @@ export function AccountInfoFields({ form, set, markTouched, errorVisible, errors
           <p id="email-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.email}</p>
         )}
       </div>
+      <div className="mb-3">
+        <label htmlFor="acct-username" className={LABEL} style={{ color: "var(--text-secondary)" }}>
+          Username <span style={{ color: "var(--danger)" }}>*</span>
+          <span className="ml-1 font-normal" style={{ color: "var(--text-muted)" }}>(auto-filled from email — edit to override)</span>
+        </label>
+        <input
+          id="acct-username"
+          type="text"
+          value={form.username}
+          onChange={(e) => { setUsernameAuto(false); set("username", e.target.value); }}
+          onBlur={() => markTouched("username")}
+          placeholder="e.g. acme_admin"
+          aria-invalid={errorVisible("username")}
+          aria-describedby={errorVisible("username") ? "username-error" : undefined}
+          className={`input ${errorVisible("username") ? "border-[#dc2626] focus:border-[#dc2626]" : ""}`}
+        />
+        {errorVisible("username") && (
+          <p id="username-error" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.username}</p>
+        )}
+      </div>
       {/* Compact logo upload — full drop-zone overlay is on the modal root. */}
       <div>
         <label className={LABEL} style={{ color: "var(--text-secondary)" }}>Logo <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(optional)</span></label>
         {form.logoFile ? (
           <div className="flex items-center gap-3 p-2 rounded-lg" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
-            <div className="w-10 h-10 rounded shrink-0 flex items-center justify-center" style={{ background: "var(--bg-surface)", border: "1px solid var(--bg-border)" }}>
-              <FileText className="w-5 h-5" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+            <div className="w-10 h-10 rounded shrink-0 overflow-hidden flex items-center justify-center" style={{ background: "var(--bg-surface)", border: "1px solid var(--bg-border)" }}>
+              {logoPreview ? (
+                <img src={logoPreview} alt="Selected logo preview" className="w-full h-full object-cover" />
+              ) : (
+                <ImageIcon className="w-5 h-5" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[12px] truncate" style={{ color: "var(--text-primary)" }}>{form.logoFile.name}</p>

@@ -29,6 +29,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import clsx from "clsx";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   GitBranch,
   ChevronDown,
@@ -1467,7 +1468,10 @@ export function InvestigationTab({
     }
   }, [selectedObs]);
 
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const fdaCan = usePermissions("fda483");
   const writable = role !== "viewer"
+    && fdaCan.canEdit
     && liveEvent.status !== "Response Submitted"
     && liveEvent.status !== "Closed";
 

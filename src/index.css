@@ -459,7 +459,10 @@ body {
     border-color: var(--brand);
   }
   .toggle-track.off {
-    background: var(--bg-elevated);
+    /* --bg-border contrasts against the card surface in BOTH modes (the old
+       --bg-elevated was ~identical to the dark surface → invisible). The white
+       thumb supplies the light cue; the ON state stays amber (--brand). */
+    background: var(--bg-border);
   }
   .toggle-thumb {
     @apply absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200;

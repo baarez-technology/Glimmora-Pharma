@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { FDA483_SIGN_ROLES } from "@/lib/permissions/roleSets";
 import {
   canonicalizeFDA483ResponseContent,
   computeContentHash,
@@ -563,7 +564,7 @@ export async function signSubmitFDA483Response(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!FDA483_SIGN_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can sign and submit FDA 483 response" };
   }
 

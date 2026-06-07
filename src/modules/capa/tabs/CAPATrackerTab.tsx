@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/Badge";
 import { CAPA_STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { CAPADetailModal } from "../modals/CAPADetailModal";
 import { displayUserName, displaySiteName } from "@/lib/identity-display";
+import { usePermissions } from "@/hooks/usePermissions";
 
 /* ── Helpers ── */
 const SOURCE_LABEL: Record<string, string> = { "483": "FDA 483 Observation", "Gap Assessment": "Gap Assessment Finding", Deviation: "Deviation Report", "Internal Audit": "Internal Audit", Complaint: "Complaint", OOS: "OOS", "Change Control": "Change Control" };
@@ -61,6 +62,8 @@ export function CAPATrackerTab({
   onNavigateGap, onNavigateCapa,
 }: CAPATrackerTabProps) {
   const router = useRouter();
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const capaCan = usePermissions("capa");
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const showSiteColumn = !selectedSiteId && sites.length > 1;
   const siteName = (id: string) => displaySiteName(id, sites);
@@ -110,8 +113,8 @@ export function CAPATrackerTab({
         <Dropdown placeholder="All risks" value={riskFilter} onChange={setRiskFilter} width="w-32" options={[{ value: "", label: "All risks" }, { value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Medium", label: "Medium" }, { value: "Low", label: "Low" }]} />
         <Dropdown placeholder="All sources" value={sourceFilter} onChange={setSourceFilter} width="w-40" options={[{ value: "", label: "All sources" }, { value: "483", label: "483" }, { value: "Internal Audit", label: "Internal Audit" }, { value: "Deviation", label: "Deviation" }, { value: "Complaint", label: "Complaint" }, { value: "OOS", label: "OOS" }, { value: "Change Control", label: "Change Control" }, { value: "Gap Assessment", label: "Gap Assessment" }]} />
         {anyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
-        {!isViewOnly && onAiOpen && <Button variant="secondary" size="sm" icon={Sparkles} onClick={onAiOpen}>AI CAPA</Button>}
-        {!isViewOnly && <Button variant="primary" size="sm" icon={Plus} onClick={onAddOpen}>New CAPA</Button>}
+        {!isViewOnly && capaCan.canCreate && onAiOpen && <Button variant="secondary" size="sm" icon={Sparkles} onClick={onAiOpen}>AI CAPA</Button>}
+        {!isViewOnly && capaCan.canCreate && <Button variant="primary" size="sm" icon={Plus} onClick={onAddOpen}>New CAPA</Button>}
       </div>
 
       {/* Table — always full width */}

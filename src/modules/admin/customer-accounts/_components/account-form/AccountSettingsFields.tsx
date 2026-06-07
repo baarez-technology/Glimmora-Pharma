@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle } from "lucide-react";
 import { Toggle } from "@/components/ui/Toggle";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { type AccountFormData, type AccountFormSetter } from "../../helpers";
@@ -36,20 +37,50 @@ export function AccountSettingsFields({ form, set, mode, isSuperAdmin }: Account
         <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Language</label><Dropdown value={form.language} onChange={(v) => set("language", v)} options={LANGUAGE_OPTIONS} width="w-full" size="sm" /></div>
         <div><label className={LABEL} style={{ color: "var(--text-secondary)" }}>Time Zone</label><Dropdown value={form.timezone} onChange={(v) => set("timezone", v)} options={TIMEZONE_OPTIONS} width="w-full" size="sm" /></div>
       </div>
-      {/* Active toggle: only in edit mode. Create defaults to active=true (set in makeEmptyForm); deactivation is a separate row-level action. */}
-      {mode === "edit" && (
-        <div className="mb-3">
-          <Toggle id="toggle-active" label="Active" checked={form.active} onChange={(v) => set("active", v)} />
-        </div>
-      )}
-      {isSuperAdmin && (
-        <div>
-          <Toggle id="toggle-mfa" label="Require MFA" checked={form.mfaEnabled} onChange={(v) => set("mfaEnabled", v)} />
-          <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
-            User receives an email verification code on every login. Enabling on an existing tenant signs out all active sessions.
-          </p>
-        </div>
-      )}
+
+      {/* Toggle settings — each in its own bordered row for clear separation, using
+          Toggle's label + description so the helper aligns consistently. */}
+      <div className="space-y-3">
+        {/* Active toggle: edit mode only (create defaults to active=true). */}
+        {mode === "edit" && (
+          <div className="rounded-lg border p-3" style={{ borderColor: "var(--bg-border)" }}>
+            <Toggle
+              id="toggle-active"
+              label="Active"
+              description="When off, the account is suspended and all users lose access."
+              checked={form.active}
+              onChange={(v) => set("active", v)}
+            />
+            {/* Inline suspend warning — shown before Save whenever the toggle is
+                off, mirroring the dedicated Suspend modal's consequence text. The
+                actual TENANT_SUSPENDED / TENANT_REACTIVATED audit still fires in
+                the updateTenant action on the isActive change. */}
+            {!form.active && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg p-2.5" style={{ background: "var(--warning-bg)", border: "1px solid var(--warning)" }}>
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--warning)" }} aria-hidden="true" />
+                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  <span className="font-semibold" style={{ color: "var(--warning)" }}>Suspending this account.</span>{" "}
+                  All users in this tenant lose access until reactivated. No data is deleted; audit history is preserved.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Require MFA — super_admin only. Helper moved into the Toggle's
+            description so it aligns the same way as the Active row. */}
+        {isSuperAdmin && (
+          <div className="rounded-lg border p-3" style={{ borderColor: "var(--bg-border)" }}>
+            <Toggle
+              id="toggle-mfa"
+              label="Require MFA"
+              description="User receives an email verification code on every login. Enabling on an existing tenant signs out all active sessions."
+              checked={form.mfaEnabled}
+              onChange={(v) => set("mfaEnabled", v)}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

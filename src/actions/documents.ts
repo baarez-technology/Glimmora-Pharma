@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { DOCUMENT_APPROVE_ROLES } from "@/lib/permissions/roleSets";
 import {
   canonicalizeDocumentApprovalContent,
   computeContentHash,
@@ -81,7 +82,7 @@ export async function approveDocument(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!DOCUMENT_APPROVE_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can approve documents" };
   }
 

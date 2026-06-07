@@ -25,6 +25,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { usePermissions } from "@/hooks/usePermissions";
 import clsx from "clsx";
 import {
   FileText,
@@ -303,8 +304,10 @@ export function ResponseDetailTab({
   }
 
   /* ── AGI button visibility (mirrors the old ResponseTab gate) ── */
-  const showAiButton = agiMode !== "manual" && agiAgent && role !== "viewer";
-  const canEditDraft = role !== "viewer" && !isTerminal;
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const fdaCan = usePermissions("fda483");
+  const showAiButton = agiMode !== "manual" && agiAgent && role !== "viewer" && fdaCan.canEdit;
+  const canEditDraft = role !== "viewer" && !isTerminal && fdaCan.canEdit;
 
   /* ════════════ Render ════════════ */
 

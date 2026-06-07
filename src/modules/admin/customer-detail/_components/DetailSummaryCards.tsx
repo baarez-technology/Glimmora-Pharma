@@ -2,13 +2,15 @@
 
 import { MapPin, Users, CreditCard, CheckCircle2 } from "lucide-react";
 import { planLabel } from "@/lib/plans";
+import dayjs from "@/lib/dayjs";
 import { type PlanConfig } from "@/store/auth.slice";
 
 /**
  * Container-level summary for the super_admin detail view: utilisation against
- * the plan cap (Users X / cap, Sites X / cap) plus the plan + validity. These
- * are aggregate counts only — no individual user or site details (the bright
- * line: super_admin manages the container, not what's inside it).
+ * the plan cap (Users X / cap, Sites X / cap), the plan tier, and validity
+ * (with days remaining). Aggregate counts only — no individual user/site
+ * details (the bright line). Caps shown here are USAGE-vs-cap; the Plan Details
+ * card shows the cap SPEC — complementary, not duplicate.
  */
 interface DetailSummaryCardsProps {
   userCount: number;
@@ -18,11 +20,19 @@ interface DetailSummaryCardsProps {
 }
 
 export function DetailSummaryCards({ userCount, siteCount, plan, planExpired }: DetailSummaryCardsProps) {
-  const cards = [
-    { label: "Sites", value: `${siteCount} / ${plan ? plan.maxSites : "—"}`, icon: MapPin, color: "var(--brand)" },
+  const daysRemaining = plan ? Math.max(0, dayjs.utc(plan.expiryDate).diff(dayjs(), "day")) : null;
+
+  const cards: Array<{ label: string; value: string; icon: typeof Users; color: string; valueClassName?: string }> = [
     { label: "Users", value: `${userCount} / ${plan ? plan.maxUsers : "—"}`, icon: Users, color: "var(--success)" },
+    { label: "Sites", value: `${siteCount} / ${plan ? plan.maxSites : "—"}`, icon: MapPin, color: "var(--brand)" },
     { label: "Plan", value: plan ? planLabel(plan.tier, plan.displayName) : "None", icon: CreditCard, color: "var(--warning)" },
-    { label: "Plan valid", value: plan && !planExpired ? "Yes" : "No", icon: CheckCircle2, color: plan && !planExpired ? "var(--success)" : "var(--text-muted)" },
+    {
+      label: "Plan validity",
+      value: !plan ? "No plan" : planExpired ? "Expired" : `Valid · ${daysRemaining} days`,
+      icon: CheckCircle2,
+      color: !plan ? "var(--text-muted)" : planExpired ? "var(--danger)" : "var(--success)",
+      valueClassName: "text-[14px]",
+    },
   ];
 
   return (
@@ -35,9 +45,9 @@ export function DetailSummaryCards({ userCount, siteCount, plan, planExpired }: 
           >
             <stat.icon className="w-5 h-5" style={{ color: stat.color }} aria-hidden="true" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="stat-label">{stat.label}</p>
-            <p className="text-[20px] font-bold" style={{ color: "var(--card-text)" }}>{stat.value}</p>
+            <p className={`font-bold truncate ${stat.valueClassName ?? "text-[20px]"}`} style={{ color: "var(--card-text)" }}>{stat.value}</p>
           </div>
         </div>
       ))}
