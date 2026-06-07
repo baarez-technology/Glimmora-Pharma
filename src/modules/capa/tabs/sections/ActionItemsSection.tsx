@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useAppSelector } from "@/hooks/useAppSelector";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import {
   addActionItem,
@@ -73,6 +74,12 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
   // â€” correct for now (the server already blocks them; owner-access is a
   // later phase). canView stays open so they can still read the plan.
   const capaCan = usePermissions("capa");
+  // Phase 3 — assigned-owner access path. An owner who is NOT an author role
+  // may still work the task addressed to them (status + completion notes). ID
+  // comparison only; viewers are excluded (mirrors the server isAssignedToTask
+  // and the server gate in updateActionItem).
+  const authUser = useAppSelector((s) => s.auth.user);
+  const isViewer = authUser?.role === "viewer";
   const { users } = useTenantConfig();
   // Live items — seeded from the Redux CAPA prop, refetched on every
   // successful mutation so the row state stays consistent with the
@@ -132,8 +139,18 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
   const isTerminal = capa.status === "closed" || capa.status === "rejected";
   const isLocked = LOCKED_CAPA_STATUSES.has(capa.status);
   // Gated on capaCan.canEdit (COMPLIANCE_AUTHOR_ROLES) to match the server.
+  // Structural edits + skip stay author-only.
   const canStructuralEdit = !isTerminal && !isLocked && capaCan.canEdit;
   const canStatusUpdate = !isTerminal && capaCan.canEdit;
+  // Phase 3 — the assigned owner of THIS row may set in-progress / complete
+  // (+ notes), even without an author role. Skip + structural remain author-only
+  // (the server rejects owner skip/structural edits).
+  function isAssignedOwner(item: CAPAActionItem): boolean {
+    return !isViewer && !!item.ownerId && item.ownerId === authUser?.id;
+  }
+  function canOwnerStatus(item: CAPAActionItem): boolean {
+    return !isTerminal && isAssignedOwner(item);
+  }
 
   // Add-row state.
   const [addOpen, setAddOpen] = useState(false);
@@ -483,8 +500,8 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                       </div>
                     ) : (
                       <div className="flex justify-end gap-1 flex-wrap">
-                        {/* Status quick-actions */}
-                        {canStatusUpdate && item.status === "pending" && (
+                        {/* Status quick-actions — author OR assigned owner */}
+                        {(canStatusUpdate || canOwnerStatus(item)) && item.status === "pending" && (
                           <Button
                             variant="ghost"
                             size="xs"
@@ -494,7 +511,7 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                             title="Mark in progress"
                           />
                         )}
-                        {canStatusUpdate && item.status !== "complete" && item.status !== "skipped" && (
+                        {(canStatusUpdate || canOwnerStatus(item)) && item.status !== "complete" && item.status !== "skipped" && (
                           <Button
                             variant="ghost"
                             size="xs"
@@ -507,6 +524,7 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                             title="Mark complete"
                           />
                         )}
+                        {/* Skip stays author-only (server rejects owner skip). */}
                         {canStatusUpdate && item.status !== "complete" && item.status !== "skipped" && (
                           <Button
                             variant="ghost"

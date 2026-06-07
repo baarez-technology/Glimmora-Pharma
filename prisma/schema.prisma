@@ -135,6 +135,8 @@ model User {
   completedCAPAActionItems CAPAActionItem[] @relation("CAPAActionItemCompletedBy")
   // SoD integrity (CAPA audit FIX 1) — reverse field for the CAPA.createdById FK.
   createdCAPAs             CAPA[]           @relation("CAPACreatedBy")
+  // Phase 3 — reverse field for the CAPA.ownerId driver FK.
+  ownedCAPAs               CAPA[]           @relation("CAPAOwner")
   // Phase 2 — reverse fields for the new nullable FKs.
   reworkRequestedCAPAActionItems CAPAActionItem[] @relation("CAPAActionItemReworkRequestedBy")
   uploadedEvidenceFiles          EvidenceFile[]   @relation("EvidenceFileUploadedBy")
@@ -355,6 +357,12 @@ model CAPA {
   // regulatory record that must survive User deletion.
   createdBy          String
   createdById        String?
+  // Phase 3 — authoritative CAPA driver/owner userId FK (the owner dropdown
+  // already selects a userId; createCAPA/updateCAPA capture it here). The
+  // legacy `owner` string stays as the denormalised display value. Nullable +
+  // SetNull, same pattern as createdById. Enables the CAPA-driver access path
+  // (isAssignedToTask / addCAPAComment) to resolve the driver as a real User.
+  ownerId            String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -367,6 +375,7 @@ model CAPA {
   effectivenessSignature SignedRecord?                @relation("CAPAEffectivenessSignature", fields: [effectivenessSignatureId], references: [id])
   deviation              Deviation?                   @relation("CAPADeviationSource", fields: [deviationId], references: [id], onDelete: SetNull)
   createdByUser          User?                        @relation("CAPACreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  ownerUser              User?                        @relation("CAPAOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   documents              CAPADocument[]
   evidenceItems          EvidenceItem[]
   effectivenessCriteria  CAPAEffectivenessCriterion[]

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
+import { isAssignedToTask } from "@/lib/permissions/roleSets";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import {
@@ -319,19 +320,28 @@ export async function addEvidenceFile(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
-  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
-    return { success: false, error: "Your role does not permit this action." };
-  }
-  // If an action item is supplied, it must belong to the same CAPA + tenant.
+  // Phase 3 — authorization: author-role OR the assigned-owner path. The owner
+  // path is allowed ONLY for an action-scoped upload (actionItemId provided AND
+  // the session user owns that action item) — "their proof, on their action".
+  // Category-level uploads (no actionItemId) stay author-only. requireGxPAuthor
+  // (above) and the viewer hard-stop in isAssignedToTask precede this.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  let ownerOfAction = false;
   if (actionItemId) {
+    // Action item must belong to the same CAPA + tenant.
     const ai = await prisma.cAPAActionItem.findFirst({
       where: { id: actionItemId, capaId: item.capa.id, tenantId: item.capa.tenantId },
-      select: { id: true },
+      select: { id: true, ownerId: true },
     });
     if (!ai) {
       return { success: false, error: "Action item not found on this CAPA." };
     }
+    ownerOfAction = isAssignedToTask(session, ai);
   }
+  if (!isAuthorRole && !(actionItemId && ownerOfAction)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
+  const accessBasis: "authorRole" | "assignedOwner" = isAuthorRole ? "authorRole" : "assignedOwner";
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentHashSha256 = createHash("sha256").update(buffer).digest("hex");
@@ -380,6 +390,8 @@ export async function addEvidenceFile(
           fileName: sanitized,
           fileSize: file.size,
           contentHashSha256,
+          ...(actionItemId ? { actionItemId } : {}),
+          accessBasis,
         }),
       },
     });

@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
+import { isAssignedToTask } from "@/lib/permissions/roleSets";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import {
   ACTION_ITEMS_AUDIT_MODULE,
@@ -274,10 +275,6 @@ export async function updateActionItem(
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
 
-  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
-    return { success: false, error: "Your role does not permit this action." };
-  }
-
   // Determine what kind of update is being requested.
   const isStatusOnlyUpdate =
     parsed.data.status !== undefined &&
@@ -287,6 +284,33 @@ export async function updateActionItem(
     parsed.data.dueDate === undefined;
   const targetIsCompleteOrSkipped =
     parsed.data.status === "complete" || parsed.data.status === "skipped";
+
+  // Phase 3 — authorization: author-role OR assigned-owner path. The owner
+  // path permits ONLY a status-only update to pending|in_progress|complete
+  // (+ completionNotes). Structural edits (description/owner/dueDate/reorder/
+  // delete) and the skipped/rework statuses stay author-only. requireGxPAuthor
+  // (platform-admin block, above) and the viewer hard-stop baked into
+  // isAssignedToTask both precede this check.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  const isAssignedOwner = isAssignedToTask(session, existing);
+  const OWNER_ALLOWED_STATUSES: readonly string[] = ["pending", "in_progress", "complete"];
+  const ownerStatusOnly =
+    isStatusOnlyUpdate &&
+    parsed.data.status !== undefined &&
+    OWNER_ALLOWED_STATUSES.includes(parsed.data.status);
+  if (!isAuthorRole) {
+    if (!isAssignedOwner) {
+      return { success: false, error: "Your role does not permit this action." };
+    }
+    if (!ownerStatusOnly) {
+      return {
+        success: false,
+        error:
+          "As the assigned owner you can only update this task's status (in progress / complete) and add completion notes — not edit its details.",
+      };
+    }
+  }
+  const accessBasis: "authorRole" | "assignedOwner" = isAuthorRole ? "authorRole" : "assignedOwner";
 
   // Lock checks.
   if (isTerminalStatus(existing.capa.status)) {
@@ -402,7 +426,7 @@ export async function updateActionItem(
           dueDate: existing.dueDate.toISOString(),
           status: existing.status,
         }),
-        newValue: JSON.stringify({ changedFields }),
+        newValue: JSON.stringify({ changedFields, accessBasis }),
       },
     });
 
@@ -424,6 +448,7 @@ export async function updateActionItem(
             to: parsed.data.status,
             completedBy: targetIsCompleteOrSkipped ? session.user.name : null,
             notes: parsed.data.completionNotes ?? null,
+            accessBasis,
           }),
         },
       });

@@ -33,6 +33,23 @@ export function canAuthorGxP(role: string): boolean {
   return !isPlatformAdmin(role);
 }
 
+/* ── Owner/assignee access path (Phase 3) ───────────────────────────────────
+ * The narrow rule that lets a fixer work the tasks ADDRESSED to them without
+ * being in COMPLIANCE_AUTHOR_ROLES. Strictly ID-based — NEVER a display-name
+ * comparison (names are not identities; see the SoD createdById migration).
+ * A "viewer" is hard-stopped here so the owner path can never resurrect a
+ * read-only role even if it is somehow recorded as an owner. Callers still run
+ * their own gxp/platform-admin (requireGxPAuthor) and viewer guards first; this
+ * is purely the "is this person the assignee?" predicate. */
+export function isAssignedToTask(
+  session: { user: { id: string; role: string } },
+  task: { ownerId: string | null | undefined },
+): boolean {
+  if (session.user.role === "viewer") return false; // viewer hard-stop
+  if (!task.ownerId) return false;
+  return session.user.id === task.ownerId;
+}
+
 /* ── Compliance authoring (findings, CAPA, evidence, action items, criteria) ──
  * Canonical home (moved here from src/lib/auth.ts, which now RE-EXPORTS these
  * so every existing `@/lib/auth` importer keeps working with ONE definition).

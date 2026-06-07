@@ -99,6 +99,33 @@ const ReopenCAPASchema = z.object({
 // (@/lib/auth); identical values, single source of truth.
 const CAPA_WRITE_ROLES = COMPLIANCE_AUTHOR_ROLES;
 
+/**
+ * Phase 3 — resolve the CAPA `owner` string to a real User.id (the
+ * authoritative driver FK). The owner dropdown stores a userId, so an exact
+ * id match wins; otherwise fall back to a same-tenant UNIQUE display-name match
+ * (legacy/AI/FDA paths that may pass a name). Returns null when owner is empty,
+ * is not a current User, or is an ambiguous name — the driver simply stays
+ * unresolved rather than pointing at the wrong person. Mirrors the migration
+ * backfill logic exactly.
+ */
+async function resolveOwnerUserId(
+  tenantId: string,
+  owner: string | undefined | null,
+): Promise<string | null> {
+  if (!owner) return null;
+  const byId = await prisma.user.findFirst({
+    where: { id: owner, tenantId },
+    select: { id: true },
+  });
+  if (byId) return byId.id;
+  const byName = await prisma.user.findMany({
+    where: { name: owner, tenantId },
+    select: { id: true },
+    take: 2,
+  });
+  return byName.length === 1 ? byName[0].id : null;
+}
+
 export async function createCAPA(
   input: z.input<typeof CreateCAPASchema>,
 ): Promise<ActionResult> {
@@ -131,6 +158,10 @@ export async function createCAPA(
       dueDate,
       ...rest
     } = parsed.data;
+
+    // Phase 3 — capture the driver userId FK alongside the legacy owner string.
+    // Resolved once before the (retryable) transaction since it only reads User.
+    const ownerId = await resolveOwnerUserId(session.user.tenantId, rest.owner);
 
     // Race-safe sequence allocation. Two server actions creating CAPAs at
     // the same instant can both read count=N inside their respective
@@ -188,6 +219,8 @@ export async function createCAPA(
               // owner is now zod-optional; the Prisma column is still
               // non-null, so default an empty string when not supplied.
               owner: rest.owner ?? "",
+              // Phase 3 — authoritative driver FK (null when unresolvable).
+              ownerId,
               reference,
               tenantId: session.user.tenantId,
               status: "open",
@@ -420,11 +453,19 @@ export async function updateCAPA(
         }
       : {};
 
+    // Phase 3 — keep the driver FK in step with the owner string whenever
+    // owner is part of this update (resolved/cleared accordingly).
+    const ownerIdUpdate =
+      parsed.data.owner !== undefined
+        ? await resolveOwnerUserId(session.user.tenantId, parsed.data.owner)
+        : undefined;
+
     const capa = await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
         ...parsed.data,
         ...(parsed.data.dueDate ? { dueDate: new Date(parsed.data.dueDate) } : {}),
+        ...(parsed.data.owner !== undefined ? { ownerId: ownerIdUpdate } : {}),
         ...rcaInvalidateData,
       },
     });
