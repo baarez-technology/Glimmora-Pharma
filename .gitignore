@@ -72,8 +72,3 @@ CLAUDE.draft.md
 CLAUDE.legacy.md
 PROJECT_BRIEF.md
 docs/CODE_HEALTH_SCAN.md
-
-# Local dev database (untracked; migrations + seed are source of truth)
-prisma/dev.db
-prisma/dev.db-journal
-prisma/dev.db.backup-*
