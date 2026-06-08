@@ -127,6 +127,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           // through the owner/driver paths, NOT the capa matrix entry. Visible
           // to every non-super_admin role (viewer gets a read-only page).
           if (item.path === "worklist") return true;
+          // Phase 6 cleanup FIX 1 — CAPA module locked to qa_head +
+          // customer_admin (matrix grants both `capa: full`); other roles use
+          // the Worklist. super_admin already returned [] above.
+          if (item.path === "capa") return role === "qa_head" || role === "customer_admin";
           if (item.path === "readiness" || item.path === "deviation") return true;
           if (item.path === "audit-trail")
             // super_admin already returned [] above, so it's excluded here.

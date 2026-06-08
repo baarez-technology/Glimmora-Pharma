@@ -97,9 +97,18 @@ export function canWriteDeviation(role: string): boolean {
 }
 
 /* ── FDA 483 (fda483.ts) ── create/edit = any non-viewer; sign & submit =
- *   qa_head/super_admin; delete = qa_head/customer_admin/super_admin. ── */
+ *   qa_head/super_admin; delete = qa_head/customer_admin (Phase-6 cleanup
+ *   FIX 4 — tightened from "any non-viewer via requireGxPAuthor" to the app's
+ *   established admin-delete pattern; super_admin stays excluded by the wall). ── */
 export const FDA483_SIGN_ROLES: readonly string[] = ["qa_head", "super_admin"];
-export const FDA483_DELETE_ROLES: readonly string[] = ["qa_head", "customer_admin", "super_admin"];
+export const FDA483_DELETE_ROLES: readonly string[] = ["qa_head", "customer_admin"];
+
+/* ── CAPA module surface (Phase-6 cleanup FIX 1) ── The CAPA module (nav +
+ *   /capa routes) is locked to qa_head + customer_admin (the matrix grants
+ *   both `capa: full`); every other role reaches their CAPA work through the
+ *   Worklist instead. super_admin is walled to /admin. Server action gates are
+ *   unchanged (Phases 3-5 own those). */
+export const CAPA_MODULE_VIEW_ROLES: readonly string[] = ["qa_head", "customer_admin"];
 
 /* ── Documents (documents.ts) ── NOTE: createDocument currently has NO server
  *   role gate (only requireAuth) — flagged in the audit. approve / delete =

@@ -66,7 +66,7 @@ const STATUS_VARIANT: Record<CAPAActionItem["status"], "gray" | "amber" | "green
   rework: "red",
 };
 
-export function ActionItemsSection({ capa }: { capa: CAPA }) {
+export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFilter?: string | null }) {
   // FIX 3 â€” the action-item mutation server actions (addActionItem /
   // updateActionItem / deleteActionItem / reorderActionItems) all gate on
   // COMPLIANCE_AUTHOR_ROLES. capaCan.canEdit mirrors that exact set, so the
@@ -140,6 +140,10 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
   useEffect(() => {
     setItems(capa.actionItems ?? []);
   }, [capa.actionItems, capa.id]);
+
+  // Phase 6 — person filter (Worklist/detail pill tap). Filters the rendered
+  // rows to one owner; null = everyone. Filtering is display-only.
+  const visibleItems = ownerFilter ? items.filter((i) => i.ownerId === ownerFilter) : items;
 
   // Lock state mirrors the server invariants. closed/rejected = no
   // mutations at all. pending_qa_review / pending_verification = only
@@ -400,12 +404,14 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
         </p>
       )}
 
-      {items.length === 0 ? (
+      {visibleItems.length === 0 ? (
         <p
           className="text-[12px] italic mb-3"
           style={{ color: "var(--text-muted)" }}
         >
-          No action plan items yet. {canStructuralEdit ? "Add the first step below." : "The author has not yet defined the action plan."}
+          {ownerFilter
+            ? "(none of theirs) — no action items owned by the filtered person."
+            : `No action plan items yet. ${canStructuralEdit ? "Add the first step below." : "The author has not yet defined the action plan."}`}
         </p>
       ) : (
         <table className="w-full text-[11px] mb-3" role="table">
@@ -421,6 +427,9 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
           </thead>
           <tbody>
             {items.map((item, idx) => {
+              // Keep idx tied to the full list so reorder stays correct; skip
+              // rendering rows filtered out by the active person filter.
+              if (ownerFilter && item.ownerId !== ownerFilter) return null;
               const overdue = overdueDays(item);
               const isEditing = editId === item.id;
               return (

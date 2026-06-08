@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk } from "@/lib/auth";
-import { DOCUMENT_APPROVE_ROLES } from "@/lib/permissions/roleSets";
+import { DOCUMENT_APPROVE_ROLES, COMPLIANCE_AUTHOR_ROLES } from "@/lib/permissions/roleSets";
 import {
   canonicalizeDocumentApprovalContent,
   computeContentHash,
@@ -37,6 +37,13 @@ export async function createDocument(
   const parsed = CreateDocumentSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  // Phase 6 cleanup FIX 3 — createDocument was requireAuth-only (any
+  // authenticated user, incl. viewer, could create). Gate on the documents/
+  // evidence author set the UI already assumes (usePermissions("evidence")
+  // .canCreate = has(COMPLIANCE_AUTHOR_ROLES)). Viewer is excluded.
+  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit creating documents." };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
