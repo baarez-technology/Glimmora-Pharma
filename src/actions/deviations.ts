@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, ADMIN_DELETE_ROLES } from "@/lib/auth";
+import { DEVIATION_QA_ROLES } from "@/lib/permissions/roleSets";
 import {
   canonicalizeDeviationClosureContent,
   computeContentHash,
@@ -301,7 +302,7 @@ export async function closeDeviation(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can close deviations" };
   }
 
@@ -525,7 +526,7 @@ export async function rejectDeviation(
   input: z.input<typeof RejectSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can reject deviations" };
   }
   const parsed = RejectSchema.safeParse(input);
@@ -601,7 +602,7 @@ const CapaDecisionSchema = z.object({
 });
 
 function isQARole(role: string): boolean {
-  return role === "qa_head" || role === "super_admin";
+  return DEVIATION_QA_ROLES.includes(role);
 }
 
 export async function saveInvestigationProgress(
@@ -767,6 +768,15 @@ export async function startInvestigation(id: string): Promise<ActionResult> {
  * transition (was the UI "Submit for QA review" button). Optimistic-locked;
  * viewers blocked. QA's segregation of duties (decider/closer != reporter !=
  * investigator) is enforced downstream at guardCapaDecision / closeDeviation.
+ *
+ * ACCOUNTABILITY HANDOFF — submitting is an attestation that the investigation
+ * is complete, so it is restricted to the investigation OWNER (or a qa_head
+ * submitting on QA's behalf). This mirrors the DeviationPage UI gate
+ * (`user.id === selected.owner || isQAHead`) so there is no UI/server drift,
+ * and is enforced SERVER-SIDE because an accountability control must not be
+ * UI-deep — a direct API call must not let one author submit another's
+ * investigation. `deviation.owner` stores a userId; for site users the session
+ * id IS their User.id, the same identity the UI compares.
  */
 export async function submitDeviationForReview(id: string): Promise<ActionResult> {
   const session = await requireAuth();
@@ -778,6 +788,20 @@ export async function submitDeviationForReview(id: string): Promise<ActionResult
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  // Owner-or-qa_head gate — enforced here, not just in the UI. The investigation
+  // owner attests completion; a qa_head may submit on QA's behalf.
+  const deviation = await prisma.deviation.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: { owner: true },
+  });
+  if (!deviation) {
+    return { success: false, error: "Deviation not found." };
+  }
+  const isOwner = session.user.id === deviation.owner;
+  const isQAHead = session.user.role === "qa_head";
+  if (!isOwner && !isQAHead) {
+    return { success: false, error: "Only the investigation owner can submit for review." };
   }
   const updated = await prisma.deviation.updateMany({
     where: { id, tenantId: session.user.tenantId, status: "under_investigation" },

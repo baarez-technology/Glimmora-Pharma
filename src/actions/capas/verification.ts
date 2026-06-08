@@ -97,6 +97,7 @@ export async function verifyCAPA(
       reference: true,
       description: true,
       createdBy: true,
+      createdById: true,
       verifiedAt: true,
     },
   });
@@ -134,7 +135,13 @@ export async function verifyCAPA(
   // SoD 1 â€” verifier â‰  creator. CAPA.createdBy is a display-name string
   // (no createdById FK yet on this model; that migration lands in a
   // future rung). Name-equality only; same caveat as approveCAPA.
-  if (existing.createdBy && existing.createdBy === session.user.name) {
+  // Prefer the authoritative createdById userId FK; fall back to display-name
+  // comparison only for legacy rows whose createdById is null. Robust against
+  // duplicate display names and renames.
+  const isSelfVerification = existing.createdById
+    ? existing.createdById === session.user.id
+    : Boolean(existing.createdBy) && existing.createdBy === session.user.name;
+  if (isSelfVerification) {
     try {
       await prisma.auditLog.create({
         data: {
@@ -149,7 +156,7 @@ export async function verifyCAPA(
           newValue: JSON.stringify({
             attemptedBy: session.user.id,
             capaCreator: existing.createdBy,
-            comparedBy: "displayName",
+            comparedBy: existing.createdById ? "userId" : "displayName",
           }),
         },
       });

@@ -77,6 +77,10 @@ export interface CAPA {
   ccBlockOverrideAt?: string;
   closedAt?: string;
   closedBy?: string;
+  // Phase 4 — targeted reject metadata (CAPA bounced back to in_progress).
+  rejectionReason?: string;
+  rejectedById?: string;
+  rejectedAt?: string;
   // Display name of the creator. Used client-side to mirror the server-side
   // SoD guard (a user cannot approve a CAPA they created). Name-equality
   // only — schema lacks createdById today.
@@ -111,7 +115,7 @@ export interface CAPA {
   effectivenessSignatureId?: string;
 }
 
-export type CAPAActionItemStatus = "pending" | "in_progress" | "complete" | "skipped";
+export type CAPAActionItemStatus = "pending" | "in_progress" | "complete" | "skipped" | "rework";
 
 export interface CAPAActionItem {
   id: string;
@@ -126,6 +130,11 @@ export interface CAPAActionItem {
   completedById?: string | null;
   completedAt?: string | null;
   completionNotes?: string | null;
+  // Phase 4 — targeted-reject rework metadata (kept as history even after the
+  // item is re-completed).
+  reworkReason?: string | null;
+  reworkRequestedById?: string | null;
+  reworkRequestedAt?: string | null;
   createdAt: string;
   createdBy: string;
   createdById?: string | null;

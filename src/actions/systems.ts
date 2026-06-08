@@ -5,6 +5,11 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import {
+  CSV_STAGE_REVIEW_ROLES as STAGE_REVIEW_ROLES,
+  CSV_SYSTEM_WRITE_ROLES as SYSTEM_WRITE_ROLES,
+  CSV_SYSTEM_DELETE_ROLES as SYSTEM_DELETE_ROLES,
+} from "@/lib/permissions/roleSets";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import { assertTenantOwnsParent } from "@/lib/tenantScope";
@@ -114,20 +119,15 @@ function toSystemData(d: Partial<z.infer<typeof SystemWritableSchema>>) {
 
 const STANDARD_STAGES = ["URS", "FS", "DS", "IQ", "OQ", "PQ", "RTR"] as const;
 
-// RUNG 2.8-verify — roles permitted to approve/reject a stage under review.
-// (Submit is open to all compliance roles; only viewers are blocked there.)
-const STAGE_REVIEW_ROLES: readonly string[] = ["qa_head", "customer_admin", "super_admin"];
+// Role-sets now live in the shared role-set module so the client UI mirrors the
+// exact same gates. Aliased to the local names so the rest of this file is
+// unchanged. (Submit is open to all compliance roles; only viewers are blocked
+// there; STAGE_REVIEW gates approve/reject; WRITE is validation work; DELETE is
+// the narrower admin-tier set.) These three sets are imported at the top of
+// this file from the shared role-set module so the client UI mirrors them.
 // Statuses a stage may be submitted FROM (pre-review states; "rejected" is a
 // legacy value — reject now lands a stage in "in_progress").
 const SUBMITTABLE_STAGE_STATUSES: readonly string[] = ["not_started", "in_progress", "draft", "rejected"];
-
-// RUNG 3A — server-side authorization for system inventory writes. Editing the
-// inventory is validation work (Validation Lead + QA + admins); deleting a
-// (possibly validated) system is an admin-tier destructive act, so delete is
-// the narrower set. Raw session role (NOT resolveUserFk). The Validation Lead
-// role key is "csv_val_lead" (see src/hooks/useRole.ts ROLE_LABELS).
-const SYSTEM_WRITE_ROLES: readonly string[] = ["csv_val_lead", "qa_head", "customer_admin", "super_admin"];
-const SYSTEM_DELETE_ROLES: readonly string[] = ["customer_admin", "super_admin"];
 
 /**
  * Next per-site system reference: SYS-<SITE_CODE>-<NNNN> (4-digit, zero-padded,

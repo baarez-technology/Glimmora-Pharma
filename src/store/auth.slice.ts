@@ -62,22 +62,35 @@ export interface TenantConfig {
   users: TenantUserConfig[];
 }
 
-export interface SubscriptionPlan {
+export type PlanTier = "ESSENTIALS" | "PROFESSIONAL" | "ENTERPRISE" | "TAILORED";
+
+/**
+ * Subscription Phase A — the single plan assigned to a tenant. Caps are the
+ * values FROZEN onto the Plan row at assignment (see src/lib/plans.ts), not
+ * live tier defaults. Replaces the old SubscriptionPlan (maxAccounts + status).
+ */
+export interface PlanConfig {
   id: string;
-  startDate: string;
-  endDate: string;
-  maxAccounts: number;
-  status: "Active" | "Inactive";
-  // Server-authoritative (Subscription.createdAt @default(now())). Optional
-  // because optimistic client-side inserts don't carry it — the next
-  // getTenants() reload supplies the real value.
+  tier: PlanTier;
+  displayName: string | null; // TAILORED only; null => UI shows "TAILORED"
+  maxUsers: number;
+  maxSites: number;
+  minRetentionYears: number;
+  startDate: string; // ISO
+  expiryDate: string; // ISO
+  // Server-authoritative (Plan.createdAt @default(now())). Optional because
+  // optimistic client-side inserts don't carry it — the next getTenants()
+  // reload supplies the real value.
   createdAt?: string;
 }
 
 export interface Tenant {
   id: string;
   name: string;
-  plan: "trial" | "professional" | "enterprise";
+  // Human-readable per-tenant code (Tenant.customerCode, e.g. "PGI_001").
+  // Display-only here. Optional because optimistic client-side inserts don't
+  // carry it — the next getTenants() reload supplies the real value.
+  customerCode?: string;
   adminEmail: string;
   // Server-authoritative (Tenant.createdAt @default(now())). Optional
   // because optimistic client-side inserts don't carry it — the next
@@ -86,7 +99,10 @@ export interface Tenant {
   active: boolean;
   mfaEnabled?: boolean;
   config: TenantConfig;
-  subscriptionPlans: SubscriptionPlan[];
+  // Subscription Phase A — exactly one optional plan per tenant (null until a
+  // super_admin assigns one). Replaces the old subscriptionPlans[] array and
+  // the vestigial `plan` tier-label string.
+  plan: PlanConfig | null;
 }
 
 interface AuthState {
@@ -168,27 +184,10 @@ const authSlice = createSlice({
       if (t) { const u = t.config.users.find((u) => u.id === payload.userId); if (u) Object.assign(u, payload.patch); }
     },
 
-    // Subscription plans
-    addSubscriptionPlan(state, { payload }: PayloadAction<{ tenantId: string; plan: SubscriptionPlan }>) {
+    // Subscription Phase A — set (or clear with null) the tenant's single plan.
+    setTenantPlan(state, { payload }: PayloadAction<{ tenantId: string; plan: PlanConfig | null }>) {
       const t = state.tenants.find((t) => t.id === payload.tenantId);
-      if (!t) return;
-      if (!t.subscriptionPlans) t.subscriptionPlans = [];
-      // If new plan is Active, deactivate previous active plans
-      if (payload.plan.status === "Active") {
-        t.subscriptionPlans.forEach((p) => { if (p.status === "Active") p.status = "Inactive"; });
-      }
-      t.subscriptionPlans.push(payload.plan);
-    },
-    updateSubscriptionPlan(state, { payload }: PayloadAction<{ tenantId: string; planId: string; patch: Partial<SubscriptionPlan> }>) {
-      const t = state.tenants.find((t) => t.id === payload.tenantId);
-      if (!t || !t.subscriptionPlans) return;
-      const plan = t.subscriptionPlans.find((p) => p.id === payload.planId);
-      if (!plan) return;
-      Object.assign(plan, payload.patch);
-      // If we just activated this plan, deactivate the others
-      if (payload.patch.status === "Active") {
-        t.subscriptionPlans.forEach((p) => { if (p.id !== plan.id && p.status === "Active") p.status = "Inactive"; });
-      }
+      if (t) t.plan = payload.plan;
     },
 
     logout(state) {
@@ -203,7 +202,7 @@ export const {
   addTenant, updateTenant, removeTenant, setTenants,
   updateTenantOrg, addTenantSite, updateTenantSite, removeTenantSite,
   addTenantUser, updateTenantUser,
-  addSubscriptionPlan, updateSubscriptionPlan,
+  setTenantPlan,
   logout,
 } = authSlice.actions;
 export default authSlice.reducer;

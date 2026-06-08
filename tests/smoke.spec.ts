@@ -9,7 +9,7 @@ import bcrypt from "bcryptjs";
  *   1. Login page renders.
  *   2. Super admin sign-in works and lands on /admin.
  *   3. Logged-out access to /capa redirects to /login with callbackUrl
- *      (proves middleware.ts auth gate runs).
+ *      (proves proxy.ts auth gate runs).
  *   4. Customer admin sign-in (non-MFA tenant) lands on /.
  *   5. MFA-enabled tenant opens the OTP modal on submit.
  *      (We do NOT submit a real OTP — reading the code requires test infra
@@ -118,12 +118,14 @@ test.beforeAll(async () => {
       role: "customer_admin",
       mfaEnabled: true,
       isActive: true,
-      subscription: {
+      plan: {
         create: {
-          maxAccounts: 5,
+          tier: "PROFESSIONAL",
+          maxUsers: 30,
+          maxSites: 5,
+          minRetentionYears: 3,
           startDate: new Date(),
           expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-          status: "Active",
         },
       },
     },

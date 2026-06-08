@@ -249,7 +249,7 @@ export function DocumentUpload({
 
       {/* Doc list */}
       {activeDocs.length === 0 ? (
-        <div className={clsx("rounded-lg p-4 text-center border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+        <div className={clsx("rounded-lg p-4 text-center border", "bg-(--bg-elevated) border-(--bg-border)")}>
           <FileText className="w-6 h-6 mx-auto mb-2" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
           <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>No documents attached yet</p>
         </div>
@@ -260,7 +260,7 @@ export function DocumentUpload({
             return (
               <div
                 key={doc.id}
-                className={clsx("flex items-start gap-3 rounded-lg p-3 border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}
+                className={clsx("flex items-start gap-3 rounded-lg p-3 border", "bg-(--bg-elevated) border-(--bg-border)")}
               >
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--brand-muted)" }}>
                   <Icon className="w-4 h-4" style={{ color: "var(--brand)" }} aria-hidden="true" />
@@ -356,7 +356,7 @@ export function DocumentUpload({
           ) : (
             <>
               {/* File info */}
-              <div className={clsx("flex items-center gap-3 p-3 rounded-lg border", isDark ? "bg-[#071526] border-[#1e3a5a]" : "bg-[#f8fafc] border-[#e2e8f0]")}>
+              <div className={clsx("flex items-center gap-3 p-3 rounded-lg border", "bg-(--bg-elevated) border-(--bg-border)")}>
                 {(() => { const Icon = fileIcon(selectedFile.type); return <Icon className="w-5 h-5 shrink-0" style={{ color: "var(--brand)" }} aria-hidden="true" />; })()}
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] font-medium truncate" style={{ color: "var(--text-primary)" }}>{selectedFile.name}</p>

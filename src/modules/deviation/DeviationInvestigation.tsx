@@ -36,6 +36,7 @@ import clsx from "clsx";
 import { Search, Save, CheckCircle2, Pencil, Plus, AlertTriangle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Deviation, DeviationRCAMethod } from "@/store/deviation.slice";
 import {
   saveInvestigationProgress as saveInvestigationProgressAction,
@@ -235,10 +236,12 @@ export function InvestigationSection({
   onChanged,
   onError,
 }: WorkflowProps) {
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const devCan = usePermissions("deviation");
   const completed = !!deviation.investigationCompletedAt;
   const isReporter = !!deviation.createdById && deviation.createdById === currentUserId;
   // The reporter may never perform the investigation (SoD).
-  const canInvestigate = writable && !isReporter;
+  const canInvestigate = writable && !isReporter && devCan.canEdit;
 
   const [method, setMethod] = useState<DeviationRCAMethod | null>(deviation.rcaMethod ?? null);
   const [buffers, setBuffers] = useState<RcaBuffers>(() => parseBuffers(deviation.rcaData));
@@ -554,10 +557,13 @@ export function CapaDecisionSection({
   const completed = !!deviation.investigationCompletedAt;
   const decided = !!deviation.capaDecisionMade;
 
+  // Capability mirrors of the server (exclude super_admin from authoring).
+  const devCan = usePermissions("deviation");
+  const capaCan = usePermissions("capa");
   const isReporter = !!deviation.createdById && deviation.createdById === currentUserId;
   const isInvestigator = !!deviation.investigationCompletedById && deviation.investigationCompletedById === currentUserId;
   // QA-role, not the reporter, not the investigator.
-  const canDecide = writable && isQA && !isReporter && !isInvestigator;
+  const canDecide = writable && isQA && !isReporter && !isInvestigator && devCan.canReview;
 
   const [required, setRequired] = useState<boolean | null>(deviation.capaDecisionRequired ?? null);
   const [reason, setReason] = useState(deviation.capaDecisionReason ?? "");
@@ -703,7 +709,7 @@ export function CapaDecisionSection({
       <SectionHeader title="CAPA Decision" status="CAPA required" />
       <div className="space-y-2">
         {justification}
-        {writable && (
+        {writable && capaCan.canCreate && (
           <Button variant="primary" size="sm" icon={Plus} onClick={onRaiseCAPA}>Raise CAPA</Button>
         )}
       </div>

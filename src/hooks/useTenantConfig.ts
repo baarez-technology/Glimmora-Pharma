@@ -1,5 +1,5 @@
 import { useAppSelector } from "./useAppSelector";
-import type { TenantOrgConfig, TenantSiteConfig, TenantUserConfig, SubscriptionPlan } from "@/store/auth.slice";
+import type { TenantOrgConfig, TenantSiteConfig, TenantUserConfig, PlanConfig } from "@/store/auth.slice";
 import dayjs from "@/lib/dayjs";
 
 const DEFAULT_ORG: TenantOrgConfig = {
@@ -35,51 +35,60 @@ export function useTenantConfig() {
     return allSites.filter((s) => userConfig.assignedSites.includes(s.id));
   })();
 
-  // ── Subscription helpers ──
-  const subscriptionPlans: SubscriptionPlan[] = tenant?.subscriptionPlans ?? [];
-  const activePlan = subscriptionPlans.find((p) => (p.status ?? "").toLowerCase() === "active") ?? null;
+  // ── Plan helpers (Subscription Phase A) ──
+  // Exactly one optional plan per tenant. Caps are frozen on the plan row.
+  const plan: PlanConfig | null = tenant?.plan ?? null;
 
-  // Plans created via admin UI use `expiryDate`; the TS type says `endDate`.
-  // Check both to avoid field-name mismatch causing false "expired" state.
-  const planExpiry = activePlan
-    ? (activePlan as SubscriptionPlan & { expiryDate?: string }).expiryDate ?? activePlan.endDate
-    : null;
+  const planExpiry = plan?.expiryDate ?? null;
 
   const daysRemaining = planExpiry
     ? Math.max(0, dayjs.utc(planExpiry).diff(dayjs(), "day"))
     : null;
 
+  // "Expired" is an expiry/no-plan concept — distinct from lifecycle
+  // (Active/Suspended = tenant.active). A missing plan reads as expired for
+  // the gate, exactly as before.
   const isExpired = planExpiry
     ? dayjs().isAfter(dayjs.utc(planExpiry))
-    : !activePlan;
+    : !plan;
 
   const isNearExpiry = daysRemaining !== null && daysRemaining <= 14 && daysRemaining > 0;
 
-  const maxAccounts = activePlan?.maxAccounts ?? 0;
+  const maxUsers = plan?.maxUsers ?? 0;
+  const maxSites = plan?.maxSites ?? 0;
   const usedAccounts = users.length;
+  const usedSites = allSitesIncludingInactive.length;
 
-  const accountsRemaining = maxAccounts === -1 ? -1 : Math.max(0, maxAccounts - usedAccounts);
-  const isAtAccountLimit = maxAccounts !== -1 && usedAccounts >= maxAccounts;
+  const accountsRemaining = Math.max(0, maxUsers - usedAccounts);
+  const sitesRemaining = Math.max(0, maxSites - usedSites);
+  const isAtAccountLimit = !!plan && usedAccounts >= maxUsers;
+  const isAtSiteLimit = !!plan && usedSites >= maxSites;
 
   return {
     tenantId: currentTenantId ?? "",
     tenantName: tenant?.name ?? "Pharma Glimmora",
-    tenantPlan: tenant?.plan ?? ("enterprise" as const),
     org: config?.org ?? DEFAULT_ORG,
     sites: accessibleSites,
     allSites,
     allSitesIncludingInactive,
     users,
     userConfig,
-    // subscription
-    subscriptionPlans,
-    activePlan,
+    // plan (Subscription Phase A)
+    plan,
+    planTier: plan?.tier ?? null,
     daysRemaining,
     isExpired,
     isNearExpiry,
-    maxAccounts,
+    // `maxAccounts` kept as an alias for maxUsers so existing consumers
+    // (UsersTab usage bars) read the user cap without renaming.
+    maxAccounts: maxUsers,
+    maxUsers,
+    maxSites,
     usedAccounts,
+    usedSites,
     accountsRemaining,
+    sitesRemaining,
     isAtAccountLimit,
+    isAtSiteLimit,
   };
 }

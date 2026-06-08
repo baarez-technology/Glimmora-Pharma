@@ -129,7 +129,7 @@ export const authOptions: NextAuthOptions = {
           const isEmail = email.includes("@");
           const tenantMatches = await prisma.tenant.findMany({
             where: isEmail ? { email } : { username: email },
-            include: { subscription: true },
+            include: { plan: true },
           });
           if (tenantMatches.length > 1) {
             await auditAuthEvent({
@@ -184,15 +184,21 @@ export const authOptions: NextAuthOptions = {
               return null;
             }
 
-            // Subscription gate — super_admin bypasses; customer_admin still
-            // checks because lapsed tenants should not be able to use the app.
-            if (tenant.role !== "super_admin") {
-              const sub = tenant.subscription;
-              const hasActiveSub =
-                !!sub &&
-                sub.status?.toLowerCase() === "active" &&
-                new Date(sub.expiryDate) > new Date();
-              if (!hasActiveSub && tenant.role !== "customer_admin") {
+            // Plan gate. Two roles are exempt from needing an active (present,
+            // non-expired) plan to LOG IN:
+            //   - super_admin: the platform account has no plan at all.
+            //   - customer_admin: allowed in even with an expired / no plan so they
+            //     can reach the read-only Subscription view (which explains the
+            //     expiry and says to contact the platform admin). Their WRITES are
+            //     blocked separately by server-side cap enforcement
+            //     (assertCanAddUser / assertCanAddSite), so login itself is safe.
+            // Any other tenant-path role without an active plan IS blocked here.
+            // (Lifecycle suspension is handled separately by tenant.isActive above.)
+            const planExempt = tenant.role === "super_admin" || tenant.role === "customer_admin";
+            if (!planExempt) {
+              const plan = tenant.plan;
+              const hasActiveSub = !!plan && new Date(plan.expiryDate) > new Date();
+              if (!hasActiveSub) {
                 await auditAuthEvent({
                   action: "SUBSCRIPTION_BLOCKED",
                   tenantId: tenant.id,
@@ -294,7 +300,7 @@ export const authOptions: NextAuthOptions = {
           // tenantId, so the same ambiguity guard applies.
           const userMatches = await prisma.user.findMany({
             where: isEmail ? { email } : { username: email },
-            include: { tenant: { include: { subscription: true } } },
+            include: { tenant: { include: { plan: true } } },
           });
           if (userMatches.length > 1) {
             await auditAuthEvent({
@@ -345,11 +351,10 @@ export const authOptions: NextAuthOptions = {
               return null;
             }
 
-            const sub = user.tenant?.subscription;
+            const plan = user.tenant?.plan;
             const hasActiveSub =
-              !!sub &&
-              sub.status?.toLowerCase() === "active" &&
-              new Date(sub.expiryDate) > new Date();
+              !!plan &&
+              new Date(plan.expiryDate) > new Date();
             if (!hasActiveSub) {
               await auditAuthEvent({
                 action: "SUBSCRIPTION_BLOCKED",
@@ -503,13 +508,13 @@ export const authOptions: NextAuthOptions = {
       // session), compare the token's iat against the parent tenant's
       // sessionsValidAfter. If the tenant's MFA flag was flipped on after
       // this token was issued, sessionsValidAfter > token.iat and we return
-      // an empty token, which middleware/getServerSession see as no session
+      // an empty token, which the proxy/getServerSession see as no session
       // and redirect to /login.
       //
       // This adds one Prisma read per authenticated request. Acceptable for
       // a multi-tenant SaaS at this scale; revisit with a cache if needed.
-      // The check lives here (Pages Router = Node runtime) because Edge
-      // middleware can't import the Prisma client.
+      // The check lives here (Pages Router = Node runtime) because the Edge
+      // proxy can't import the Prisma client.
       const tenantId = token.tenantId as string | undefined;
       const iat = typeof token.iat === "number" ? token.iat : undefined;
       if (tenantId && iat) {

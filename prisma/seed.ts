@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { BCRYPT_COST } from "../src/lib/passwords";
+import { PLAN_TIERS } from "../src/lib/plans";
 
 const prisma = new PrismaClient();
 
@@ -58,18 +59,110 @@ async function main() {
   });
   console.log("  Demo tenant:", demo.id);
 
-  // ── Subscription ──
-  await prisma.subscription.upsert({
+  // ── Plan (Subscription Phase A) ──
+  // Demo tenant is PROFESSIONAL. Caps are FROZEN onto the row from the tier
+  // defaults (30 users / 5 sites / 3yr min retention).
+  await prisma.plan.upsert({
     where: { tenantId: demo.id },
     update: {},
     create: {
       tenantId: demo.id,
-      maxAccounts: 15,
+      tier: "PROFESSIONAL",
+      displayName: null,
+      maxUsers: PLAN_TIERS.PROFESSIONAL.maxUsers,
+      maxSites: PLAN_TIERS.PROFESSIONAL.maxSites,
+      minRetentionYears: PLAN_TIERS.PROFESSIONAL.minRetentionYears,
       startDate: new Date("2026-01-01"),
       expiryDate: new Date("2026-12-31"),
-      status: "Active",
     },
   });
+
+  // ── Additional tenants: one per remaining tier so smoke tests can exercise
+  // all four plans. Each gets a customer_admin (the tenant row itself), a
+  // frozen plan, and a few users/sites kept comfortably under their caps. ──
+  const tierHash = await bcrypt.hash("Admin@123", BCRYPT_COST);
+  const extraTenants = [
+    {
+      code: "ESS_001", name: "Wellspring Generics", username: "wellspring", email: "admin@wellspring.test",
+      tier: "ESSENTIALS" as const, displayName: null as string | null,
+      caps: { maxUsers: PLAN_TIERS.ESSENTIALS.maxUsers, maxSites: PLAN_TIERS.ESSENTIALS.maxSites, minRetentionYears: PLAN_TIERS.ESSENTIALS.minRetentionYears },
+      sites: [{ name: "Pune Plant", code: "PUN" }],
+      users: [
+        { name: "Ravi Kumar", email: "ravi@wellspring.test", username: "ravi", role: "qa_head", gxpSignatory: true },
+        // Phase 6 cleanup FIX 2 — SoD-viable QA: 2nd qa_head + a regulatory_affairs.
+        { name: "Priya Desai", email: "priya@wellspring.test", username: "priya.desai", role: "qa_head", gxpSignatory: true },
+        { name: "Karan Shah", email: "karan@wellspring.test", username: "karan.shah", role: "regulatory_affairs", gxpSignatory: true },
+      ],
+    },
+    {
+      code: "ENT_001", name: "Helios Biologics", username: "helios", email: "admin@helios.test",
+      tier: "ENTERPRISE" as const, displayName: null as string | null,
+      caps: { maxUsers: PLAN_TIERS.ENTERPRISE.maxUsers, maxSites: PLAN_TIERS.ENTERPRISE.maxSites, minRetentionYears: PLAN_TIERS.ENTERPRISE.minRetentionYears },
+      sites: [{ name: "Vizag Biologics", code: "VTZ" }, { name: "Goa Fill-Finish", code: "GOA" }],
+      users: [
+        { name: "Meera Nair", email: "meera@helios.test", username: "meera", role: "qa_head", gxpSignatory: true },
+        { name: "Arjun Rao", email: "arjun@helios.test", username: "arjun", role: "csv_val_lead", gxpSignatory: true },
+        // Phase 6 cleanup FIX 2 — SoD-viable QA: 2nd qa_head + a regulatory_affairs.
+        { name: "Vivek Menon", email: "vivek@helios.test", username: "vivek.menon", role: "qa_head", gxpSignatory: true },
+        { name: "Anjali Iyer", email: "anjali@helios.test", username: "anjali.iyer", role: "regulatory_affairs", gxpSignatory: true },
+      ],
+    },
+    {
+      code: "TLR_001", name: "Custom Pilot Pharma", username: "custompilot", email: "admin@custompilot.test",
+      tier: "TAILORED" as const, displayName: "Custom Pilot" as string | null,
+      caps: { maxUsers: 250, maxSites: 20, minRetentionYears: 10 },
+      sites: [{ name: "Ahmedabad Plant", code: "AMD" }],
+      users: [
+        { name: "Sana Shaikh", email: "sana@custompilot.test", username: "sana", role: "qa_head", gxpSignatory: true },
+        // Phase 6 cleanup FIX 2 — SoD-viable QA: 2nd qa_head + a regulatory_affairs.
+        { name: "Farah Khan", email: "farah@custompilot.test", username: "farah.khan", role: "qa_head", gxpSignatory: true },
+        { name: "Imran Sheikh", email: "imran@custompilot.test", username: "imran.sheikh", role: "regulatory_affairs", gxpSignatory: true },
+      ],
+    },
+  ];
+
+  for (const t of extraTenants) {
+    const tenant = await prisma.tenant.upsert({
+      where: { email: t.email },
+      update: { passwordHash: tierHash, isActive: true },
+      create: {
+        customerCode: t.code, name: t.name, username: t.username, email: t.email,
+        passwordHash: tierHash, role: "customer_admin", isActive: true,
+      },
+    });
+    await prisma.plan.upsert({
+      where: { tenantId: tenant.id },
+      update: {},
+      create: {
+        tenantId: tenant.id,
+        tier: t.tier,
+        displayName: t.displayName,
+        maxUsers: t.caps.maxUsers,
+        maxSites: t.caps.maxSites,
+        minRetentionYears: t.caps.minRetentionYears,
+        startDate: new Date("2026-01-01"),
+        expiryDate: new Date("2026-12-31"),
+      },
+    });
+    for (const s of t.sites) {
+      await prisma.site.upsert({
+        where: { tenantId_name: { tenantId: tenant.id, name: s.name } },
+        update: { code: s.code, isActive: true },
+        create: { tenantId: tenant.id, name: s.name, code: s.code, risk: "MEDIUM" },
+      });
+    }
+    for (const u of t.users) {
+      await prisma.user.upsert({
+        where: { tenantId_email: { tenantId: tenant.id, email: u.email } },
+        update: { isActive: true, role: u.role, gxpSignatory: u.gxpSignatory },
+        create: {
+          tenantId: tenant.id, name: u.name, email: u.email, username: u.username,
+          passwordHash: tierHash, role: u.role, gxpSignatory: u.gxpSignatory,
+        },
+      });
+    }
+  }
+  console.log("  Extra tier tenants:", extraTenants.map((t) => `${t.code}(${t.tier})`).join(", "));
 
   // ── Sites ──
   // Upsert keyed on (tenantId, name) so re-seeding doesn't duplicate rows.
@@ -546,6 +639,88 @@ async function main() {
   audit("CAPA_RCA_APPROVED", e3capa1.id, "2026-03-12", { userId: sureshIyer.id, userName: sureshIyer.name, recordTitle: "CAPA-MUM-2026-003" });
   audit("CAPA_RCA_APPROVED", e3capa2.id, "2026-03-13", { userId: sureshIyer.id, userName: sureshIyer.name, recordTitle: "CAPA-MUM-2026-004" });
   audit("COMMITMENT_ADDED", e3.id, "2026-03-16", { recordTitle: "Engage external CSV consultant" });
+
+  /* ═══════════════════════════════════════════════════════════════
+   * Phase 6 — QA-screen fixtures (so queues / Worklist / detail are seeable).
+   * Existing seed above is untouched; this only enriches three e1 CAPAs.
+   * ═══════════════════════════════════════════════════════════════ */
+  const sureshKumar = byUser("suresh.kumar"); // operations_head — a non-author fixer
+  const EV_CATS = [
+    "BATCH_RECORDS", "TRAINING_RECORDS", "EQUIPMENT_LOGS", "ENVIRONMENTAL_DATA",
+    "DEVIATION_HISTORY", "WITNESS_INTERVIEWS", "SUPPLIER_DATA",
+  ];
+  const nowFix = new Date("2026-06-08T00:00:00Z");
+  const dPast = (n: number) => new Date(nowFix.getTime() - n * 86400000);
+  const dFut = (n: number) => new Date(nowFix.getTime() + n * 86400000);
+  const initEvidence = async (capaId: string) => {
+    await prisma.evidenceItem.createMany({
+      data: EV_CATS.map((category) => ({ capaId, category, status: "PENDING", createdBy: priya.name })),
+    });
+    return prisma.evidenceItem.findMany({ where: { capaId }, orderBy: { category: "asc" } });
+  };
+
+  // Authoritative driver/creator FKs on every demo CAPA (the create calls above
+  // predate ownerId/createdById; set them here so owner/driver paths work after
+  // a fresh reseed exactly as they do after the Phase-3 backfill).
+  const demoCapaOwners: Array<[{ id: string }, { id: string }]> = [
+    [e1capa1, anita], [e1capa2, rahul], [e1capa3, nisha],
+    [e2capa1, anita], [e2capa2, nisha], [e3capa1, anita], [e3capa2, rahul],
+  ];
+  for (const [capa, ownerUser] of demoCapaOwners) {
+    await prisma.cAPA.update({ where: { id: capa.id }, data: { ownerId: ownerUser.id, createdById: priya.id } });
+  }
+
+  // ── Fixture 1: e1capa2 (driver Rahul) — READY, sitting pending_qa_review.
+  await prisma.cAPA.update({
+    where: { id: e1capa2.id },
+    data: {
+      status: "pending_qa_review", diGate: false,
+      alignmentStatus: "aligned", alignmentReviewedBy: sureshIyer.name,
+      alignmentReviewedById: sureshIyer.id, alignmentReviewedAt: dPast(20),
+    },
+  });
+  await prisma.cAPAActionItem.createMany({
+    data: [
+      { capaId: e1capa2.id, tenantId: demo.id, sequence: 1, description: "Configure automated requalification schedule in the CMMS", owner: nisha.name, ownerId: nisha.id, dueDate: dPast(6), status: "complete", completionNotes: "Schedule configured and verified against the equipment master list.", completedBy: nisha.name, completedById: nisha.id, completedAt: dPast(4), createdBy: priya.name, createdById: priya.id },
+      { capaId: e1capa2.id, tenantId: demo.id, sequence: 2, description: "Enable overdue-escalation email alerts to QA", owner: sureshKumar.name, ownerId: sureshKumar.id, dueDate: dPast(3), status: "complete", completionNotes: "Alerts enabled; QA distribution list received the test escalation.", completedBy: sureshKumar.name, completedById: sureshKumar.id, completedAt: dPast(2), createdBy: priya.name, createdById: priya.id },
+    ],
+  });
+  const ev2 = await initEvidence(e1capa2.id);
+  await prisma.evidenceItem.updateMany({ where: { capaId: e1capa2.id }, data: { status: "COMPLETE" } });
+  await prisma.evidenceFile.create({
+    data: { evidenceItemId: ev2[0].id, fileName: "requal-schedule.pdf", originalFileName: "requal-schedule.pdf", fileSize: 24576, fileType: "application/pdf", fileExtension: ".pdf", fileUrl: "seed://requal-schedule.pdf", contentHashSha256: "seedhash-e1capa2-001", retainUntil: dFut(2555), uploadedBy: nisha.name, uploadedById: nisha.id },
+  });
+  await prisma.cAPAEffectivenessCriterion.create({
+    data: { capaId: e1capa2.id, tenantId: demo.id, description: "Zero overdue requalifications for 90 days post-implementation", targetMetric: "Overdue requalification count", measurementMethod: "CMMS overdue report", targetValue: "0", monitoringPeriod: "90 days", createdBy: priya.name },
+  });
+
+  // ── Fixture 2: e1capa3 (driver Nisha) — bounced back, one item in REWORK.
+  await prisma.cAPA.update({
+    where: { id: e1capa3.id },
+    data: { status: "in_progress", rejectionReason: "Training-record linkage evidence is insufficient — attach the LMS export showing SOP-version association.", rejectedById: priya.id, rejectedAt: dPast(2) },
+  });
+  await prisma.cAPAActionItem.createMany({
+    data: [
+      { capaId: e1capa3.id, tenantId: demo.id, sequence: 1, description: "Enforce SOP-version ↔ training-record association in the LMS", owner: nisha.name, ownerId: nisha.id, dueDate: dPast(1), status: "rework", reworkReason: "Training-record linkage evidence is insufficient — attach the LMS export showing SOP-version association.", reworkRequestedById: priya.id, reworkRequestedAt: dPast(2), createdBy: priya.name, createdById: priya.id },
+      { capaId: e1capa3.id, tenantId: demo.id, sequence: 2, description: "Backfill SOP-version tags on the last 12 months of training records", owner: sureshKumar.name, ownerId: sureshKumar.id, dueDate: dPast(4), status: "in_progress", createdBy: priya.name, createdById: priya.id },
+      { capaId: e1capa3.id, tenantId: demo.id, sequence: 3, description: "Add SOP-version field to the quarterly training audit checklist", owner: nisha.name, ownerId: nisha.id, dueDate: dFut(10), status: "pending", createdBy: priya.name, createdById: priya.id },
+    ],
+  });
+  const ev3 = await initEvidence(e1capa3.id);
+  await prisma.evidenceItem.update({ where: { id: ev3[1].id }, data: { status: "COMPLETE" } });
+  await prisma.evidenceItem.update({ where: { id: ev3[2].id }, data: { status: "NOT_APPLICABLE", naReason: "No equipment logs relate to a training-record linkage CAPA." } });
+  await prisma.evidenceItem.update({ where: { id: ev3[4].id }, data: { status: "NOT_APPLICABLE", naReason: "Deviation history is not relevant to this LMS configuration fix." } });
+  await prisma.cAPAEffectivenessCriterion.create({
+    data: { capaId: e1capa3.id, tenantId: demo.id, description: "100% of training records carry the correct SOP version for 90 days", targetMetric: "SOP-version tagged training records", measurementMethod: "LMS audit export", targetValue: "100%", monitoringPeriod: "90 days", createdBy: priya.name },
+  });
+
+  // ── Fixture 3: e1capa1 — CLOSED with a 90-day effectiveness check now DUE.
+  await prisma.cAPA.update({
+    where: { id: e1capa1.id },
+    data: { status: "closed", closedBy: priya.name, closedAt: dPast(95), effectivenessCheck: true, effectivenessDate: dPast(5), effectivenessVerdict: null },
+  });
+
+  console.log("  Phase 6 fixtures: e1capa2 ready/pending_qa_review, e1capa3 rework, e1capa1 closed+effectiveness-due");
 
   /* ── EVENT 4 — Fresh / minimal (empty-state demo) ── */
   const e4InspStart = new Date(today); e4InspStart.setDate(e4InspStart.getDate() - 2); // 29 May

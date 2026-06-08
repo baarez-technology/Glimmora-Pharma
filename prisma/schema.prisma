@@ -26,7 +26,7 @@ model Tenant {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  subscription  Subscription?
+  plan          Plan?
   sites         Site[]
   users         User[]
   findings      Finding[]
@@ -44,17 +44,32 @@ model Tenant {
   capaActionItems CAPAActionItem[]
 }
 
-model Subscription {
-  id          String   @id @default(cuid())
-  tenantId    String   @unique
-  maxAccounts Int      @default(5)
-  startDate   DateTime
-  expiryDate  DateTime
-  status      String   @default("Active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+enum PlanTier {
+  ESSENTIALS
+  PROFESSIONAL
+  ENTERPRISE
+  TAILORED
+}
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+// Subscription Phase A — exactly one Plan per Tenant (optional until assigned).
+// Caps are FROZEN onto the row at assignment time (copied from the tier
+// defaults in src/lib/plans.ts, or set within ceilings for TAILORED) so a
+// later change to the tier-default constants never silently re-caps a live
+// tenant. minRetentionYears is a promise only — there is NO purge logic in
+// Phase 1.
+model Plan {
+  id                String   @id @default(cuid())
+  tenantId          String   @unique
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tier              PlanTier
+  displayName       String?  // TAILORED only; null => UI shows "TAILORED"
+  maxUsers          Int      // frozen at assignment
+  maxSites          Int      // frozen at assignment
+  minRetentionYears Int      // promise only; NO purge logic in Phase 1
+  startDate         DateTime
+  expiryDate        DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 // ── SETTINGS ──
@@ -118,6 +133,15 @@ model User {
   // CAPAActionItem.ownerId / completedById FKs.
   ownedCAPAActionItems     CAPAActionItem[] @relation("CAPAActionItemOwner")
   completedCAPAActionItems CAPAActionItem[] @relation("CAPAActionItemCompletedBy")
+  // SoD integrity (CAPA audit FIX 1) — reverse field for the CAPA.createdById FK.
+  createdCAPAs             CAPA[]           @relation("CAPACreatedBy")
+  // Phase 3 — reverse field for the CAPA.ownerId driver FK.
+  ownedCAPAs               CAPA[]           @relation("CAPAOwner")
+  // Phase 4 — reverse field for the CAPA.rejectedById FK.
+  rejectedCAPAs            CAPA[]           @relation("CAPARejectedBy")
+  // Phase 2 — reverse fields for the new nullable FKs.
+  reworkRequestedCAPAActionItems CAPAActionItem[] @relation("CAPAActionItemReworkRequestedBy")
+  uploadedEvidenceFiles          EvidenceFile[]   @relation("EvidenceFileUploadedBy")
   // FDA 483 events this user owns internally (notifications/reminders target).
   fda483EventsAsOwner      FDA483Event[]    @relation("FDA483EventInternalOwner")
   // FDA 483 first-class commitments — created / completed by this user, plus
@@ -325,7 +349,29 @@ model CAPA {
   // verifies they agree before allowing closure. Unifying on this
   // relation alone is a future rung.
   deviationId        String?  @unique
+  // createdBy is the denormalised display-name cache (kept for join-free
+  // reads). createdById is the authoritative userId FK used by the CAPA
+  // segregation-of-duties guards (RCA review / approval / verification:
+  // actor must differ from the creator). Nullable for the backfill window
+  // — legacy rows whose createdBy name doesn't resolve to exactly one User
+  // stay null and fall back to name comparison. Mirrors Deviation.createdBy
+  // / createdById. onDelete: SetNull because the CAPA is an independent
+  // regulatory record that must survive User deletion.
   createdBy          String
+  createdById        String?
+  // Phase 3 — authoritative CAPA driver/owner userId FK (the owner dropdown
+  // already selects a userId; createCAPA/updateCAPA capture it here). The
+  // legacy `owner` string stays as the denormalised display value. Nullable +
+  // SetNull, same pattern as createdById. Enables the CAPA-driver access path
+  // (isAssignedToTask / addCAPAComment) to resolve the driver as a real User.
+  ownerId            String?
+  // Phase 4 — targeted reject. Rejection metadata stored as first-class
+  // columns (was previously crammed into diGateNotes). A reject now bounces
+  // the CAPA back to in_progress for rework rather than the dead-end
+  // "rejected" status. All additive/nullable.
+  rejectionReason    String?
+  rejectedById       String?
+  rejectedAt         DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -337,6 +383,9 @@ model CAPA {
   // SME Section 1, Stage 6 (FULL) — Effectiveness review signature.
   effectivenessSignature SignedRecord?                @relation("CAPAEffectivenessSignature", fields: [effectivenessSignatureId], references: [id])
   deviation              Deviation?                   @relation("CAPADeviationSource", fields: [deviationId], references: [id], onDelete: SetNull)
+  createdByUser          User?                        @relation("CAPACreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  ownerUser              User?                        @relation("CAPAOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  rejectedByUser         User?                        @relation("CAPARejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
   documents              CAPADocument[]
   evidenceItems          EvidenceItem[]
   effectivenessCriteria  CAPAEffectivenessCriterion[]
@@ -355,6 +404,12 @@ model CAPA {
   // RUNG 2 — GxP system this CAPA is raised against + RTM rows that cite it.
   system                 GxPSystem?                   @relation(fields: [systemId], references: [id], onDelete: SetNull)
   rtmEntriesViaCapa      RTMEntry[]
+
+  // Phase 2 — effectiveness due-surfacing foundation. Indexed so
+  // getEffectivenessChecksDue can scan closed CAPAs whose 90-day
+  // effectiveness check has come due (effectivenessDate <= now) without a
+  // full table scan.
+  @@index([effectivenessDate])
 }
 
 // ── SME Section 1, Stage 4 (FULL) — Structured CAPA Action Plan items ──
@@ -379,9 +434,18 @@ model CAPAActionItem {
   ownerId         String?
   ownerUser       User?    @relation("CAPAActionItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   dueDate         DateTime
-  // "pending" | "in_progress" | "complete" | "skipped". Stored as String
-  // (not Prisma enum) for SQLite portability, validated at app layer.
+  // "pending" | "in_progress" | "complete" | "skipped" | "rework". Stored as
+  // String (not Prisma enum) for SQLite portability, validated at app layer
+  // via ACTION_ITEM_STATUSES. "rework" (Phase 2) marks an item the QA review
+  // sent back for revision — the targeted-reject flow is Phase 4; this phase
+  // only adds the value + fields.
   status          String   @default("pending")
+  // Phase 2 — per-action rework state. Populated when an item is returned
+  // for revision (flow wiring deferred to Phase 4). All nullable/additive.
+  reworkReason        String?
+  reworkRequestedById String?
+  reworkRequestedAt   DateTime?
+  reworkRequestedByUser User? @relation("CAPAActionItemReworkRequestedBy", fields: [reworkRequestedById], references: [id], onDelete: SetNull)
   completedBy     String?
   completedById   String?
   completedByUser User?    @relation("CAPAActionItemCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
@@ -392,9 +456,15 @@ model CAPAActionItem {
   createdById     String?
   updatedAt       DateTime @updatedAt
 
+  // Phase 2 — per-action attachments + comments (reverse relations).
+  evidenceFiles   EvidenceFile[] @relation("ActionItemEvidenceFiles")
+  comments        CAPAComment[]  @relation("ActionItemComments")
+
   @@index([tenantId, capaId])
   @@index([capaId, sequence])
   @@index([dueDate])
+  // Phase 2 — Worklist foundation: getMyActionItems filters by ownerId.
+  @@index([ownerId])
 }
 
 model CAPADocument {
@@ -1088,6 +1158,11 @@ model EvidenceItem {
   category          String
   status            String   @default("PENDING")
   notes             String?
+  // Phase 2 — first-class N/A rationale. Dual-written alongside the existing
+  // EvidenceNoteVersion note-row on N/A transitions; reads still go through
+  // the note-row path for now. Holds the current "why N/A" reason; cleared
+  // when the item leaves NOT_APPLICABLE.
+  naReason          String?
 
   // Wave 3 e-sig lock placeholder (unused in v1; schema-stable for future).
   // When set, all mutations on this EvidenceItem and its files are rejected.
@@ -1147,12 +1222,23 @@ model EvidenceFile {
   deletionReason    String?
 
   uploadedBy        String
+  // Phase 2 — evidence hardening: authoritative uploader userId FK alongside
+  // the existing uploadedBy display-name string (name stays for display /
+  // legacy). Nullable + SetNull so file metadata survives User deletion.
+  uploadedById      String?
+  // Phase 2 — per-action attachments: optionally scope a file to a specific
+  // action item (still belongs to its EvidenceItem/category). Nullable +
+  // SetNull so removing an action item never deletes the file.
+  actionItemId      String?
   createdAt         DateTime @default(now())
 
-  evidenceItem      EvidenceItem @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+  evidenceItem      EvidenceItem    @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+  uploadedByUser    User?           @relation("EvidenceFileUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  actionItem        CAPAActionItem? @relation("ActionItemEvidenceFiles", fields: [actionItemId], references: [id], onDelete: SetNull)
 
   @@index([evidenceItemId])
   @@index([deletedAt])
+  @@index([actionItemId])
 }
 
 // ── CAPA EFFECTIVENESS CRITERIA (substage 4.6) ──
@@ -1297,6 +1383,10 @@ model CAPAComment {
   tenantId        String
   capaId          String
   parentId        String?
+  // Phase 2 — action-level comments. Null = CAPA-level comment (unchanged
+  // behaviour); set = comment scoped to a specific action item. Nullable +
+  // SetNull so removing an action item never deletes the comment thread.
+  actionItemId    String?
 
   body            String
   isConcern       Boolean   @default(false)
@@ -1318,13 +1408,15 @@ model CAPAComment {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  capa            CAPA          @relation(fields: [capaId], references: [id], onDelete: Cascade)
-  parent          CAPAComment?  @relation("CommentReplies", fields: [parentId], references: [id])
-  replies         CAPAComment[] @relation("CommentReplies")
+  capa            CAPA            @relation(fields: [capaId], references: [id], onDelete: Cascade)
+  parent          CAPAComment?    @relation("CommentReplies", fields: [parentId], references: [id])
+  replies         CAPAComment[]   @relation("CommentReplies")
+  actionItem      CAPAActionItem? @relation("ActionItemComments", fields: [actionItemId], references: [id], onDelete: SetNull)
 
   @@index([capaId, createdAt])
   @@index([tenantId, capaId])
   @@index([parentId])
+  @@index([actionItemId])
 }
 
 // ── CHANGE CONTROL (substage 4.8) ──

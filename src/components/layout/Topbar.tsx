@@ -3,8 +3,9 @@ import { useState, useEffect } from "react";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
-import { useRole, ROLE_LABELS } from "@/hooks/useRole";
+import { useRole } from "@/hooks/useRole";
 import type { UserRole } from "@/hooks/useRole";
+import { roleLabel } from "@/lib/labels/roles";
 import { setActiveSite, setSelectedSite } from "@/store/auth.slice";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ColorThemePicker } from "@/components/ui/ColorThemePicker";
@@ -78,7 +79,7 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
     ? user.name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
     : "?";
   const displayName = mounted ? (user?.name ?? "\u2014") : "\u2014";
-  const displayRole = mounted ? (ROLE_LABELS[role as UserRole] ?? "") : "";
+  const displayRole = mounted ? roleLabel(role) : "";
   const avatarLabel = mounted ? (user?.name ?? "User avatar") : "User avatar";
 
   const badge = roleBadge[role as UserRole] ?? roleBadge.viewer;

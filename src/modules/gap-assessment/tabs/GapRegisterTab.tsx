@@ -8,7 +8,7 @@ import {
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
 import { useAppSelector } from "@/hooks/useAppSelector";
-import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { formatReference } from "@/lib/reference";
 import { downloadCSV, downloadExcel } from "@/lib/exportTable";
@@ -87,7 +87,9 @@ export function GapRegisterTab({
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
   const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
-  const { role } = useRole();
+  // Capability mirrors of the server (exclude super_admin from authoring).
+  const gapCan = usePermissions("gap");
+  const capaCan = usePermissions("capa");
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const { sites: accessibleSites } = useTenantConfig();
   const showSiteColumn = !selectedSiteId && accessibleSites.length > 1;
@@ -103,10 +105,14 @@ export function GapRegisterTab({
   const [savedPopup, setSavedPopup] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  // Mirrors the server author set (COMPLIANCE_AUTHOR_ROLES via gapCan.canEdit):
+  // any author role (csv_val_lead / qa_head / regulatory_affairs /
+  // customer_admin) may edit any finding — the server's updateFinding has no
+  // owner restriction, so the old admin/qa/owner role-list is dropped.
   const canEdit =
     !isViewOnly &&
     selectedFinding?.status !== "Closed" &&
-    (role === "super_admin" || role === "customer_admin" || role === "qa_head" || selectedFinding?.owner === user?.id);
+    gapCan.canEdit;
 
   const form = useForm<EditForm>({
     defaultValues: {
@@ -269,7 +275,7 @@ export function GapRegisterTab({
               <>
                 <p className="text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>No findings logged yet</p>
                 <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>Log your first finding to start tracking GxP compliance gaps.</p>
-                {!isViewOnly && <Button variant="primary" icon={Plus} onClick={onAddOpen}>Log your first finding</Button>}
+                {!isViewOnly && gapCan.canCreate && <Button variant="primary" icon={Plus} onClick={onAddOpen}>Log your first finding</Button>}
               </>
             ) : (
               <>
@@ -549,7 +555,7 @@ export function GapRegisterTab({
                   {linkedCapa?.status === "closed" && <p className="text-[11px] mt-2 p-2 rounded-lg" style={{ background: "var(--success-bg)", color: "var(--success)" }}>CAPA closed. This finding has been automatically closed.</p>}
                 </div>
               ) : (
-                !isViewOnly && selectedFinding.status !== "Closed" && (
+                !isViewOnly && selectedFinding.status !== "Closed" && capaCan.canCreate && (
                   <Button variant="secondary" icon={Plus} fullWidth onClick={() => onRaiseCapa(selectedFinding)}>Raise CAPA</Button>
                 )
               );

@@ -18,7 +18,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Dropdown } from "@/components/ui/Dropdown";
-import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useAppSelector } from "@/hooks/useAppSelector";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import {
   addActionItem,
@@ -54,6 +55,7 @@ const STATUS_LABEL: Record<CAPAActionItem["status"], string> = {
   in_progress: "In Progress",
   complete: "Complete",
   skipped: "Skipped",
+  rework: "Rework",
 };
 
 const STATUS_VARIANT: Record<CAPAActionItem["status"], "gray" | "amber" | "green" | "red"> = {
@@ -61,10 +63,25 @@ const STATUS_VARIANT: Record<CAPAActionItem["status"], "gray" | "amber" | "green
   in_progress: "amber",
   complete: "green",
   skipped: "red",
+  rework: "red",
 };
 
-export function ActionItemsSection({ capa }: { capa: CAPA }) {
-  const { role } = useRole();
+export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFilter?: string | null }) {
+  // FIX 3 â€” the action-item mutation server actions (addActionItem /
+  // updateActionItem / deleteActionItem / reorderActionItems) all gate on
+  // COMPLIANCE_AUTHOR_ROLES. capaCan.canEdit mirrors that exact set, so the
+  // UI stops advertising controls (status updates + structural edits) to
+  // roles the server rejects (e.g. qc_lab_director, operations_head). NOTE:
+  // this also hides the controls from action OWNERS who aren't authors today
+  // â€” correct for now (the server already blocks them; owner-access is a
+  // later phase). canView stays open so they can still read the plan.
+  const capaCan = usePermissions("capa");
+  // Phase 3 — assigned-owner access path. An owner who is NOT an author role
+  // may still work the task addressed to them (status + completion notes). ID
+  // comparison only; viewers are excluded (mirrors the server isAssignedToTask
+  // and the server gate in updateActionItem).
+  const authUser = useAppSelector((s) => s.auth.user);
+  const isViewer = authUser?.role === "viewer";
   const { users } = useTenantConfig();
   // Live items — seeded from the Redux CAPA prop, refetched on every
   // successful mutation so the row state stays consistent with the
@@ -100,6 +117,12 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
           ? r.completedAt.toISOString()
           : (r.completedAt as string | null),
       completionNotes: r.completionNotes as string | null,
+      reworkReason: r.reworkReason as string | null,
+      reworkRequestedById: r.reworkRequestedById as string | null,
+      reworkRequestedAt:
+        r.reworkRequestedAt instanceof Date
+          ? r.reworkRequestedAt.toISOString()
+          : (r.reworkRequestedAt as string | null),
       createdAt:
         r.createdAt instanceof Date
           ? r.createdAt.toISOString()
@@ -118,21 +141,28 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
     setItems(capa.actionItems ?? []);
   }, [capa.actionItems, capa.id]);
 
+  // Phase 6 — person filter (Worklist/detail pill tap). Filters the rendered
+  // rows to one owner; null = everyone. Filtering is display-only.
+  const visibleItems = ownerFilter ? items.filter((i) => i.ownerId === ownerFilter) : items;
+
   // Lock state mirrors the server invariants. closed/rejected = no
   // mutations at all. pending_qa_review / pending_verification = only
   // status-only updates allowed.
   const isTerminal = capa.status === "closed" || capa.status === "rejected";
   const isLocked = LOCKED_CAPA_STATUSES.has(capa.status);
-  const canStructuralEdit =
-    !isTerminal && !isLocked &&
-    (role === "qa_head" ||
-      role === "super_admin" ||
-      role === "customer_admin" ||
-      role === "qc_lab_director" ||
-      role === "regulatory_affairs" ||
-      role === "csv_val_lead" ||
-      role === "operations_head");
-  const canStatusUpdate = !isTerminal;
+  // Gated on capaCan.canEdit (COMPLIANCE_AUTHOR_ROLES) to match the server.
+  // Structural edits + skip stay author-only.
+  const canStructuralEdit = !isTerminal && !isLocked && capaCan.canEdit;
+  const canStatusUpdate = !isTerminal && capaCan.canEdit;
+  // Phase 3 — the assigned owner of THIS row may set in-progress / complete
+  // (+ notes), even without an author role. Skip + structural remain author-only
+  // (the server rejects owner skip/structural edits).
+  function isAssignedOwner(item: CAPAActionItem): boolean {
+    return !isViewer && !!item.ownerId && item.ownerId === authUser?.id;
+  }
+  function canOwnerStatus(item: CAPAActionItem): boolean {
+    return !isTerminal && isAssignedOwner(item);
+  }
 
   // Add-row state.
   const [addOpen, setAddOpen] = useState(false);
@@ -374,12 +404,14 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
         </p>
       )}
 
-      {items.length === 0 ? (
+      {visibleItems.length === 0 ? (
         <p
           className="text-[12px] italic mb-3"
           style={{ color: "var(--text-muted)" }}
         >
-          No action plan items yet. {canStructuralEdit ? "Add the first step below." : "The author has not yet defined the action plan."}
+          {ownerFilter
+            ? "(none of theirs) — no action items owned by the filtered person."
+            : `No action plan items yet. ${canStructuralEdit ? "Add the first step below." : "The author has not yet defined the action plan."}`}
         </p>
       ) : (
         <table className="w-full text-[11px] mb-3" role="table">
@@ -395,6 +427,9 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
           </thead>
           <tbody>
             {items.map((item, idx) => {
+              // Keep idx tied to the full list so reorder stays correct; skip
+              // rendering rows filtered out by the active person filter.
+              if (ownerFilter && item.ownerId !== ownerFilter) return null;
               const overdue = overdueDays(item);
               const isEditing = editId === item.id;
               return (
@@ -458,6 +493,12 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                         {item.completedAt && <> · {dayjs(item.completedAt).fromNow()}</>}
                       </div>
                     )}
+                    {/* Phase 4 — surface why QA sent this item back for rework. */}
+                    {item.status === "rework" && item.reworkReason && (
+                      <div className="text-[10px] mt-1" style={{ color: "var(--danger)" }} title={item.reworkReason}>
+                        Returned: {item.reworkReason}
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 align-top text-right">
                     {isEditing ? (
@@ -482,8 +523,10 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                       </div>
                     ) : (
                       <div className="flex justify-end gap-1 flex-wrap">
-                        {/* Status quick-actions */}
-                        {canStatusUpdate && item.status === "pending" && (
+                        {/* Status quick-actions — author OR assigned owner.
+                            "rework" items can also be picked back up (the
+                            Phase-4 repair walk: rework → in_progress → complete). */}
+                        {(canStatusUpdate || canOwnerStatus(item)) && (item.status === "pending" || item.status === "rework") && (
                           <Button
                             variant="ghost"
                             size="xs"
@@ -493,7 +536,7 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                             title="Mark in progress"
                           />
                         )}
-                        {canStatusUpdate && item.status !== "complete" && item.status !== "skipped" && (
+                        {(canStatusUpdate || canOwnerStatus(item)) && item.status !== "complete" && item.status !== "skipped" && (
                           <Button
                             variant="ghost"
                             size="xs"
@@ -506,6 +549,7 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                             title="Mark complete"
                           />
                         )}
+                        {/* Skip stays author-only (server rejects owner skip). */}
                         {canStatusUpdate && item.status !== "complete" && item.status !== "skipped" && (
                           <Button
                             variant="ghost"

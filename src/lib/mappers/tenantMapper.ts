@@ -1,4 +1,4 @@
-import type { Tenant, TenantSiteConfig, TenantUserConfig, SubscriptionPlan } from "@/store/auth.slice";
+import type { Tenant, TenantSiteConfig, TenantUserConfig, PlanConfig, PlanTier } from "@/store/auth.slice";
 
 type PrismaTenantRow = {
   id: string;
@@ -12,12 +12,15 @@ type PrismaTenantRow = {
   isActive: boolean;
   mfaEnabled: boolean;
   createdAt: Date;
-  subscription?: {
+  plan?: {
     id: string;
-    maxAccounts: number;
+    tier: string;
+    displayName: string | null;
+    maxUsers: number;
+    maxSites: number;
+    minRetentionYears: number;
     startDate: Date;
     expiryDate: Date;
-    status: string;
     createdAt: Date;
   } | null;
   sites?: Array<{
@@ -65,14 +68,17 @@ function mapUser(user: NonNullable<PrismaTenantRow["users"]>[number]): TenantUse
   };
 }
 
-function mapSubscription(sub: NonNullable<PrismaTenantRow["subscription"]>): SubscriptionPlan {
+function mapPlan(plan: NonNullable<PrismaTenantRow["plan"]>): PlanConfig {
   return {
-    id: sub.id,
-    startDate: sub.startDate.toISOString(),
-    endDate: sub.expiryDate.toISOString(),
-    maxAccounts: sub.maxAccounts,
-    status: sub.status === "Active" ? "Active" : "Inactive",
-    createdAt: sub.createdAt.toISOString(),
+    id: plan.id,
+    tier: plan.tier as PlanTier,
+    displayName: plan.displayName,
+    maxUsers: plan.maxUsers,
+    maxSites: plan.maxSites,
+    minRetentionYears: plan.minRetentionYears,
+    startDate: plan.startDate.toISOString(),
+    expiryDate: plan.expiryDate.toISOString(),
+    createdAt: plan.createdAt.toISOString(),
   };
 }
 
@@ -97,7 +103,7 @@ export function mapTenantFromPrisma(row: PrismaTenantRow): Tenant {
   return {
     id: row.id,
     name: row.name,
-    plan: "professional",
+    customerCode: row.customerCode,
     adminEmail: row.email,
     createdAt: row.createdAt.toISOString(),
     active: row.isActive,
@@ -112,6 +118,6 @@ export function mapTenantFromPrisma(row: PrismaTenantRow): Tenant {
       sites: (row.sites ?? []).map(mapSite),
       users: allUsers,
     },
-    subscriptionPlans: row.subscription ? [mapSubscription(row.subscription)] : [],
+    plan: row.plan ? mapPlan(row.plan) : null,
   };
 }

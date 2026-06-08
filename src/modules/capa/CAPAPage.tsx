@@ -18,20 +18,13 @@ import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   setCAPAs,
   addCAPA,
-  updateCAPA as updateCAPAAction, closeCAPA,
-  type CAPA, type RCAMethod,
+  type CAPA,
 } from "@/store/capa.slice";
 import { isOverdue } from "@/types/capa";
 import { mapCAPAFromPrisma } from "@/lib/mappers/capaMapper";
-import { closeFinding } from "@/store/findings.slice";
-import { closeObservation } from "@/actions/fda483";
 import { auditLog } from "@/lib/audit";
 import {
   createCAPA as createCAPAServer,
-  updateCAPA as updateCAPAServer,
-  submitForReview as submitForReviewServer,
-  signAndCloseCAPA as signAndCloseCAPAServer,
-  startCAPAProgress as startCAPAProgressServer,
   reopenCAPA as reopenCAPAServer,
 } from "@/actions/capas";
 import { Button } from "@/components/ui/Button";
@@ -44,8 +37,6 @@ import { QMSBlueprintTab } from "./tabs/QMSBlueprintTab";
 import { CAPATrackerTab } from "./tabs/CAPATrackerTab";
 import { CAPAMetricsTab } from "./tabs/CAPAMetricsTab";
 import { AddCAPAModal, type CAPAForm } from "./modals/AddCAPAModal";
-import { EditCAPAModal, type EditForm } from "./modals/EditCAPAModal";
-import { SignCloseModal } from "./modals/SignCloseModal";
 import { AIGenerateCAPAModal, type AICapaResponse, type AICapaForm } from "./modals/AIGenerateCAPAModal";
 
 /* ── Constants ── */
@@ -65,13 +56,23 @@ const QMS_PROCESSES = [
 
 /* ══════════════════════════════════════ */
 
+export interface EffectivenessDueItem {
+  id: string;
+  reference: string | null;
+  description: string;
+  risk: string;
+  effectivenessDate: string | null;
+}
+
 interface CAPAPageProps {
   openCapaId?: string;
   /** Server-fetched CAPAs (Prisma rows) — seeded into Redux on mount. */
   capas?: PrismaCAPA[];
+  /** Phase 6 — closed CAPAs whose 90-day effectiveness check is due. */
+  effectivenessDue?: EffectivenessDueItem[];
 }
 
-export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {}) {
+export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = [] }: CAPAPageProps = {}) {
   const router = useRouter();
   const dispatch = useAppDispatch();
 
@@ -94,7 +95,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   // "New CAPA" creation flow is reserved for QA-side roles.
   const canUseAiCapa = !isViewer;
 
-  const { capas, fda483Events, tenantId } = useTenantData();
+  const { capas, tenantId } = useTenantData();
   const { org, users, allSites } = useTenantConfig();
   // For the AI backend, customer_id is the customer admin's aiUserId (the
   // CUST_xxx that was registered at signup). Fall back to the local tenantId
@@ -120,30 +121,10 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
   const [aiOpen, setAiOpen] = useState(false);
   const [aiSavedPopup, setAiSavedPopup] = useState<string | null>(null);
   const [addedPopup, setAddedPopup] = useState(false);
-  const [signOpen, setSignOpen] = useState(false);
-  // Substage 6.4 — optional CC-block override carried from ActionsPanel's
-  // pre-flight gate to signAndCloseCAPA. Stays null on the normal flow
-  // (no incomplete linked CCs) so the server-action call shape matches
-  // the pre-6.4 behaviour exactly.
-  const [pendingCCOverride, setPendingCCOverride] = useState<
-    { reason: string } | null
-  >(null);
-  const [signedPopup, setSignedPopup] = useState(false);
-  const [submittedPopup, setSubmittedPopup] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editSavedPopup, setEditSavedPopup] = useState(false);
-  // Failure surface — paired with the success popups above. Server actions
-  // that reject (FORBIDDEN, validation, Part 11 password mismatch, etc.)
-  // route through this so users see the real reason rather than a silent
-  // console.error masked by a green success popup.
+  // Failure surface for the create/AI/reopen flows that remain on this list
+  // page. (Phase 6 cleanup — edit/sign/submit modals moved to /capa/[id].)
   const [errorMsg, setErrorMsg] = useState("");
   const [errorPopup, setErrorPopup] = useState(false);
-  // Inline state for the Sign & Close flow — the SignCloseModal stays
-  // open on a server reject and renders signError next to the Sign button,
-  // so a wrong-password attempt doesn't close the modal (which would have
-  // left Redux mid-update and the user staring at a "Closed" pill).
-  const [signError, setSignError] = useState<string | null>(null);
-  const [signBusy, setSignBusy] = useState(false);
 
   /* ── Open from route ── */
   useEffect(() => {
@@ -253,75 +234,10 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     });
   }
 
-  function handleEditSave(data: EditForm) {
-    if (!selectedCAPA) return;
-    const autoAdvance = selectedCAPA.status === "open" && data.rca?.trim();
-    const capaId = selectedCAPA.id;
-    startTransition(async () => {
-      // SME Section 1, Stage 4 (FULL) — correctiveActions is no longer
-      // part of the EditCAPAModal form; the structured Action Plan
-      // table is the only edit surface. Server still rejects any
-      // correctiveActions payload (deprecated guard) so even if a
-      // legacy caller resurfaced it, the action would block.
-      const res = await updateCAPAServer(capaId, {
-        description: data.description,
-        owner: data.owner,
-        dueDate: data.dueDate,
-        risk: data.risk as never,
-        rcaMethod: (data.rcaMethod as string) || undefined,
-        rca: data.rca ?? "",
-      });
-      if (!res.success) {
-        setErrorMsg(res.error || "Failed to save changes. Please try again.");
-        setErrorPopup(true);
-        return;
-      }
-      // RUNG 3D-CAPA — open→in_progress now routes through the guarded
-      // startCAPAProgress transition (status is no longer settable via update).
-      if (autoAdvance) {
-        const adv = await startCAPAProgressServer(capaId);
-        if (!adv.success) {
-          setErrorMsg(adv.error || "Saved, but failed to start CAPA progress.");
-          setErrorPopup(true);
-          return;
-        }
-      }
-      // Server accepted — now safe to mirror into Redux + close the modal.
-      dispatch(updateCAPAAction({
-        id: capaId,
-        patch: {
-          description: data.description, owner: data.owner,
-          dueDate: dayjs(data.dueDate).utc().toISOString(),
-          risk: data.risk, rcaMethod: (data.rcaMethod as RCAMethod) || undefined,
-          rca: data.rca ?? "",
-          effectivenessCheck: data.effectivenessCheck, diGate: data.diGate,
-          diGateStatus: data.diGateStatus ?? "open",
-          diGateNotes: data.diGateNotes ?? "",
-          diGateReviewedBy: data.diGateReviewedBy ?? "",
-          diGateReviewDate: data.diGateReviewDate ?? "",
-          ...(autoAdvance ? { status: "in_progress" as const } : {}),
-        },
-      }));
-      setEditModalOpen(false);
-      setEditSavedPopup(true);
-      router.refresh();
-    });
-  }
-
-  function handleSubmitForReview(id: string) {
-    startTransition(async () => {
-      const res = await submitForReviewServer(id);
-      if (!res.success) {
-        setErrorMsg(res.error || "Failed to submit for review. Please try again.");
-        setErrorPopup(true);
-        return;
-      }
-      dispatch(updateCAPAAction({ id, patch: { status: "pending_qa_review" } }));
-      setSubmittedPopup(true);
-      setSelectedCAPA(null);
-      router.refresh();
-    });
-  }
+  // Phase 6 cleanup FIX 5 — handleEditSave / handleSubmitForReview /
+  // handleSignClose removed: the detail PAGE (/capa/[id]) now owns edit,
+  // submit, and sign-&-close (it reuses the same EditCAPAModal/SignCloseModal).
+  // This list page keeps create / AI / reopen only.
 
   // RUNG 3D-CAPA — reopen a closed/rejected CAPA (senior action, reason ≥10).
   const [reopenTarget, setReopenTarget] = useState<string | null>(null);
@@ -337,73 +253,6 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
     if (!res.success) { setReopenError(res.error || "Failed to reopen CAPA."); return; }
     if (selectedCAPA?.id === reopenTarget) setSelectedCAPA(null);
     closeReopenModal();
-    router.refresh();
-  }
-
-  const [diGateBlockPopup, setDiGateBlockPopup] = useState(false);
-
-  async function handleSignClose(data: { meaning: string; password: string }) {
-    if (!selectedCAPA) return;
-    if (selectedCAPA.diGate && selectedCAPA.diGateStatus !== "cleared") {
-      setSignOpen(false);
-      setDiGateBlockPopup(true);
-      return;
-    }
-    setSignBusy(true);
-    setSignError(null);
-    const capaId = selectedCAPA.id;
-    const findingId = selectedCAPA.findingId;
-    const source = selectedCAPA.source;
-    const ccOverride = pendingCCOverride;
-    // §11 — server-first. Modal stays open until the server confirms the
-    // signature; on reject (wrong password, missing approvals, CC dep
-    // gate, etc.) the signError prop renders inline and Redux is
-    // untouched. The cross-module observation update only fires AFTER
-    // the close commits — previously it ran first, leaving the DB in
-    // mixed state on signing failure.
-    const res = await signAndCloseCAPAServer(capaId, {
-      password: data.password,
-      signatureMeaning: data.meaning,
-      ccBlockOverride: ccOverride ?? undefined,
-    });
-    setSignBusy(false);
-    if (!res.success) {
-      setSignError(res.error || "Sign & close failed. Please verify your password and try again.");
-      return; // modal stays open
-    }
-    // Server confirmed. Now safe to apply local Redux + cross-module side
-    // effects.
-    const now = dayjs().toISOString();
-    // Rung 3J.1 — closedBy stores a NAME (server sets session.user.name;
-    // displayed via displayName({name})), so the optimistic dispatch must pass
-    // the name, not the id (passing the id leaked a cuid until server refresh).
-    dispatch(closeCAPA({ id: capaId, closedBy: user?.name ?? "", closedAt: now }));
-    if (findingId) dispatch(closeFinding(findingId));
-    if (source === "483") {
-      for (const ev of fda483Events) {
-        const matchingObs = ev.observations.find((o) => o.capaId === capaId);
-        if (matchingObs) {
-          // Cross-module: when a CAPA from a 483 source closes, close the
-          // linked observation too — via the guarded closeObservation action
-          // (Rung 3D-FDA; was a status bypass through updateObservation). The
-          // QA Head who signed the CAPA closure satisfies closeObservation's
-          // role gate. Best-effort: a failure here (e.g. already closed) must
-          // not undo the committed CAPA closure.
-          const obsClose = await closeObservation(matchingObs.id, {
-            reason: `Auto-closed on closure of linked CAPA ${selectedCAPA?.reference ?? capaId}.`,
-          });
-          if (!obsClose.success) {
-            console.warn("[capa] linked observation close skipped:", obsClose.error);
-          }
-          break;
-        }
-      }
-    }
-    auditLog({ action: "CAPA_CLOSED_MEANING", module: "capa", recordId: capaId, newValue: { meaning: data.meaning } });
-    setSignOpen(false);
-    setSignedPopup(true);
-    setSelectedCAPA(null);
-    setPendingCCOverride(null);
     router.refresh();
   }
 
@@ -449,14 +298,9 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
           timezone={timezone} dateFormat={dateFormat}
           onAddOpen={() => setAddOpen(true)}
           onAiOpen={canUseAiCapa ? () => setAiOpen(true) : undefined}
-          onEditOpen={() => setEditModalOpen(true)}
-          onSignOpen={(override) => {
-            setPendingCCOverride(override ?? null);
-            setSignOpen(true);
-          }} onSubmitForReview={handleSubmitForReview}
           onReopen={canReopen ? (id) => { setReopenTarget(id); setReopenReason(""); setReopenError(null); } : undefined}
-          onNavigateGap={(fid) => router.push(`/gap-assessment?openFindingId=${encodeURIComponent(fid)}`)}
           onNavigateCapa={() => router.push("/gap-assessment")}
+          effectivenessDue={effectivenessDue}
         />
       )}
 
@@ -470,10 +314,9 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
         />
       )}
 
-      {/* Modals */}
+      {/* Modals — edit/sign moved to the detail page (/capa/[id]); this list
+          page keeps create / AI / reopen only. */}
       <AddCAPAModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddCAPA} users={complianceUsers} sites={allSites} lockedSiteId={selectedSiteId} />
-      <EditCAPAModal isOpen={editModalOpen} onClose={() => setEditModalOpen(false)} onSave={handleEditSave} capa={selectedCAPA} users={complianceUsers} />
-      <SignCloseModal isOpen={signOpen} onClose={() => { setSignOpen(false); setPendingCCOverride(null); setSignError(null); }} onSign={handleSignClose} capa={selectedCAPA} ccBlockOverride={pendingCCOverride} error={signError} busy={signBusy} />
 
       {/* RUNG 3D-CAPA — reopen a closed/rejected CAPA (reason required) */}
       <Modal
@@ -623,13 +466,9 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs }: CAPAPageProps = {})
       />
 
       {/* Popups */}
-      <Popup isOpen={editSavedPopup} variant="success" title="CAPA updated" description="Changes saved. Submit for QA review when RCA and corrective actions are complete." onDismiss={() => setEditSavedPopup(false)} />
-      <Popup isOpen={addedPopup} variant="success" title="CAPA created" description="Added to the tracker. Document RCA and corrective actions next." onDismiss={() => setAddedPopup(false)} />
-      <Popup isOpen={submittedPopup} variant="success" title="Submitted for QA review" description="QA Head will review and sign to close." onDismiss={() => setSubmittedPopup(false)} />
-      <Popup isOpen={signedPopup} variant="success" title="CAPA closed" description="Signed and closed. Audit trail entry recorded." onDismiss={() => setSignedPopup(false)} />
+      <Popup isOpen={addedPopup} variant="success" title="CAPA created" description="Added to the tracker. Open the CAPA to document RCA and corrective actions." onDismiss={() => setAddedPopup(false)} />
       <Popup isOpen={!!aiSavedPopup} variant="success" title="AI CAPA generated" description={aiSavedPopup ?? ""} onDismiss={() => setAiSavedPopup(null)} />
       <Popup isOpen={errorPopup} variant="error" title="Action failed" description={errorMsg} onDismiss={() => setErrorPopup(false)} />
-      <Popup isOpen={diGateBlockPopup} variant="confirmation" title="DI gate must be cleared" description="Data integrity review has not been completed. Open Edit mode and clear the DI gate before closing this CAPA." onDismiss={() => setDiGateBlockPopup(false)} actions={[{ label: "OK", style: "primary", onClick: () => setDiGateBlockPopup(false) }]} />
     </main>
   );
 }

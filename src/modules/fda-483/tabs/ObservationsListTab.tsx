@@ -22,6 +22,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   ClipboardList,
   Plus,
@@ -151,7 +152,9 @@ export function ObservationsListTab({
   const fullyLocked =
     liveEvent.status === "Response Submitted" || liveEvent.status === "Closed";
 
-  const canAct = role !== "viewer" && !fullyLocked;
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const fdaCan = usePermissions("fda483");
+  const canAct = role !== "viewer" && !fullyLocked && fdaCan.canEdit;
 
   const observations = liveEvent.observations;
   // Ephemeral single-select filter (Item 2). Resets when the tab unmounts.

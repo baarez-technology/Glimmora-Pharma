@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Search,
   ClipboardList,
+  ListChecks,
   Monitor,
   FileText,
   AlertTriangle,
@@ -51,6 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "gap-assessment", label: "Gap Assessment", icon: Search },
       { path: "deviation", label: "Deviation Management", icon: AlertTriangle },
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
+      { path: "worklist", label: "Worklist", icon: ListChecks },
       { path: "csv-csa", label: "CSV/CSA Validation", icon: Monitor },
       { path: "fda-483", label: "FDA 483 & Regulatory", icon: Building2 },
       { path: "evidence", label: "Evidence & Documents", icon: FileText },
@@ -112,19 +114,30 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     });
   };
 
-  const visibleGroups = NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((item) => {
-      if (item.path === "readiness" || item.path === "deviation") return true;
-      if (item.path === "audit-trail")
-        return (
-          role === "qa_head" ||
-          role === "customer_admin" ||
-          role === "super_admin"
-        );
-      return allowedPaths.includes(item.path);
-    }),
-  })).filter((g) => g.items.length > 0);
+  // Bright line: super_admin's world is the admin console only — it must never
+  // see any customer/compliance module in this (customer-app) sidebar. The
+  // (app) layout + proxy already redirect super_admin to /admin so this sidebar
+  // shouldn't render for it at all; blanking the nav here is defense-in-depth.
+  const visibleGroups = role === "super_admin"
+    ? []
+    : NAV_GROUPS.map((g) => ({
+        ...g,
+        items: g.items.filter((item) => {
+          // Phase 5 — the Worklist is the fixer's surface; it reaches CAPA work
+          // through the owner/driver paths, NOT the capa matrix entry. Visible
+          // to every non-super_admin role (viewer gets a read-only page).
+          if (item.path === "worklist") return true;
+          // Phase 6 cleanup FIX 1 — CAPA module locked to qa_head +
+          // customer_admin (matrix grants both `capa: full`); other roles use
+          // the Worklist. super_admin already returned [] above.
+          if (item.path === "capa") return role === "qa_head" || role === "customer_admin";
+          if (item.path === "readiness" || item.path === "deviation") return true;
+          if (item.path === "audit-trail")
+            // super_admin already returned [] above, so it's excluded here.
+            return role === "qa_head" || role === "customer_admin";
+          return allowedPaths.includes(item.path);
+        }),
+      })).filter((g) => g.items.length > 0);
 
   const handleLogout = async () => {
     // AUTH-03: Clear next-auth session cookie first (server-side), then

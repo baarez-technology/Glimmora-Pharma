@@ -6,7 +6,7 @@ import type { Tenant } from "@/store/auth.slice";
 export const getTenants = cache(async (): Promise<Tenant[]> => {
   const rows = await prisma.tenant.findMany({
     include: {
-      subscription: true,
+      plan: true,
       sites: true,
       users: true,
     },
@@ -19,7 +19,7 @@ export const getTenant = cache(async (id: string): Promise<Tenant | null> => {
   const row = await prisma.tenant.findUnique({
     where: { id },
     include: {
-      subscription: true,
+      plan: true,
       sites: true,
       users: true,
     },

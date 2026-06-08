@@ -9,11 +9,11 @@ import { getToken } from "next-auth/jwt";
  *   2. Redirects unauthenticated requests to /login with a callbackUrl.
  *   3. For /admin routes, requires role === super_admin or customer_admin (E1=B).
  *
- * Pages can still call `requireAuth()` for the session object — middleware
+ * Pages can still call `requireAuth()` for the session object — proxy
  * coverage is defense-in-depth, not a replacement for the per-page session
  * lookup that supplies tenantId for Prisma queries.
  */
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const token = await getToken({
     req,
     secret: process.env.NEXTAUTH_SECRET,
@@ -30,12 +30,22 @@ export async function middleware(req: NextRequest) {
     );
   }
 
+  const role = token.role as string | undefined;
+
   // 2. Admin route role gate — allow super_admin OR customer_admin (per E1=B).
   if (req.nextUrl.pathname.startsWith("/admin")) {
-    const role = token.role as string | undefined;
     if (role !== "super_admin" && role !== "customer_admin") {
       return NextResponse.redirect(new URL("/", req.url));
     }
+  }
+
+  // 3. Bright-line inverse gate — super_admin's world is the admin console
+  //    ONLY. Bounce it off every non-/admin route (the customer/compliance
+  //    modules: /, /capa, /deviation, /gap-assessment, /csv-csa, /fda-483,
+  //    /evidence, /readiness, /governance, /settings, …) to /admin. The
+  //    customer-app (app) layout enforces the same server-side.
+  if (role === "super_admin" && !req.nextUrl.pathname.startsWith("/admin")) {
+    return NextResponse.redirect(new URL("/admin", req.url));
   }
 
   // MFA session invalidation is enforced in the JWT callback
@@ -55,7 +65,7 @@ export async function middleware(req: NextRequest) {
  *   - any static asset by extension               (images, css, js, sourcemaps, json/txt/xml as defense-in-depth)
  *
  * Everything else — including /site-picker (E2), /(app)/*, and /(admin)/* —
- * passes through this middleware.
+ * passes through this proxy.
  *
  * Without the manifest.json carve-out, the browser's PWA-manifest fetch
  * round-trips through the auth gate and shows up in dev logs as

@@ -2,44 +2,30 @@
 
 import { CheckCircle2, Info } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import type { DetailSubTab } from "../helpers/getNextStep";
+import { READINESS_TAB, type DetailSubTab } from "../helpers/getNextStep";
+import type { ReadinessCondition } from "@/lib/capa-readiness";
 
 /**
- * Single source of truth for "what's blocking submission." Replaces the
- * three previously-independent inline warnings on the RCA, Actions, and
- * Effectiveness Criteria tabs — those said the same thing in different
- * places and made it unclear whether they were one signal or three.
- *
- * Five required items, in submission-order priority. Each unchecked
- * item is a button that switches to the relevant tab. Once all five
- * land, the panel collapses to a single success row.
+ * Single source of truth for "what's blocking submission." Phase 4: the
+ * checklist now renders the SHARED getCAPAReadiness conditions verbatim — the
+ * exact same a-f conditions the server enforces in submitForReview. The client
+ * can no longer disagree with the server about readiness. Each unmet item is a
+ * button that jumps to the relevant tab; once all are met the panel collapses
+ * to a single success row.
  */
 export function SubmissionChecklist({
-  hasDescription,
-  hasRca,
-  hasActions,
-  hasCriteria,
-  hasAlignment,
+  conditions,
   onChangeTab,
 }: {
-  hasDescription: boolean;
-  hasRca: boolean;
-  hasActions: boolean;
-  hasCriteria: boolean;
-  hasAlignment: boolean;
+  conditions: ReadinessCondition[];
   onChangeTab: (tab: DetailSubTab) => void;
 }) {
-  const items: {
-    label: string;
-    done: boolean;
-    tab: DetailSubTab;
-  }[] = [
-    { label: "Description (≥ 20 characters)", done: hasDescription, tab: "overview" },
-    { label: "Root cause documented", done: hasRca, tab: "rca" },
-    { label: "At least 1 corrective action", done: hasActions, tab: "actions" },
-    { label: "At least 1 effectiveness criterion", done: hasCriteria, tab: "criteria" },
-    { label: "Alignment review verdict recorded", done: hasAlignment, tab: "actions" },
-  ];
+  const items = conditions.map((c) => ({
+    label: c.label,
+    detail: c.detail,
+    done: c.met,
+    tab: READINESS_TAB[c.key],
+  }));
   const doneCount = items.filter((i) => i.done).length;
   const allDone = doneCount === items.length;
 
@@ -107,17 +93,24 @@ export function SubmissionChecklist({
               <button
                 type="button"
                 onClick={() => onChangeTab(item.tab)}
-                className="flex items-center gap-1.5 text-[12px] border-none bg-transparent cursor-pointer p-0 hover:underline"
+                className="flex items-start gap-1.5 text-[12px] border-none bg-transparent cursor-pointer p-0 hover:underline text-left"
                 style={{ color: "var(--text-primary)" }}
               >
                 <span
-                  className="inline-block w-3.5 h-3.5 rounded-sm shrink-0"
+                  className="inline-block w-3.5 h-3.5 rounded-sm shrink-0 mt-0.5"
                   style={{
                     border: "1.5px solid var(--text-muted)",
                   }}
                   aria-hidden="true"
                 />
-                {item.label}
+                <span>
+                  {item.label}
+                  {item.detail && (
+                    <span className="block text-[11px]" style={{ color: "var(--text-muted)" }}>
+                      {item.detail}
+                    </span>
+                  )}
+                </span>
               </button>
             )}
           </li>
