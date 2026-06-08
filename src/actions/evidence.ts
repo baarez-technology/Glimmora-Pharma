@@ -66,7 +66,7 @@ async function loadEvidenceItemScoped(evidenceItemId: string) {
   const session = await requireAuth();
   const item = await prisma.evidenceItem.findUnique({
     where: { id: evidenceItemId },
-    include: { capa: { select: { id: true, tenantId: true, description: true } } },
+    include: { capa: { select: { id: true, tenantId: true, description: true, ownerId: true } } },
   });
   if (!item) return { session, item: null as null };
   if (
@@ -195,9 +195,18 @@ export async function updateEvidenceStatus(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
-  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+  // Phase 5 — authorization: author-role OR the CAPA's DRIVER (ownerId), and the
+  // driver path is allowed ONLY to mark a category NOT_APPLICABLE (with reason).
+  // Everything else (uploading evidence, marking COMPLETE/IN_PROGRESS, undoing
+  // N/A) stays author-only. This is the ONE new category-level grant in Phase 5.
+  // requireGxPAuthor + the viewer hard-stop in isAssignedToTask precede this.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  const isDriver = isAssignedToTask(session, { ownerId: item.capa.ownerId });
+  const driverMarkingNA = isDriver && transitioningToNA;
+  if (!isAuthorRole && !driverMarkingNA) {
     return { success: false, error: "Your role does not permit this action." };
   }
+  const accessBasis: "authorRole" | "capaDriver" = isAuthorRole ? "authorRole" : "capaDriver";
   try {
     await prisma.$transaction(async (tx) => {
       // Snapshot prior notes value when notes changed (existing behaviour;
@@ -262,6 +271,7 @@ export async function updateEvidenceStatus(
             status: newStatus,
             ...(notesChanged ? { notesChanged: true } : {}),
             ...(parsed.data.naReason ? { naReason: parsed.data.naReason.trim() } : {}),
+            accessBasis,
           }),
         },
       });
@@ -425,7 +435,7 @@ export async function removeEvidenceFile(
     where: { id: fileId },
     include: {
       evidenceItem: {
-        include: { capa: { select: { id: true, tenantId: true, description: true } } },
+        include: { capa: { select: { id: true, tenantId: true, description: true, ownerId: true } } },
       },
     },
   });

@@ -68,6 +68,9 @@ type PrismaCAPA = {
     completedById: string | null;
     completedAt: Date | null;
     completionNotes: string | null;
+    reworkReason: string | null;
+    reworkRequestedById: string | null;
+    reworkRequestedAt: Date | null;
     createdAt: Date;
     createdBy: string;
     createdById: string | null;
@@ -79,6 +82,9 @@ type PrismaCAPA = {
   ccBlockOverrideAt: Date | null;
   closedBy: string | null;
   closedAt: Date | null;
+  rejectionReason: string | null;
+  rejectedById: string | null;
+  rejectedAt: Date | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -195,11 +201,14 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
           owner: a.owner,
           ownerId: a.ownerId,
           dueDate: a.dueDate.toISOString(),
-          status: a.status as "pending" | "in_progress" | "complete" | "skipped",
+          status: a.status as "pending" | "in_progress" | "complete" | "skipped" | "rework",
           completedBy: a.completedBy,
           completedById: a.completedById,
           completedAt: a.completedAt ? a.completedAt.toISOString() : null,
           completionNotes: a.completionNotes,
+          reworkReason: a.reworkReason,
+          reworkRequestedById: a.reworkRequestedById,
+          reworkRequestedAt: a.reworkRequestedAt ? a.reworkRequestedAt.toISOString() : null,
           createdAt: a.createdAt.toISOString(),
           createdBy: a.createdBy,
           createdById: a.createdById,
@@ -214,6 +223,9 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
       : undefined,
     closedAt: row.closedAt ? row.closedAt.toISOString() : undefined,
     closedBy: row.closedBy ?? undefined,
+    rejectionReason: row.rejectionReason ?? undefined,
+    rejectedById: row.rejectedById ?? undefined,
+    rejectedAt: row.rejectedAt ? row.rejectedAt.toISOString() : undefined,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
     // null = relation included, no linked deviation; undefined = relation

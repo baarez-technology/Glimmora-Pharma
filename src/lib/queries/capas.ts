@@ -186,6 +186,10 @@ export const getMyActionItems = cache(
     return prisma.cAPAActionItem.findMany({
       where: { ownerId: userId, tenantId },
       orderBy: { dueDate: "asc" },
+      // No `select` on the item itself → every scalar (incl. the Phase-2 rework
+      // fields reworkReason / reworkRequestedById / reworkRequestedAt) is
+      // returned. The parent CAPA carries risk + ownerId so the Worklist can
+      // colour the group header and detect when the viewer is the driver.
       include: {
         capa: {
           select: {
@@ -194,6 +198,8 @@ export const getMyActionItems = cache(
             description: true,
             status: true,
             dueDate: true,
+            risk: true,
+            ownerId: true,
           },
         },
       },

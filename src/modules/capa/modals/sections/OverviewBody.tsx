@@ -19,6 +19,7 @@ import type { CAPA } from "@/store/capa.slice";
 import type { DeviationStatus } from "@/store/deviation.slice";
 import type { UserConfig } from "@/store/settings.slice";
 import { SubmissionChecklist } from "../components/SubmissionChecklist";
+import type { ReadinessCondition } from "@/lib/capa-readiness";
 // CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
 // code/schema retained. To re-enable: uncomment the import below and
 // the <LinkedChangeControlsSection /> render further down.
@@ -51,11 +52,8 @@ interface OverviewBodyProps {
   onChangeTab: (tab: DetailSubTab) => void;
   onEditOpen: () => void;
   editAllowed: boolean;
-  hasMeaningfulDescription: boolean;
-  hasRca: boolean;
-  hasActions: boolean;
-  hasCriteria: boolean;
-  hasAlignment: boolean;
+  // Phase 4 — the shared readiness conditions (a-f), rendered verbatim.
+  readinessConditions: ReadinessCondition[];
 }
 
 export function OverviewBody({
@@ -70,11 +68,7 @@ export function OverviewBody({
   onChangeTab,
   onEditOpen,
   editAllowed,
-  hasMeaningfulDescription,
-  hasRca,
-  hasActions,
-  hasCriteria,
-  hasAlignment,
+  readinessConditions,
 }: OverviewBodyProps) {
   const router = useRouter();
   const ownerName = displayUserName(capa.owner, users);
@@ -101,11 +95,7 @@ export function OverviewBody({
     <div role="tabpanel" id="subpanel-overview" aria-labelledby="subtab-overview" tabIndex={0} className="space-y-4">
       {showChecklist && (
         <SubmissionChecklist
-          hasDescription={hasMeaningfulDescription}
-          hasRca={hasRca}
-          hasActions={hasActions}
-          hasCriteria={hasCriteria}
-          hasAlignment={hasAlignment}
+          conditions={readinessConditions}
           onChangeTab={onChangeTab}
         />
       )}

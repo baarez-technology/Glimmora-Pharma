@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Search,
   ClipboardList,
+  ListChecks,
   Monitor,
   FileText,
   AlertTriangle,
@@ -51,6 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "gap-assessment", label: "Gap Assessment", icon: Search },
       { path: "deviation", label: "Deviation Management", icon: AlertTriangle },
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
+      { path: "worklist", label: "Worklist", icon: ListChecks },
       { path: "csv-csa", label: "CSV/CSA Validation", icon: Monitor },
       { path: "fda-483", label: "FDA 483 & Regulatory", icon: Building2 },
       { path: "evidence", label: "Evidence & Documents", icon: FileText },
@@ -121,6 +123,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     : NAV_GROUPS.map((g) => ({
         ...g,
         items: g.items.filter((item) => {
+          // Phase 5 — the Worklist is the fixer's surface; it reaches CAPA work
+          // through the owner/driver paths, NOT the capa matrix entry. Visible
+          // to every non-super_admin role (viewer gets a read-only page).
+          if (item.path === "worklist") return true;
           if (item.path === "readiness" || item.path === "deviation") return true;
           if (item.path === "audit-trail")
             // super_admin already returned [] above, so it's excluded here.

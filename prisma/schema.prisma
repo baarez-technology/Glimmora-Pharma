@@ -137,6 +137,8 @@ model User {
   createdCAPAs             CAPA[]           @relation("CAPACreatedBy")
   // Phase 3 — reverse field for the CAPA.ownerId driver FK.
   ownedCAPAs               CAPA[]           @relation("CAPAOwner")
+  // Phase 4 — reverse field for the CAPA.rejectedById FK.
+  rejectedCAPAs            CAPA[]           @relation("CAPARejectedBy")
   // Phase 2 — reverse fields for the new nullable FKs.
   reworkRequestedCAPAActionItems CAPAActionItem[] @relation("CAPAActionItemReworkRequestedBy")
   uploadedEvidenceFiles          EvidenceFile[]   @relation("EvidenceFileUploadedBy")
@@ -363,6 +365,13 @@ model CAPA {
   // SetNull, same pattern as createdById. Enables the CAPA-driver access path
   // (isAssignedToTask / addCAPAComment) to resolve the driver as a real User.
   ownerId            String?
+  // Phase 4 — targeted reject. Rejection metadata stored as first-class
+  // columns (was previously crammed into diGateNotes). A reject now bounces
+  // the CAPA back to in_progress for rework rather than the dead-end
+  // "rejected" status. All additive/nullable.
+  rejectionReason    String?
+  rejectedById       String?
+  rejectedAt         DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -376,6 +385,7 @@ model CAPA {
   deviation              Deviation?                   @relation("CAPADeviationSource", fields: [deviationId], references: [id], onDelete: SetNull)
   createdByUser          User?                        @relation("CAPACreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   ownerUser              User?                        @relation("CAPAOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  rejectedByUser         User?                        @relation("CAPARejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
   documents              CAPADocument[]
   evidenceItems          EvidenceItem[]
   effectivenessCriteria  CAPAEffectivenessCriterion[]

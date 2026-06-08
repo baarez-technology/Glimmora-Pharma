@@ -55,6 +55,7 @@ const STATUS_LABEL: Record<CAPAActionItem["status"], string> = {
   in_progress: "In Progress",
   complete: "Complete",
   skipped: "Skipped",
+  rework: "Rework",
 };
 
 const STATUS_VARIANT: Record<CAPAActionItem["status"], "gray" | "amber" | "green" | "red"> = {
@@ -62,6 +63,7 @@ const STATUS_VARIANT: Record<CAPAActionItem["status"], "gray" | "amber" | "green
   in_progress: "amber",
   complete: "green",
   skipped: "red",
+  rework: "red",
 };
 
 export function ActionItemsSection({ capa }: { capa: CAPA }) {
@@ -115,6 +117,12 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
           ? r.completedAt.toISOString()
           : (r.completedAt as string | null),
       completionNotes: r.completionNotes as string | null,
+      reworkReason: r.reworkReason as string | null,
+      reworkRequestedById: r.reworkRequestedById as string | null,
+      reworkRequestedAt:
+        r.reworkRequestedAt instanceof Date
+          ? r.reworkRequestedAt.toISOString()
+          : (r.reworkRequestedAt as string | null),
       createdAt:
         r.createdAt instanceof Date
           ? r.createdAt.toISOString()
@@ -476,6 +484,12 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                         {item.completedAt && <> · {dayjs(item.completedAt).fromNow()}</>}
                       </div>
                     )}
+                    {/* Phase 4 — surface why QA sent this item back for rework. */}
+                    {item.status === "rework" && item.reworkReason && (
+                      <div className="text-[10px] mt-1" style={{ color: "var(--danger)" }} title={item.reworkReason}>
+                        Returned: {item.reworkReason}
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 align-top text-right">
                     {isEditing ? (
@@ -500,8 +514,10 @@ export function ActionItemsSection({ capa }: { capa: CAPA }) {
                       </div>
                     ) : (
                       <div className="flex justify-end gap-1 flex-wrap">
-                        {/* Status quick-actions — author OR assigned owner */}
-                        {(canStatusUpdate || canOwnerStatus(item)) && item.status === "pending" && (
+                        {/* Status quick-actions — author OR assigned owner.
+                            "rework" items can also be picked back up (the
+                            Phase-4 repair walk: rework → in_progress → complete). */}
+                        {(canStatusUpdate || canOwnerStatus(item)) && (item.status === "pending" || item.status === "rework") && (
                           <Button
                             variant="ghost"
                             size="xs"

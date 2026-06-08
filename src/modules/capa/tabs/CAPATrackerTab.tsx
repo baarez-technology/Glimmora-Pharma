@@ -172,7 +172,14 @@ export function CAPATrackerTab({
                   <td><Badge variant="gray">{sourceLabel(c.source)}</Badge></td>
                   <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 200, color: "var(--text-primary)" }}>{c.description}</span></td>
                   <td>{riskBadge(c.risk)}</td>
-                  <td>{capaStatusBadge(c.status)}</td>
+                  <td>
+                    {capaStatusBadge(c.status)}
+                    {/* Phase 4 — hint that an in-progress CAPA was bounced back
+                        by QA and has action items awaiting rework. */}
+                    {c.status === "in_progress" && (c.actionItems ?? []).some((a) => a.status === "rework") && (
+                      <Badge variant="red">Rework</Badge>
+                    )}
+                  </td>
                   <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{ownerName(c.owner, users)}</td>
                   <td className="whitespace-nowrap">
                     <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(c.dueDate).tz(timezone).format(dateFormat)}</div>

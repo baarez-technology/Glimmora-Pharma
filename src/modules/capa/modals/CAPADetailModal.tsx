@@ -24,6 +24,7 @@ import { OverviewBody } from "./sections/OverviewBody";
 import { RcaBody } from "./sections/RcaBody";
 import { NextStepBanner } from "./components/NextStepBanner";
 import { getNextStep, type DetailSubTab } from "./helpers/getNextStep";
+import { getCAPAReadiness } from "@/lib/capa-readiness";
 import { displayUserName } from "@/lib/identity-display";
 
 /* ── CAPA detail modal shell ──
@@ -144,10 +145,6 @@ export function CAPADetailModal({
   const liveActionItems = (capa.actionItems ?? []).filter(
     (a) => a.status !== "skipped",
   );
-  const hasActions =
-    liveActionItems.length > 0 ||
-    (capa.actionItems === undefined &&
-      ((capa.correctiveActions ?? "").trim().length > 0));
   const actionsBadge = liveActionItems.length > 0 ? String(liveActionItems.length) : null;
   // Legacy field passed down to ActionsPanel for the existing bullet-list
   // fallback render. Will be unused once ActionItemsSection lands as the
@@ -158,23 +155,34 @@ export function CAPADetailModal({
     .filter((l) => l.length > 0);
 
   const criteriaBadge = criteriaCount !== null ? String(criteriaCount) : null;
-  // 20-char minimum mirrors the Submission checklist threshold so a CAPA
-  // with a one-word description still nudges the user to expand it before
-  // submission. The header itself shows whatever was typed (truncated).
-  const hasMeaningfulDescription = descriptionText.length >= 20;
-  const hasCriteria = criteriaCount !== null && criteriaCount > 0;
-  const hasAlignment = Boolean(capa.alignmentStatus);
+
+  // Phase 4 — ONE readiness computation, shared verbatim with the server gate
+  // (src/lib/capa-readiness.ts). Feeds BOTH the next-step banner and the
+  // submission checklist so the client mirrors the server exactly. Evidence is
+  // reconstructed from the panel's category counts (complete already folds in
+  // NOT_APPLICABLE); criteria from its count. Both are null until their tab has
+  // loaded — until then those conditions read as not-yet-met (the server is the
+  // authoritative gate regardless).
+  const evidenceForReadiness = evidenceCounts
+    ? [
+        ...Array<{ status: string }>(evidenceCounts.complete).fill({ status: "COMPLETE" }),
+        ...Array<{ status: string }>(evidenceCounts.inProgress).fill({ status: "IN_PROGRESS" }),
+        ...Array<{ status: string }>(evidenceCounts.pending).fill({ status: "PENDING" }),
+      ]
+    : [];
+  const readiness = getCAPAReadiness(
+    capa,
+    capa.actionItems ?? [],
+    evidenceForReadiness,
+    Array.from({ length: criteriaCount ?? 0 }, () => ({})),
+  );
 
   // Lifted from OverviewBody so the next-step banner can render above
   // EVERY tab body, not just Overview. The banner becomes a persistent
   // guide instead of disappearing when the user clicks away from Overview.
   const nextStep = getNextStep({
     capa,
-    hasDescription: hasMeaningfulDescription,
-    hasRca,
-    hasActions,
-    hasCriteria,
-    hasAlignment,
+    readiness,
     timezone,
     dateFormat,
     onChangeTab: setActiveTab,
@@ -305,11 +313,7 @@ export function CAPADetailModal({
           onChangeTab={setActiveTab}
           onEditOpen={onEditOpen}
           editAllowed={editAllowed}
-          hasMeaningfulDescription={hasMeaningfulDescription}
-          hasRca={hasRca}
-          hasActions={hasActions}
-          hasCriteria={hasCriteria}
-          hasAlignment={hasAlignment}
+          readinessConditions={readiness.conditions}
         />
       )}
       {activeTab === "evidence" && (
