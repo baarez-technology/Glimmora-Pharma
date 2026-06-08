@@ -236,6 +236,9 @@ model CAPA {
   // (replaces the former Redux-only soft match in DIAuditPanel).
   systemId           String?
   source             String
+  // Phase A — short human title (the tracker's primary label). Required;
+  // backfilled from the first 120 chars of description for pre-existing rows.
+  title              String
   description        String
   risk               String
   owner              String
@@ -305,7 +308,9 @@ model CAPA {
   // binds this date (see canonicalizeCAPAClosureContent) so an
   // inspector reading a signed closure has the 90-day commitment
   // cryptographically attested.
-  effectivenessCheck         Boolean   @default(false)
+  // Phase A — the 90-day effectiveness check is always scheduled at closure
+  // (not optional); default true. signAndCloseCAPA also sets it true atomically.
+  effectivenessCheck         Boolean   @default(true)
   effectivenessDate          DateTime?
   // Six fields capturing the review outcome — populated by
   // recordEffectivenessReview, cleared by revokeEffectivenessReview.

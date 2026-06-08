@@ -206,3 +206,36 @@ export const getMyActionItems = cache(
     });
   },
 );
+
+/**
+ * Phase B (Zone 6) — the audit trail for a single CAPA. AuditLog rows are
+ * keyed by recordId = the CAPA id across the CAPA family (lifecycle, action
+ * items, approvals, etc.). Newest first; serialised for the client bar.
+ */
+export interface CapaAuditEntry {
+  id: string;
+  action: string;
+  userName: string;
+  userRole: string | null;
+  recordTitle: string | null;
+  createdAt: string;
+}
+
+export const getCapaAuditTrail = cache(
+  async (capaId: string, tenantId: string): Promise<CapaAuditEntry[]> => {
+    const rows = await prisma.auditLog.findMany({
+      where: { tenantId, recordId: capaId },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: { id: true, action: true, userName: true, userRole: true, recordTitle: true, createdAt: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      action: r.action,
+      userName: r.userName,
+      userRole: r.userRole,
+      recordTitle: r.recordTitle,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  },
+);

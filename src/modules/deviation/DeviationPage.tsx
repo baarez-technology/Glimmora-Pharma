@@ -205,6 +205,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   async function handleRaiseCAPAFromDetail() {
     if (!selected || !user) return;
     const result = await createCAPAAction({
+      title: selected.title.slice(0, 120),
       description: `${selected.title} (from ${selected.id})`,
       source: "Deviation",
       risk: severityToRisk(selected.severity),

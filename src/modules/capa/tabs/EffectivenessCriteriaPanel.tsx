@@ -201,7 +201,7 @@ export function EffectivenessCriteriaPanel({
             className="text-[12px] font-medium mb-1"
             style={{ color: "var(--text-primary)" }}
           >
-            No effectiveness criteria defined yet
+            How will you know the fix worked?
           </p>
           {/* "Add criteria before submitting for QA review" copy was
               removed — the SubmissionChecklist on the CAPA Overview tab
@@ -212,7 +212,7 @@ export function EffectivenessCriteriaPanel({
             className="text-[11px] mb-3"
             style={{ color: "var(--text-secondary)" }}
           >
-            Define how you&apos;ll measure that the corrective action worked.
+            Add at least 1 measurable criterion (a number + a timeframe).
           </p>
           {!disabled && (
             <Button

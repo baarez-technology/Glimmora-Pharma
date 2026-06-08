@@ -1601,6 +1601,8 @@ export async function raiseCAPAFromSystem(
   const result = await createCAPA({
     source: "CSV/CSA",
     systemId,
+    // Phase A — title required; derive from the CSV/CSA description.
+    title: parsed.data.description.slice(0, 120),
     description: parsed.data.description,
     risk: parsed.data.risk,
     owner: parsed.data.owner,

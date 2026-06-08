@@ -1518,6 +1518,8 @@ export async function raiseCAPAFromObservation(
     //    (auto-required for IT / CSV Lead origins).
     const created = await createCAPA({
       source: "FDA 483",
+      // Phase A — title required; derive from the observation description.
+      title: description.slice(0, 120),
       description,
       risk,
       owner: d.owner,

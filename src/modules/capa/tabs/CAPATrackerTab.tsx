@@ -11,15 +11,17 @@ import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
-import { CAPA_STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { displayUserName, displaySiteName } from "@/lib/identity-display";
 import { usePermissions } from "@/hooks/usePermissions";
+import { StatusPill, CAPA_STATUS_TOKEN } from "../lib/statusTokens";
 
 /* ── Helpers ── */
 const SOURCE_LABEL: Record<string, string> = { "483": "FDA 483 Observation", "Gap Assessment": "Gap Assessment Finding", Deviation: "Deviation Report", "Internal Audit": "Internal Audit", Complaint: "Complaint", OOS: "OOS", "Change Control": "Change Control" };
 function sourceLabel(s: string) { return SOURCE_LABEL[s] ?? s; }
 function riskBadge(r: CAPARisk) { return <Badge variant={getSeverityVariant(r, "generic")}>{normalizeSeverityForDisplay(r, "generic") ?? r}</Badge>; }
-function capaStatusBadge(s: CAPAStatus) { return <Badge variant={CAPA_STATUS_VARIANT[s]}>{STATUS_LABEL[s]}</Badge>; }
+// Phase C — status rendered as a semantic token pill (never brand gold).
+function capaStatusBadge(s: CAPAStatus) { return <StatusPill token={CAPA_STATUS_TOKEN[s]}>{STATUS_LABEL[s]}</StatusPill>; }
 function ownerName(uid: string, users: UserConfig[]) { return displayUserName(uid, users); }
 
 interface SiteOption {
@@ -77,9 +79,11 @@ function hasReworkItem(c: CAPA): boolean {
 export function CAPATrackerTab({
   capas, filteredCAPAs, selectedCAPA, onSelectCAPA,
   isDark, isViewOnly, users, user, sites, timezone, dateFormat,
-  onAddOpen, onAiOpen, onReopen,
+  onAddOpen, onReopen,
   onNavigateCapa, effectivenessDue = [],
 }: CAPATrackerTabProps) {
+  // Phase A — onAiOpen intentionally not consumed (AI CAPA hidden in Phase 1);
+  // kept optional on the interface so CAPAPage's call site is unchanged.
   // Phase 6 — onEditOpen/onSignOpen/onSubmitForReview/onNavigateGap are no
   // longer consumed here (detail moved to /capa/[id]); kept on the interface
   // so CAPAPage's call site is unchanged.
@@ -154,19 +158,19 @@ export function CAPATrackerTab({
       {/* ── Phase 6 queues ── */}
       {(waitingOnYou.length > 0 || effectivenessDue.length > 0 || overdueQueue.length > 0) && (
         <div className="grid gap-3 mb-5 md:grid-cols-3">
-          <QueueCard title="Waiting on you" Icon={Clock} tone="brand" count={waitingOnYou.length}>
+          <QueueCard title="Waiting on you" Icon={Clock} tone="waiting" count={waitingOnYou.length}>
             {waitingOnYou.slice(0, 6).map(({ c, why }) => (
               <QueueRow key={`w-${c.id}-${why}`} label={c.reference ?? c.id.slice(0, 8)} sub={why} onClick={() => go(c.id)} />
             ))}
           </QueueCard>
-          <QueueCard title="Effectiveness checks due" Icon={TrendingUp} tone="info" count={effectivenessDue.length}>
+          <QueueCard title="Effectiveness checks due" Icon={TrendingUp} tone="active" count={effectivenessDue.length}>
             {effectivenessDue.slice(0, 6).map((e) => (
               <QueueRow key={e.id} label={e.reference ?? e.id.slice(0, 8)}
                 sub={`Due ${e.effectivenessDate ? dayjs.utc(e.effectivenessDate).tz(timezone).format("DD MMM") : "—"}`}
                 onClick={() => go(e.id)} />
             ))}
           </QueueCard>
-          <QueueCard title="Overdue" Icon={AlertTriangle} tone="danger" count={overdueQueue.length}>
+          <QueueCard title="Overdue" Icon={AlertTriangle} tone="blocked" count={overdueQueue.length}>
             {overdueQueue.slice(0, 6).map((c) => (
               <QueueRow key={c.id} label={c.reference ?? c.id.slice(0, 8)}
                 sub={isOverdue(c) ? "CAPA past due" : "Action item overdue"} onClick={() => go(c.id)} />
@@ -187,8 +191,8 @@ export function CAPATrackerTab({
         <Dropdown placeholder="All sources" value={sourceFilter} onChange={setSourceFilter} width="w-40" options={[{ value: "", label: "All sources" }, { value: "483", label: "483" }, { value: "Internal Audit", label: "Internal Audit" }, { value: "Deviation", label: "Deviation" }, { value: "Complaint", label: "Complaint" }, { value: "OOS", label: "OOS" }, { value: "Change Control", label: "Change Control" }, { value: "Gap Assessment", label: "Gap Assessment" }]} />
         <Dropdown placeholder="Anyone assigned" value={assignedFilter} onChange={setAssignedFilter} width="w-44" options={[{ value: "", label: "Anyone assigned" }, ...assignedOptions]} />
         {anyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
-        {!isViewOnly && capaCan.canCreate && onAiOpen && <Button variant="secondary" size="sm" icon={Sparkles} onClick={onAiOpen}>AI CAPA</Button>}
-        {!isViewOnly && capaCan.canCreate && <Button variant="primary" size="sm" icon={Plus} onClick={onAddOpen}>New CAPA</Button>}
+        {/* Phase A — duplicate "New CAPA" removed (the top-right header button is
+            the single create entry); "AI CAPA" hidden (no AI agents in Phase 1). */}
       </div>
 
       {/* Table — always full width */}
@@ -213,12 +217,12 @@ export function CAPATrackerTab({
             )}
           </div>
         ) : (
-          <table className="data-table" aria-label="CAPA register">
+          <table className="data-table capa-table" aria-label="CAPA register">
             <caption className="sr-only">Corrective and preventive actions with RCA, status and closure tracking</caption>
             <thead><tr>
               <th scope="col">Reference</th>
               {showSiteColumn && <th scope="col">Site</th>}
-              <th scope="col">Source</th><th scope="col">Description</th>
+              <th scope="col">Source</th><th scope="col">Title</th>
               <th scope="col">Risk</th><th scope="col">Status</th><th scope="col">Owner</th>
               <th scope="col">Due date</th><th scope="col" title="90-day effectiveness check status">Effectiveness</th><th scope="col"><span className="sr-only">Open</span></th>
             </tr></thead>
@@ -244,22 +248,22 @@ export function CAPATrackerTab({
                   </th>
                   {showSiteColumn && <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{siteName(c.siteId)}</td>}
                   <td><Badge variant="gray">{sourceLabel(c.source)}</Badge></td>
-                  <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 200, color: "var(--text-primary)" }}>{c.description}</span></td>
+                  <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 200, color: "var(--text-primary)" }}>{c.title}</span></td>
                   <td>{riskBadge(c.risk)}</td>
                   <td>
                     {capaStatusBadge(c.status)}
                     {/* Phase 4 — hint that an in-progress CAPA was bounced back
                         by QA and has action items awaiting rework. */}
                     {c.status === "in_progress" && (c.actionItems ?? []).some((a) => a.status === "rework") && (
-                      <Badge variant="red">Rework</Badge>
+                      <StatusPill token="blocked">Rework</StatusPill>
                     )}
                   </td>
                   <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{ownerName(c.owner, users)}</td>
                   <td className="whitespace-nowrap">
                     <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(c.dueDate).tz(timezone).format(dateFormat)}</div>
-                    {isOverdue(c) && <div className="text-[10px] text-[#ef4444] font-medium">Overdue</div>}
+                    {isOverdue(c) && <div className="text-[10px] font-medium" style={{ color: "var(--status-blocked)" }}>Overdue</div>}
                   </td>
-                  <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4 text-[#10b981]" aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
+                  <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4" style={{ color: "var(--status-done)" }} aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
                   <td>
                     <div className="flex items-center justify-end gap-1">
                       {/* AI Lifecycle — opens /ai-capa/<reference> in the
@@ -300,10 +304,12 @@ export function CAPATrackerTab({
 }
 
 /* ── Phase 6 queue card + row ── */
-const QUEUE_TONE: Record<"brand" | "info" | "danger", { fg: string; border: string }> = {
-  brand: { fg: "var(--brand)", border: "var(--brand-border)" },
-  info: { fg: "var(--brand)", border: "var(--brand-border)" },
-  danger: { fg: "var(--danger)", border: "var(--danger)" },
+// Phase C — queue cards keep their identity via STATUS tokens (no brand gold):
+// waiting-on-you → waiting (amber), effectiveness → active (blue), overdue → blocked (red).
+const QUEUE_TONE: Record<"waiting" | "active" | "blocked", { fg: string; border: string }> = {
+  waiting: { fg: "var(--status-waiting)", border: "var(--status-waiting)" },
+  active: { fg: "var(--status-active)", border: "var(--status-active)" },
+  blocked: { fg: "var(--status-blocked)", border: "var(--status-blocked)" },
 };
 
 function QueueCard({
@@ -311,7 +317,7 @@ function QueueCard({
 }: {
   title: string;
   Icon: LucideIcon;
-  tone: "brand" | "info" | "danger";
+  tone: "waiting" | "active" | "blocked";
   count: number;
   children: React.ReactNode;
 }) {

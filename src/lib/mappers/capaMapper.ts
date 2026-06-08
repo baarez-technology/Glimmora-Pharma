@@ -8,6 +8,7 @@ type PrismaCAPA = {
   siteId: string | null;
   findingId: string | null;
   source: string;
+  title: string;
   description: string;
   risk: string;
   owner: string;
@@ -129,6 +130,7 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
     owner: row.owner,
     dueDate: row.dueDate ? row.dueDate.toISOString() : "",
     status: STATUS_MAP[row.status] ?? "open",
+    title: row.title,
     description: row.description,
     rca: row.rca ?? undefined,
     rcaMethod: (row.rcaMethod as RCAMethod | null) ?? undefined,

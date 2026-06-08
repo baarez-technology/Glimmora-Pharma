@@ -103,7 +103,7 @@ export function RcaBody({ capa }: { capa: CAPA }) {
         </div>
       ) : (
         <p className="text-[12px] italic" style={{ color: "var(--text-muted)" }}>
-          No root cause analysis documented yet. Use Edit to add one (5 Whys, Fishbone, Fault Tree).
+          No analysis yet. The assigned person writes it from their Worklist task — then you review it here.
         </p>
       )}
       {/* SME Section 1, Stage 3 (FULL) — RCA QA review section. Renders

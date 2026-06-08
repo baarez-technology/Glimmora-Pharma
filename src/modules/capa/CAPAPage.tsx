@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/Button";
 import { Popup } from "@/components/ui/Popup";
 import { Modal } from "@/components/ui/Modal";
 import { StatusGuide } from "@/components/shared";
+import { FlowExplainerInline } from "./components/FlowExplainer";
 import { CAPA_STATUSES } from "@/constants/statusTaxonomy";
 
 import { QMSBlueprintTab } from "./tabs/QMSBlueprintTab";
@@ -214,6 +215,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
   function handleAddCAPA(data: CAPAForm) {
     startTransition(async () => {
       const res = await createCAPAServer({
+        title: data.title,
         description: data.description,
         source: data.source as never,
         risk: data.risk as never,
@@ -270,6 +272,9 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
         {canCreateCAPAs && <Button variant="primary" icon={Plus} onClick={() => setAddOpen(true)}>New CAPA</Button>}
         {isCustomerAdmin && <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>CAPA actions require QA Head authorization</p>}
       </header>
+
+      {/* Phase B G3 — dismissible "How a CAPA flows" explainer under the guide. */}
+      <FlowExplainerInline />
 
       {/* Tab bar */}
       <div role="tablist" aria-label="CAPA sections" className="flex gap-1 border-b border-(--bg-border)">
@@ -392,10 +397,13 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
           // The AI backend's res.capa_id is kept in the audit log's newValue
           // so the AI lifecycle viewer at /ai-capa/[capaId] is still findable
           // post-create; the local Prisma row gets its own cuid + reference.
+          // Phase A — short title for the AI CAPA (problem statement, capped).
+          const aiTitle = (form.problem_statement || description).slice(0, 120);
           let persistedToDb = false;
           let serverCapa: PrismaCAPA | null = null;
           try {
             const createRes = await createCAPAServer({
+              title: aiTitle,
               description,
               source: serverSource,
               risk,
@@ -431,6 +439,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
               owner: user?.id ?? "",
               dueDate: dueDateIso,
               status: "open",
+              title: aiTitle,
               description,
               effectivenessCheck: true,
               diGate: false,

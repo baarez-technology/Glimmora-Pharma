@@ -322,6 +322,7 @@ async function main() {
     data: {
       tenantId: demo.id,
       reference: "CAPA-CHN-2026-001",
+      title: "Revise SOP-EC-447 humidity threshold specification",
       source: "FDA 483",
       siteId: bangalore.id,
       description: "483-CHN-2026-001 Obs #1: Revise SOP-EC-447 to specify numeric humidity thresholds and eliminate operator judgment on borderline readings.",
@@ -344,6 +345,7 @@ async function main() {
     data: {
       tenantId: demo.id,
       reference: "CAPA-CHN-2026-002",
+      title: "Automate equipment requalification scheduling + alerts",
       source: "FDA 483",
       siteId: bangalore.id,
       description: "483-CHN-2026-001 Obs #2: Implement automated equipment requalification scheduling with overdue-escalation alerts.",
@@ -365,6 +367,7 @@ async function main() {
     data: {
       tenantId: demo.id,
       reference: "CAPA-CHN-2026-003",
+      title: "Enforce SOP-version link in LMS training records",
       source: "FDA 483",
       siteId: bangalore.id,
       description: "483-CHN-2026-001 Obs #3: Enforce SOP-version association with training completion records in the LMS.",
@@ -497,7 +500,7 @@ async function main() {
   });
   const e2capa1 = await prisma.cAPA.create({
     data: {
-      tenantId: demo.id, reference: "CAPA-MUM-2026-001", source: "FDA 483", siteId: mumbai.id,
+      tenantId: demo.id, reference: "CAPA-MUM-2026-001", title: "Re-qualify HVAC pressure cascade + continuous monitoring", source: "FDA 483", siteId: mumbai.id,
       description: "483-MUM-2026-002 Obs #1: Re-qualify HVAC pressure cascade and add continuous differential-pressure alarming on the fill line.",
       risk: "Critical", owner: anita.id, dueDate: new Date("2026-06-19"), status: "in_progress",
       rca: "Pressure-cascade interlock setpoints were not revalidated after the AHU service in March, so the differential drifted below the qualified range during dynamic filling.",
@@ -508,7 +511,7 @@ async function main() {
   });
   const e2capa2 = await prisma.cAPA.create({
     data: {
-      tenantId: demo.id, reference: "CAPA-MUM-2026-002", source: "FDA 483", siteId: mumbai.id,
+      tenantId: demo.id, reference: "CAPA-MUM-2026-002", title: "Automated stability-pull scheduling with escalation", source: "FDA 483", siteId: mumbai.id,
       description: "483-MUM-2026-002 Obs #2: Add automated stability-pull scheduling with overdue escalation to prevent interval excursions.",
       risk: "High", owner: nisha.id, dueDate: new Date("2026-07-03"), status: "in_progress",
       rca: "Stability pull scheduling was tracked manually on a spreadsheet with no escalation, so a 5-day slip on batch B-2026-018 went unnoticed.",
@@ -585,7 +588,7 @@ async function main() {
   });
   const e3capa1 = await prisma.cAPA.create({
     data: {
-      tenantId: demo.id, reference: "CAPA-MUM-2026-003", source: "FDA 483", siteId: mumbai.id,
+      tenantId: demo.id, reference: "CAPA-MUM-2026-003", title: "Restrict LIMS admin access + persistent audit logging", source: "FDA 483", siteId: mumbai.id,
       description: "WL-MUM-2026-001 Obs #1: Restrict LIMS administrative access and enforce persistent, tamper-evident audit logging of QC result changes.",
       risk: "Critical", owner: anita.id, dueDate: new Date("2026-05-30"), status: "in_progress",
       rca: "LIMS administrator role was over-scoped and audit-trail logging could be disabled, so privileged users could modify results without a persistent record.",
@@ -597,7 +600,7 @@ async function main() {
   });
   const e3capa2 = await prisma.cAPA.create({
     data: {
-      tenantId: demo.id, reference: "CAPA-MUM-2026-004", source: "FDA 483", siteId: mumbai.id,
+      tenantId: demo.id, reference: "CAPA-MUM-2026-004", title: "LIMS audit-trail CSV risk assessment", source: "FDA 483", siteId: mumbai.id,
       description: "WL-MUM-2026-001 Obs #2: Complete CSV risk assessment for the LIMS audit-trail function and update validation documentation.",
       risk: "High", owner: rahul.id, dueDate: new Date("2026-06-15"), status: "in_progress",
       rca: "The original LIMS CSV package predated current data-integrity expectations and never assessed the audit-trail function as a risk-bearing control.",
@@ -907,7 +910,7 @@ async function main() {
   // seed and CAPA.reference is @unique — so the deviation CAPA uses the next
   // free MUM number (005) rather than the spec's 001.
   const dev4capa = await prisma.cAPA.create({ data: {
-    tenantId: demo.id, reference: "CAPA-MUM-2026-005", source: "Deviation", siteId: mumbai.id,
+    tenantId: demo.id, reference: "CAPA-MUM-2026-005", title: "Filter housing seal qualification interval revision", source: "Deviation", siteId: mumbai.id,
     description: "Address: Filter housing seal qualification interval revision (from DEV-MUM-2026-001).",
     risk: "High", owner: anita.id, dueDate: dAhead(30), status: "in_progress",
     rca: dev4whys[4], rcaMethod: "5 Why", deviationId: dev4.id,

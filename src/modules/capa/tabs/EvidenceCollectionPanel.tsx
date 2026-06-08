@@ -498,6 +498,13 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }
         </div>
       )}
 
+      {/* Phase B G2 — teaching empty state for a pending category. */}
+      {status === "PENDING" && !locked && (
+        <p className="text-[11px] mb-2" style={{ color: "var(--text-muted)" }}>
+          Needs files or N/A + reason. Assigned fixers answer theirs; the driver sweeps the rest.
+        </p>
+      )}
+
       {/* Status + notes */}
       <div className="grid grid-cols-[120px_1fr] gap-2 items-start mb-3">
         <select

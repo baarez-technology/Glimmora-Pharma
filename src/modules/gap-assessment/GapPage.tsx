@@ -319,6 +319,7 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
 
   async function handleRaiseCapa(finding: Finding) {
     const result = await createCAPAAction({
+      title: finding.requirement.slice(0, 120),
       description: finding.requirement,
       source: "Gap Assessment",
       risk: severityToRisk(finding.severity),

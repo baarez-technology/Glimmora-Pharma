@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { ErrorBoundary } from "@/components/errors";
 import { CAPADetailPage } from "@/modules/capa/CAPADetailPage";
 import { requireAuth } from "@/lib/auth";
-import { getCAPA } from "@/lib/queries/capas";
+import { getCAPA, getCapaAuditTrail } from "@/lib/queries/capas";
 import { prisma } from "@/lib/prisma";
 import { mapCAPAFromPrisma } from "@/lib/mappers/capaMapper";
 import { getCAPAReadiness, EVIDENCE_CATEGORY_COUNT } from "@/lib/capa-readiness";
@@ -22,9 +22,10 @@ export default async function CAPADetailRoute({ params }: PageProps) {
   if (!row) notFound();
 
   // Full readiness inputs (the same getCAPAReadiness the submit gate uses).
-  const [evidenceItems, criteria] = await Promise.all([
+  const [evidenceItems, criteria, auditTrail] = await Promise.all([
     prisma.evidenceItem.findMany({ where: { capaId: id }, select: { status: true } }),
     prisma.cAPAEffectivenessCriterion.findMany({ where: { capaId: id }, select: { id: true } }),
+    getCapaAuditTrail(id, session.user.tenantId),
   ]);
   const actionItems = (row.actionItems ?? []).map((a) => ({ status: a.status }));
   const readiness = getCAPAReadiness(row, actionItems, evidenceItems, criteria);
@@ -37,6 +38,7 @@ export default async function CAPADetailRoute({ params }: PageProps) {
         readiness={readiness}
         evidence={{ resolved, total: EVIDENCE_CATEGORY_COUNT }}
         criteriaCount={criteria.length}
+        auditTrail={auditTrail}
       />
     </ErrorBoundary>
   );

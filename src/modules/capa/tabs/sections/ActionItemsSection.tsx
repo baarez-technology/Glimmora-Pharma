@@ -50,10 +50,12 @@ import type { CAPA, CAPAActionItem } from "@/store/capa.slice";
  * pulling in a drag-and-drop library; can swap to dnd later).
  */
 
+// Phase B — display-only mapping (underlying enum values unchanged):
+// pending → "Not started", in_progress → "In progress", complete → "Done".
 const STATUS_LABEL: Record<CAPAActionItem["status"], string> = {
-  pending: "Pending",
-  in_progress: "In Progress",
-  complete: "Complete",
+  pending: "Not started",
+  in_progress: "In progress",
+  complete: "Done",
   skipped: "Skipped",
   rework: "Rework",
 };
@@ -411,7 +413,7 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
         >
           {ownerFilter
             ? "(none of theirs) — no action items owned by the filtered person."
-            : `No action plan items yet. ${canStructuralEdit ? "Add the first step below." : "The author has not yet defined the action plan."}`}
+            : `Add action items and assign each to a person. Each task appears in that person's Worklist. ${canStructuralEdit ? "Add the first step below." : "The author has not yet defined the action plan."}`}
         </p>
       ) : (
         <table className="w-full text-[11px] mb-3" role="table">

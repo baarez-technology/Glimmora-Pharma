@@ -20,6 +20,7 @@ export interface CAPA {
   owner: string;
   dueDate: string;
   status: CAPAStatus;
+  title: string;
   description: string;
   rca?: string;
   rcaMethod?: RCAMethod;

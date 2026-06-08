@@ -13,14 +13,8 @@ import { submitForReview } from "@/actions/capas";
 import { updateEvidenceStatus, initializeEvidenceForCAPA } from "@/actions/evidence";
 import type { Worklist, WorklistGroup, WorklistItem } from "@/lib/queries/worklist";
 import { TaskPanel } from "./TaskPanel";
+import { StatusPill, ACTION_STATUS_TOKEN } from "@/modules/capa/lib/statusTokens";
 
-const ITEM_STATUS_VARIANT: Record<string, "gray" | "amber" | "green" | "red"> = {
-  pending: "gray",
-  in_progress: "amber",
-  complete: "green",
-  skipped: "gray",
-  rework: "red",
-};
 const ITEM_STATUS_LABEL: Record<string, string> = {
   pending: "Pending",
   in_progress: "In Progress",
@@ -122,7 +116,7 @@ export function WorklistPage({
         </p>
         <div className="flex gap-4 mt-3 text-[12px]">
           <span style={{ color: "var(--text-secondary)" }}>Open tasks: <strong style={{ color: "var(--text-primary)" }}>{worklist.openCount}</strong></span>
-          <span style={{ color: "var(--text-secondary)" }}>Needs rework: <strong style={{ color: worklist.reworkCount > 0 ? "var(--danger)" : "var(--text-primary)" }}>{worklist.reworkCount}</strong></span>
+          <span style={{ color: "var(--text-secondary)" }}>Needs rework: <strong style={{ color: worklist.reworkCount > 0 ? "var(--status-blocked)" : "var(--text-primary)" }}>{worklist.reworkCount}</strong></span>
           <span style={{ color: "var(--text-secondary)" }}>Next due: <strong style={{ color: "var(--text-primary)" }}>{worklist.nextDue ? dayjs.utc(worklist.nextDue).format("DD MMM YYYY") : "—"}</strong></span>
         </div>
       </div>
@@ -144,26 +138,26 @@ export function WorklistPage({
       {/* ── NEEDS REWORK (across all CAPAs) ── */}
       {reworkItems.length > 0 && (
         <section className="mb-6" aria-labelledby="rework-heading">
-          <h2 id="rework-heading" className="text-[12px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5" style={{ color: "var(--danger)" }}>
+          <h2 id="rework-heading" className="text-[12px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5" style={{ color: "var(--status-blocked)" }}>
             <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" /> Needs rework ({reworkItems.length})
           </h2>
-          <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--danger)" }}>
+          <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--status-blocked)" }}>
             {reworkItems.map(({ item, group }) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => setSelectedTaskId(item.id)}
                 className="w-full text-left flex items-start gap-3 p-3 border-none cursor-pointer"
-                style={{ background: "var(--danger-bg, #fef2f2)", borderBottom: "1px solid var(--bg-border)" }}
+                style={{ background: "var(--status-blocked-bg)", borderBottom: "1px solid var(--bg-border)" }}
               >
-                <Wrench className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "var(--danger)" }} aria-hidden="true" />
+                <Wrench className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "var(--status-blocked)" }} aria-hidden="true" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{item.description}</p>
                   <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
                     {group.capa.reference ?? group.capa.id.slice(0, 8)} · due {dayjs.utc(item.dueDate).format("DD MMM")}
                   </p>
                   {item.reworkReason && (
-                    <p className="text-[11px] mt-0.5" style={{ color: "var(--danger)" }}>Returned: {item.reworkReason}</p>
+                    <p className="text-[11px] mt-0.5" style={{ color: "var(--status-blocked)" }}>Returned: {item.reworkReason}</p>
                   )}
                 </div>
                 <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
@@ -192,7 +186,7 @@ export function WorklistPage({
               {/* Driver extras */}
               {group.capa.isDriver && group.readiness && (
                 <div className="mt-2 pt-2" style={{ borderTop: "1px dashed var(--bg-border)" }}>
-                  <p className="text-[11px] mb-1" style={{ color: group.readiness.allMet ? "var(--success)" : "var(--text-secondary)" }}>
+                  <p className="text-[11px] mb-1" style={{ color: group.readiness.allMet ? "var(--status-done)" : "var(--text-secondary)" }}>
                     Readiness: <strong>{group.readiness.metCount} of {group.readiness.total}</strong> conditions met
                     {!group.readiness.allMet && (
                       <> — outstanding: {group.readiness.conditions.filter((c) => !c.met).map((c) => c.label).join("; ")}</>
@@ -324,11 +318,11 @@ function Row({ item, onOpen, muted }: { item: WorklistItem; onOpen: () => void; 
     >
       <div className="flex-1 min-w-0">
         <p className="text-[12px] truncate" style={{ color: "var(--text-primary)" }}>{item.description}</p>
-        <p className="text-[11px]" style={{ color: od !== null ? "var(--danger)" : "var(--text-muted)" }}>
+        <p className="text-[11px]" style={{ color: od !== null ? "var(--status-blocked)" : "var(--text-muted)" }}>
           Due {dayjs.utc(item.dueDate).format("DD MMM")}{od !== null && ` · Overdue ${od}d`}
         </p>
       </div>
-      <Badge variant={ITEM_STATUS_VARIANT[item.status] ?? "gray"}>{ITEM_STATUS_LABEL[item.status] ?? item.status}</Badge>
+      <StatusPill token={ACTION_STATUS_TOKEN[item.status] ?? "pending"}>{ITEM_STATUS_LABEL[item.status] ?? item.status}</StatusPill>
       <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
     </button>
   );

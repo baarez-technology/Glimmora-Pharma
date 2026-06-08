@@ -14,8 +14,10 @@ import { Modal } from "@/components/ui/Modal";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 
 const editSchema = z.object({
+  // Phase A — short title (mirrors the create field set).
+  title: z.string().min(1, "Title required").max(120, "Title must be 120 characters or fewer"),
   description: z.string().min(5, "Description required"),
-  owner: z.string().min(1, "Owner required"),
+  owner: z.string().min(1, "Assigned-to is required"),
   dueDate: z.string().min(1, "Due date required"),
   risk: z.enum(["Critical", "High", "Medium", "Low"]),
   rcaMethod: z.enum(["5 Why", "Fishbone", "Fault Tree", "Other"]).optional(),
@@ -26,7 +28,7 @@ const editSchema = z.object({
   // correctiveActions payload it receives. Field omitted from the
   // form schema so consumers can't accidentally resurrect the old
   // edit surface.
-  effectivenessCheck: z.boolean(),
+  // Phase A — effectivenessCheck toggle removed (always scheduled at closure).
   diGate: z.boolean(),
   diGateStatus: z.enum(["open", "cleared"]).optional(),
   diGateNotes: z.string().optional(),
@@ -48,13 +50,13 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
   useEffect(() => {
     if (capa) {
       form.reset({
+        title: capa.title,
         description: capa.description,
         owner: capa.owner,
         dueDate: dayjs.utc(capa.dueDate).format("YYYY-MM-DD"),
         risk: capa.risk,
         rcaMethod: capa.rcaMethod ?? undefined,
         rca: capa.rca ?? "",
-        effectivenessCheck: capa.effectivenessCheck,
         diGate: capa.diGate,
         diGateStatus: capa.diGateStatus ?? "open",
         diGateNotes: capa.diGateNotes ?? "",
@@ -88,6 +90,11 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
         <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Basic information</p>
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
+            <label htmlFor="edit-title" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Title <span className="text-(--danger)">*</span></label>
+            <input id="edit-title" type="text" maxLength={120} className="input text-[12px]" {...form.register("title")} />
+            {form.formState.errors.title && <p role="alert" className="text-[11px] text-(--danger) mt-1">{form.formState.errors.title.message}</p>}
+          </div>
+          <div className="col-span-2">
             <label htmlFor="edit-desc" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Description <span className="text-(--danger)">*</span></label>
             <textarea id="edit-desc" rows={2} className="input text-[12px] resize-none" {...form.register("description")} />
             {form.formState.errors.description && <p role="alert" className="text-[11px] text-(--danger) mt-1">{form.formState.errors.description.message}</p>}
@@ -97,8 +104,8 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
             <Controller name="risk" control={form.control} render={({ field }) => <Dropdown value={field.value} onChange={field.onChange} width="w-full" options={[{ value: "Critical", label: "Critical" }, { value: "High", label: "High" }, { value: "Medium", label: "Medium" }, { value: "Low", label: "Low" }]} />} />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Owner <span className="text-(--danger)">*</span></p>
-            <Controller name="owner" control={form.control} render={({ field }) => <Dropdown value={field.value} onChange={field.onChange} placeholder="Select owner" width="w-full" options={users.filter((u) => u.status === "Active").map((u) => ({ value: u.id, label: u.name }))} />} />
+            <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Assigned to <span className="text-(--danger)">*</span></p>
+            <Controller name="owner" control={form.control} render={({ field }) => <Dropdown value={field.value} onChange={field.onChange} placeholder="Select driver" width="w-full" options={users.filter((u) => u.status === "Active").map((u) => ({ value: u.id, label: u.name }))} />} />
             {form.formState.errors.owner && <p role="alert" className="text-[11px] text-(--danger) mt-1">{form.formState.errors.owner.message}</p>}
           </div>
           <div>
@@ -154,9 +161,6 @@ export function EditCAPAModal({ isOpen, onClose, onSave, capa, users }: EditCAPA
                 {rcaLocked && <Lock className="w-3 h-3" aria-hidden="true" />}
               </p>
               <Controller name="rcaMethod" control={form.control} render={({ field }) => <Dropdown value={field.value ?? ""} onChange={field.onChange} placeholder="Select method..." width="w-full" disabled={rcaLocked} options={[{ value: "5 Why", label: "5 Why" }, { value: "Fishbone", label: "Fishbone" }, { value: "Fault Tree", label: "Fault Tree" }, { value: "Other", label: "Other" }]} />} />
-            </div>
-            <div className={clsx("flex items-center justify-between p-3 rounded-lg border", "bg-(--bg-surface) border-(--bg-border)")}>
-              <Controller name="effectivenessCheck" control={form.control} render={({ field }) => <Toggle id="edit-eff" checked={field.value} onChange={field.onChange} label="Effectiveness check" description="90-day monitoring planned" />} />
             </div>
             <div className="col-span-2">
               <label htmlFor="edit-rca" className="text-[11px] font-medium text-(--text-secondary) mb-1.5 flex items-center gap-1">

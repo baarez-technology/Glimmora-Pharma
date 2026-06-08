@@ -27,6 +27,8 @@ import { sanitizeServerError } from "@/lib/errors";
 // â”€â”€ Schemas â”€â”€
 
 const CreateCAPASchema = z.object({
+  // Phase A — short human title (flows into create via ...rest).
+  title: z.string().min(1, "Title is required").max(120, "Title must be 120 characters or fewer"),
   description: z.string().min(10, "Description must be at least 10 characters"),
   source: z.enum([
     "Gap Assessment",
@@ -56,6 +58,8 @@ const CreateCAPASchema = z.object({
 });
 
 const UpdateCAPASchema = z.object({
+  // Phase A — editable short title (written via ...parsed.data spread).
+  title: z.string().min(1).max(120).optional(),
   description: z.string().min(10).optional(),
   source: z.string().optional(),
   risk: z.enum(["Critical", "High", "Medium", "Low"]).optional(),

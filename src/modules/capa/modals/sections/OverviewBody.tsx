@@ -18,15 +18,14 @@ import { STATUS_VARIANT as DEVIATION_STATUS_VARIANT, STATUS_LABEL as DEVIATION_S
 import type { CAPA } from "@/store/capa.slice";
 import type { DeviationStatus } from "@/store/deviation.slice";
 import type { UserConfig } from "@/store/settings.slice";
-import { SubmissionChecklist } from "../components/SubmissionChecklist";
-import type { ReadinessCondition } from "@/lib/capa-readiness";
+// Phase B — the Overview "Before submitting" checklist box was removed; the
+// banner's expandable checklist is now the only checklist on the page.
 // CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
 // code/schema retained. To re-enable: uncomment the import below and
 // the <LinkedChangeControlsSection /> render further down.
 // LinkedChangeControlsSection internally renders <CCDependencyBanner>,
 // so commenting this single line transitively disconnects both surfaces.
 // import { LinkedChangeControlsSection } from "./LinkedChangeControlsSection";
-import type { DetailSubTab } from "../helpers/getNextStep";
 import { displayUserName } from "@/lib/identity-display";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -49,11 +48,8 @@ interface OverviewBodyProps {
   showMigrationNotice: boolean;
   onDismissNotice: () => void;
   onNavigateGap: (findingId: string) => void;
-  onChangeTab: (tab: DetailSubTab) => void;
   onEditOpen: () => void;
   editAllowed: boolean;
-  // Phase 4 — the shared readiness conditions (a-f), rendered verbatim.
-  readinessConditions: ReadinessCondition[];
 }
 
 export function OverviewBody({
@@ -65,10 +61,8 @@ export function OverviewBody({
   showMigrationNotice,
   onDismissNotice,
   onNavigateGap,
-  onChangeTab,
   onEditOpen,
   editAllowed,
-  readinessConditions,
 }: OverviewBodyProps) {
   const router = useRouter();
   const ownerName = displayUserName(capa.owner, users);
@@ -86,20 +80,8 @@ export function OverviewBody({
   // override on the Regulatory-exposure row still pins that row to "High".
   const riskLevel = capa.risk;
 
-  // Submission checklist visible only while the CAPA is editable. Once
-  // submitted (pending_qa_review / closed / rejected) the panel is
-  // hidden entirely — the next-step banner takes over for those states.
-  const showChecklist = capa.status === "open" || capa.status === "in_progress";
-
   return (
     <div role="tabpanel" id="subpanel-overview" aria-labelledby="subtab-overview" tabIndex={0} className="space-y-4">
-      {showChecklist && (
-        <SubmissionChecklist
-          conditions={readinessConditions}
-          onChangeTab={onChangeTab}
-        />
-      )}
-
       {showMigrationNotice && (
         <aside
           className="flex items-start gap-2.5 p-3 rounded-lg border"
