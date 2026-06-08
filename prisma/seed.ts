@@ -708,8 +708,20 @@ async function main() {
   });
   const ev3 = await initEvidence(e1capa3.id);
   await prisma.evidenceItem.update({ where: { id: ev3[1].id }, data: { status: "COMPLETE" } });
-  await prisma.evidenceItem.update({ where: { id: ev3[2].id }, data: { status: "NOT_APPLICABLE", naReason: "No equipment logs relate to a training-record linkage CAPA." } });
-  await prisma.evidenceItem.update({ where: { id: ev3[4].id }, data: { status: "NOT_APPLICABLE", naReason: "Deviation history is not relevant to this LMS configuration fix." } });
+  // N/A items: write the rationale to BOTH the column AND an EvidenceNoteVersion
+  // row, exactly as updateEvidenceStatus does, so seeded rationales surface in
+  // the note-history UI (audit follow-up FIX 4). Idempotent: the parent FDA-483
+  // CAPAs are wiped + recreated each seed run, cascading these rows away first.
+  const naSeed: Array<[string, string]> = [
+    [ev3[2].id, "No equipment logs relate to a training-record linkage CAPA."],
+    [ev3[4].id, "Deviation history is not relevant to this LMS configuration fix."],
+  ];
+  for (const [evidenceItemId, reason] of naSeed) {
+    await prisma.evidenceItem.update({ where: { id: evidenceItemId }, data: { status: "NOT_APPLICABLE", naReason: reason } });
+    await prisma.evidenceNoteVersion.create({
+      data: { evidenceItemId, notes: reason, statusAtTime: "NOT_APPLICABLE", createdBy: priya.name },
+    });
+  }
   await prisma.cAPAEffectivenessCriterion.create({
     data: { capaId: e1capa3.id, tenantId: demo.id, description: "100% of training records carry the correct SOP version for 90 days", targetMetric: "SOP-version tagged training records", measurementMethod: "LMS audit export", targetValue: "100%", monitoringPeriod: "90 days", createdBy: priya.name },
   });

@@ -3,8 +3,8 @@
  *
  * Pure helpers for evaluating whether a CAPA's linked Change Controls are
  * sufficiently complete to allow the CAPA to be marked implemented. The
- * server gate inside signAndCloseCAPA and the UI banner in
- * CAPADetailModal both call into the same evaluator so the visible state
+ * server gate inside signAndCloseCAPA and the UI banner in the CAPA detail
+ * page (CAPADetailPage) both call into the same evaluator so the visible state
  * and the enforced state can never disagree.
  *
  * Risk-proportionate strictness:

@@ -25,7 +25,7 @@ import type { CAPAReadiness, ReadinessKey } from "@/lib/capa-readiness";
  *      checked in submission-priority order.
  *   3. "All ready, submit for review" — happy path.
  *
- * Pure function, no side effects, no JSX. Lives outside CAPADetailModal
+ * Pure function, no side effects, no JSX. Lives outside the CAPA detail page
  * so the helper can be tested in isolation and reused without dragging
  * the modal's React tree along.
  */

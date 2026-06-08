@@ -83,7 +83,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
     }
   }, [serverCAPAs, dispatch]);
   const [, startTransition] = useTransition();
-  // canSign / canCloseCapa moved into the CAPADetailModal (which calls
+  // canSign / canCloseCapa moved into the CAPA detail page (which calls
   // useRole itself); this page only needs isViewOnly to gate the table's
   // "New CAPA" button + edit affordances at the row level.
   const { isViewOnly } = useRole();

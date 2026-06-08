@@ -224,7 +224,7 @@ export function CAPATrackerTab({
             </tr></thead>
             <tbody>
               {displayed.map((c) => {
-                // Mirrors CAPADetailModal: prefer the per-tenant reference;
+                // Mirrors the CAPA detail page: prefer the per-tenant reference;
                 // fall back to a stable legacy label rather than exposing the
                 // raw cuid, which carries no domain meaning. The cuid stays
                 // available on hover (title) for support / log lookups.

@@ -44,7 +44,7 @@ interface EvidenceCollectionPanelProps {
    *  CAPA is closed or the viewer is read-only. */
   readOnly?: boolean;
   /** Invoked after every successful items load with the per-status counts so
-   *  the parent (e.g. CAPADetailModal) can render a tab badge like "3/7"
+   *  the parent (e.g. the CAPA detail page) can render a tab badge like "3/7"
    *  without re-querying. Optional — panel works standalone without it. */
   onCountsChange?: (counts: { complete: number; inProgress: number; pending: number; total: number }) => void;
 }

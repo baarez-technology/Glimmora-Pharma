@@ -96,10 +96,23 @@ export async function initializeEvidenceForCAPA(
       session.user.role === "super_admin"
         ? { id: capaId }
         : { id: capaId, tenantId: session.user.tenantId },
-    select: { id: true },
+    select: { id: true, ownerId: true },
   });
   if (!capa) return { success: false, error: "CAPA not found" };
 
+  // Audit follow-up FIX 1 — was requireAuth-only (any authenticated non-viewer
+  // could seed evidence rows). Gate it like the other driver grants: an author
+  // role OR the CAPA's driver (ownerId). The driver path is what the Worklist
+  // "Set up evidence categories" affordance needs for a non-author driver.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  const isDriver = isAssignedToTask(session, { ownerId: capa.ownerId });
+  if (!isAuthorRole && !isDriver) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
+  const accessBasis: "authorRole" | "capaDriver" = isAuthorRole ? "authorRole" : "capaDriver";
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  let created = 0;
   try {
     // Idempotent â€” skipDuplicates means re-running is a no-op once rows exist.
     const result = await prisma.evidenceItem.createMany({
@@ -114,11 +127,10 @@ export async function initializeEvidenceForCAPA(
       // constraints. The (capaId, category) unique index is what makes this
       // idempotent.
     });
-    return { success: true, data: { created: result.count } };
+    created = result.count;
   } catch (err) {
     // If skipDuplicates isn't honoured (older Prisma) we fall back to per-row
     // upsert. Either way, end-state is the same: 7 rows exist.
-    let created = 0;
     for (const category of EVIDENCE_CATEGORIES) {
       try {
         await prisma.evidenceItem.create({
@@ -139,8 +151,24 @@ export async function initializeEvidenceForCAPA(
       console.error("[action] initializeEvidenceForCAPA failed:", err);
       return { success: false, error: "Failed to initialize evidence categories" };
     }
-    return { success: true, data: { created } };
   }
+
+  // Audit only a real initialization (created > 0); re-runs are silent no-ops.
+  if (created > 0) {
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: AUDIT_MODULE,
+        action: "EVIDENCE_INITIALIZED",
+        recordId: capaId,
+        newValue: JSON.stringify({ created, accessBasis }),
+      },
+    });
+  }
+  return { success: true, data: { created } };
 }
 
 // â”€â”€ ACTION 2: update status / notes (with note-version snapshot) â”€â”€
