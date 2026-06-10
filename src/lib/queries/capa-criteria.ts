@@ -13,7 +13,7 @@ import { prisma } from "@/lib/prisma";
 export const getCAPAEffectivenessCriteria = cache(
   async (tenantId: string, capaId: string) => {
     return prisma.cAPAEffectivenessCriterion.findMany({
-      where: { capaId, tenantId },
+      where: { capaId, tenantId, deletedAt: null },
       orderBy: { createdAt: "asc" },
     });
   },

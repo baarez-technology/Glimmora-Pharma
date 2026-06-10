@@ -24,7 +24,7 @@ export default async function CAPADetailRoute({ params }: PageProps) {
   // Full readiness inputs (the same getCAPAReadiness the submit gate uses).
   const [evidenceItems, criteria, auditTrail] = await Promise.all([
     prisma.evidenceItem.findMany({ where: { capaId: id }, select: { status: true } }),
-    prisma.cAPAEffectivenessCriterion.findMany({ where: { capaId: id }, select: { id: true } }),
+    prisma.cAPAEffectivenessCriterion.findMany({ where: { capaId: id, deletedAt: null }, select: { id: true } }),
     getCapaAuditTrail(id, session.user.tenantId),
   ]);
   const actionItems = (row.actionItems ?? []).map((a) => ({ status: a.status }));

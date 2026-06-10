@@ -128,7 +128,7 @@ export function VerificationSection({ capa }: { capa: CAPA }) {
 
   const submitVerify = async () => {
     if (notes.trim().length < NOTES_MIN_LENGTH) {
-      setActionError(`Notes must be at least ${NOTES_MIN_LENGTH} characters.`);
+      setActionError(`Add verification notes (at least ${NOTES_MIN_LENGTH} characters).`);
       return;
     }
     if (!password) {

@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 const DEVIATION_INCLUDE = {
   select: {
     id: true,
+    reference: true,
     title: true,
     severity: true,
     status: true,
@@ -21,12 +22,14 @@ const DEVIATION_INCLUDE = {
 // always renders action items in the right order without per-render
 // sorting. Includes every column the new ActionItemsSection table needs.
 const ACTION_ITEMS_INCLUDE = {
+  // Soft-deleted action items are retained but hidden from detail/readiness.
+  where: { deletedAt: null },
   orderBy: { sequence: "asc" },
 } as const;
 
 export const getCAPAs = cache(async (tenantId: string) => {
   return prisma.cAPA.findMany({
-    where: { tenantId },
+    where: { tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     include: { documents: true, deviation: DEVIATION_INCLUDE, actionItems: ACTION_ITEMS_INCLUDE },
   });
@@ -71,7 +74,7 @@ export const getCAPAComments = cache(
 
 export const getCAPA = cache(async (id: string, tenantId: string) => {
   return prisma.cAPA.findFirst({
-    where: { id, tenantId },
+    where: { id, tenantId, deletedAt: null },
     include: {
       documents: true,
       finding: true,
@@ -112,6 +115,7 @@ export const getSuggestedRecurrenceMatches = cache(
       where: {
         tenantId: params.tenantId,
         status: "closed",
+        deletedAt: null,
         closedAt: { gte: earliest },
         ...(params.siteId ? { siteId: params.siteId } : {}),
         NOT: { effectivenessVerdict: "ineffective" },
@@ -156,6 +160,7 @@ export const getEffectivenessChecksDue = cache(async (tenantId: string) => {
     where: {
       tenantId,
       status: "closed",
+      deletedAt: null,
       effectivenessDate: { lte: now },
       effectivenessVerdict: null,
     },
@@ -184,7 +189,9 @@ export const getEffectivenessChecksDue = cache(async (tenantId: string) => {
 export const getMyActionItems = cache(
   async (userId: string, tenantId: string) => {
     return prisma.cAPAActionItem.findMany({
-      where: { ownerId: userId, tenantId },
+      // Exclude soft-deleted items AND items whose parent CAPA was soft-deleted
+      // (so a deleted CAPA never lingers in anyone's worklist via its children).
+      where: { ownerId: userId, tenantId, deletedAt: null, capa: { deletedAt: null } },
       orderBy: { dueDate: "asc" },
       // No `select` on the item itself → every scalar (incl. the Phase-2 rework
       // fields reworkReason / reworkRequestedById / reworkRequestedAt) is
@@ -237,5 +244,44 @@ export const getCapaAuditTrail = cache(
       recordTitle: r.recordTitle,
       createdAt: r.createdAt.toISOString(),
     }));
+  },
+);
+
+/**
+ * Batch 2b (#3) — light linkable-record lists for the New CAPA source picker.
+ * OPEN records only, tenant-scoped; the modal further filters by the selected
+ * site client-side (the chosen site is client state). `text` feeds the
+ * Description prefill (#4). NOTE: there is no separate Internal-Audit-finding
+ * model — only Finding (gap) + Deviation exist; getOpenAuditFindings is N/A.
+ */
+export interface LinkableRecord {
+  id: string;
+  reference: string | null;
+  title: string;
+  text: string;
+  siteId: string | null;
+}
+
+export const getOpenGapFindings = cache(
+  async (tenantId: string): Promise<LinkableRecord[]> => {
+    const rows = await prisma.finding.findMany({
+      where: { tenantId, status: { in: ["Open", "open"] }, deletedAt: null },
+      select: { id: true, reference: true, requirement: true, siteId: true },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    return rows.map((r) => ({ id: r.id, reference: r.reference, title: r.requirement.slice(0, 120), text: r.requirement, siteId: r.siteId }));
+  },
+);
+
+export const getOpenDeviations = cache(
+  async (tenantId: string): Promise<LinkableRecord[]> => {
+    const rows = await prisma.deviation.findMany({
+      where: { tenantId, status: { in: ["open", "Open"] }, deletedAt: null },
+      select: { id: true, reference: true, title: true, description: true, siteId: true },
+      orderBy: { detectedDate: "desc" },
+      take: 200,
+    });
+    return rows.map((r) => ({ id: r.id, reference: r.reference, title: r.title, text: r.description, siteId: r.siteId }));
   },
 );

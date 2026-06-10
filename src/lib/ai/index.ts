@@ -18,6 +18,7 @@ import {
   mockCapaPrefill,
   mockResponseDraft,
 } from "./mockData";
+import type { InvestigationRCAMethod } from "@/constants/rcaMethods";
 
 export const MOCK_AI_RESPONSES = true;
 
@@ -37,7 +38,8 @@ function delay(ms: number): Promise<void> {
 
 /* ── Feature A — RCA suggestions (method-shaped) ─────────────────── */
 
-export type RcaMethod = "5 Why" | "Fishbone" | "Fault Tree" | "Barrier Analysis";
+// Phase 1.5 — unified into the shared RCA-method constant.
+export type RcaMethod = InvestigationRCAMethod;
 
 /** 5 Why: 5 progressive Why answers leading to root cause. */
 export interface FiveWhySuggestion {

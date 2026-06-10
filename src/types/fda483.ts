@@ -14,6 +14,7 @@
  */
 
 import type { LinkedDocument } from "@/components/shared/DocumentUpload";
+import type { InvestigationRCAMethod } from "@/constants/rcaMethods";
 
 /* ── Enums ── */
 
@@ -44,7 +45,8 @@ export type ObservationStatus =
   | "Response Drafted"
   | "Closed";
 
-export type RCAMethod = "5 Why" | "Fishbone" | "Fault Tree" | "Barrier Analysis";
+// Phase 1.5 — unified into the shared RCA-method constant.
+export type RCAMethod = InvestigationRCAMethod;
 
 // "Overdue" is a DERIVED display state (status === "Pending"/"In Progress"
 // AND dueDate < today), not a stored value — kept in the union for legacy

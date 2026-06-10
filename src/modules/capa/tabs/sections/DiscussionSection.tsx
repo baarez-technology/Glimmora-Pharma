@@ -29,6 +29,8 @@ import {
 } from "@/actions/capa-comments";
 import type { CAPA } from "@/store/capa.slice";
 import { STATUS_LABEL } from "@/types/capa";
+import { roleLabel } from "@/lib/labels/roles";
+import { useToast } from "@/components/ui/Toast";
 import {
   buildCommentTree,
   initialsFor,
@@ -53,6 +55,7 @@ interface DiscussionSectionProps {
 }
 
 export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionProps) {
+  const toast = useToast();
   const { role } = useRole();
   const currentUser = useAppSelector((s) => s.auth.user);
   const canResolve =
@@ -104,6 +107,14 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Batch 3b — per-thread collapse of a root's reply group (default expanded).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleCollapse = (rootId: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(rootId)) next.delete(rootId); else next.add(rootId);
+      return next;
+    });
 
   const refresh = useCallback(async () => {
     setLoadError(null);
@@ -133,10 +144,7 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
   /* ── Mutation handlers ── */
 
   const handlePostNew = async () => {
-    if (newBody.trim().length < 5) {
-      setPostError("Comment must be at least 5 characters.");
-      return;
-    }
+    if (newBody.trim().length < 5) return; // button is disabled; gentle hint shown
     setPostBusy(true);
     setPostError(null);
     const result = await addCAPAComment(capa.id, {
@@ -146,10 +154,12 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
     setPostBusy(false);
     if (!result.success) {
       setPostError(result.error);
+      toast.error(result.error || "Could not post comment.");
       return;
     }
     setNewBody("");
     setNewIsConcern(false);
+    toast.success(newIsConcern ? "Concern flagged." : "Comment posted.");
     await refresh();
     onCommentsChange();
   };
@@ -181,10 +191,12 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
     setEditBusy(false);
     if (!result.success) {
       setPostError(result.error);
+      toast.error(result.error || "Could not update comment.");
       return;
     }
     setEditingId(null);
     setEditBody("");
+    toast.success("Comment updated.");
     await refresh();
     onCommentsChange();
   };
@@ -199,10 +211,12 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
     setResolveBusy(false);
     if (!result.success) {
       setResolveError(result.error);
+      toast.error(result.error || "Could not resolve concern.");
       return;
     }
     setResolvingId(null);
     setResolveNote("");
+    toast.success("Concern resolved.");
     await refresh();
     onCommentsChange();
   };
@@ -262,7 +276,8 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
       node.isConcern &&
       node.resolvedAt !== null &&
       canResolve;
-    const showReply = !isFrozen && !isDeleted;
+    // Batch 3b — replies are one level deep, so only roots offer "Reply".
+    const showReply = !isFrozen && !isDeleted && depth === 0;
     const isEditing = editingId === node.id;
     const isReplying = replyingTo === node.id;
     const menuOpen = openMenuId === node.id;
@@ -298,7 +313,10 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
             >
               {initialsFor(node.authorName)}
             </div>
-            <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap text-[11px]">
+            <div className="flex-1 min-w-0">
+              {/* Batch 3a #4 — name + timestamp (+ edited) on one line; role on
+                  its own line beneath, legible in light + dark. */}
+              <div className="flex items-center gap-2 flex-wrap text-[11px]">
               <span
                 id={`comment-${node.id}-author`}
                 className="font-semibold"
@@ -306,22 +324,15 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
               >
                 {node.authorName}
               </span>
-              <span
-                className="px-1.5 py-0.5 rounded text-[10px]"
-                style={{
-                  background: "var(--bg-elevated)",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--bg-border)",
-                }}
-              >
-                {node.authorRole.replace(/_/g, " ")}
-              </span>
               <span style={{ color: "var(--text-muted)" }}>
                 {dayjs(node.createdAt).fromNow()}
               </span>
+              {dayjs(node.updatedAt).diff(node.createdAt, "second") > 2 && !isDeleted && (
+                <span className="text-[10px] italic" style={{ color: "var(--text-muted)" }}>· edited</span>
+              )}
               {node.isConcern && !isDeleted && (
                 <Badge
-                  variant={node.resolvedAt ? "green" : "amber"}
+                  variant={node.resolvedAt ? "green" : "red"}
                 >
                   {node.resolvedAt ? (
                     <>
@@ -337,11 +348,16 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
                         className="w-3 h-3 inline mr-0.5"
                         aria-hidden="true"
                       />
-                      Unresolved
+                      Concern
                     </>
                   )}
                 </Badge>
               )}
+              </div>
+              {/* role under the name — text-primary for legibility in both modes */}
+              <span className="inline-block mt-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--card-border, var(--bg-border))" }}>
+                {roleLabel(node.authorRole)}
+              </span>
             </div>
             {(canEdit || canDelete) && (
               <div className="relative">
@@ -555,7 +571,7 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
                   onChange={(e) => setReplyIsConcern(e.target.checked)}
                   disabled={replyBusy}
                 />
-                Mark as concern
+                Flag as concern (blocks closure)
               </label>
               <div className="flex gap-2">
                 <Button
@@ -584,9 +600,18 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
         </article>
 
         {node.children.length > 0 && (
-          <ul role="list" className="list-none p-0 m-0">
-            {node.children.map((child) => renderNode(child, depth + 1))}
-          </ul>
+          <div className="mt-1">
+            {/* Batch 3b — collapse/expand a root's reply group (default expanded). */}
+            <button type="button" onClick={() => toggleCollapse(node.id)}
+              className="text-[11px] inline-flex items-center gap-1 bg-transparent border-none cursor-pointer p-0 mb-1" style={{ color: "var(--brand)" }}>
+              {collapsed.has(node.id) ? "▸" : "▾"} {node.children.length} {node.children.length === 1 ? "reply" : "replies"}
+            </button>
+            {!collapsed.has(node.id) && (
+              <ul role="list" className="list-none p-0 m-0">
+                {node.children.map((child) => renderNode(child, depth + 1))}
+              </ul>
+            )}
+          </div>
         )}
       </li>
     );
@@ -594,29 +619,19 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
 
   return (
     <section
-      className="rounded-lg p-3"
-      style={{
-        background: "var(--card-bg)",
-        border: "1px solid var(--card-border)",
-      }}
+      // Phase F — no own card chrome; CAPADetailPage wraps this in .capa-card.
       aria-labelledby="discussion-heading"
     >
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-3">
         <h3
           id="discussion-heading"
-          className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5"
-          style={{ color: "var(--text-muted)" }}
+          className="text-[14px] font-semibold flex items-center gap-2"
+          style={{ color: "var(--text-primary)" }}
         >
-          <MessageSquare
-            className="w-3.5 h-3.5"
-            aria-hidden="true"
-          />
+          <MessageSquare className="w-4 h-4" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
           Discussion
-          <span
-            className="font-normal normal-case tracking-normal"
-            style={{ color: "var(--text-muted)" }}
-          >
-            · {totalCount} comment{totalCount === 1 ? "" : "s"} · {unresolvedConcerns} unresolved concern{unresolvedConcerns === 1 ? "" : "s"}
+          <span className="text-[12px] font-normal" style={{ color: "var(--text-muted)" }}>
+            ({totalCount} comment{totalCount === 1 ? "" : "s"} · {unresolvedConcerns} open concern{unresolvedConcerns === 1 ? "" : "s"})
           </span>
         </h3>
       </div>
@@ -659,12 +674,13 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
       )}
 
       {!loading && !loadError && tree.length === 0 && (
-        <p
-          className="text-[11px] italic mb-2"
-          style={{ color: "var(--text-muted)" }}
+        <div
+          className="rounded-lg border border-dashed p-5 text-center mb-3"
+          style={{ borderColor: "var(--card-border, var(--bg-border))" }}
         >
-          No discussion yet. Add the first comment below.
-        </p>
+          <MessageSquare className="w-6 h-6 mx-auto mb-1.5" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No comments yet — start the discussion.</p>
+        </div>
       )}
 
       {!loading && tree.length > 0 && (
@@ -699,18 +715,22 @@ export function DiscussionSection({ capa, onCommentsChange }: DiscussionSectionP
                 onChange={(e) => setNewIsConcern(e.target.checked)}
                 disabled={postBusy}
               />
-              Mark as concern
+              Flag as concern (blocks closure)
             </label>
-            <Button
-              variant="primary"
-              size="sm"
-              icon={Send}
-              disabled={postBusy || newBody.trim().length < 5}
-              loading={postBusy}
-              onClick={() => void handlePostNew()}
-            >
-              Post
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Batch 3a #4 — gentle hint instead of a "min N chars" scold. */}
+              {newBody.trim().length < 5 && <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Add a brief comment</span>}
+              <Button
+                variant="primary"
+                size="sm"
+                icon={Send}
+                disabled={postBusy || newBody.trim().length < 5}
+                loading={postBusy}
+                onClick={() => void handlePostNew()}
+              >
+                Comment
+              </Button>
+            </div>
           </div>
           {postError && (
             <p

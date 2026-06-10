@@ -88,7 +88,7 @@ async function syncCorrectiveActions(
   tenantId: string,
 ): Promise<void> {
   const items = await tx.cAPAActionItem.findMany({
-    where: { capaId, tenantId },
+    where: { capaId, tenantId, deletedAt: null },
     orderBy: { sequence: "asc" },
     select: { description: true, status: true },
   });
@@ -501,7 +501,7 @@ export async function deleteActionItem(
   }
 
   const existing = await prisma.cAPAActionItem.findFirst({
-    where: { id: itemId, tenantId: session.user.tenantId },
+    where: { id: itemId, tenantId: session.user.tenantId, deletedAt: null },
     include: {
       capa: { select: { id: true, status: true, reference: true, description: true } },
     },
@@ -528,7 +528,17 @@ export async function deleteActionItem(
   }
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.cAPAActionItem.delete({ where: { id: itemId } });
+      // Soft-delete (Part 11 retention) — row retained; syncCorrectiveActions
+      // (now filtering deletedAt) rebuilds the cache from live items only.
+      await tx.cAPAActionItem.update({
+        where: { id: itemId },
+        data: {
+          deletedAt: new Date(),
+          deletedById: actor.userId,
+          deletedByName: actor.displayName,
+          deletionReason: parsed.data.reason ? parsed.data.reason.slice(0, 200) : null,
+        },
+      });
       await syncCorrectiveActions(tx, existing.capaId, session.user.tenantId);
     });
     await prisma.auditLog.create({
@@ -556,6 +566,55 @@ export async function deleteActionItem(
   } catch (err) {
     console.error("[action] deleteActionItem failed:", err);
     return { success: false, error: sanitizeServerError(err, "Failed to delete action item") };
+  }
+}
+
+export async function restoreActionItem(itemId: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const existing = await prisma.cAPAActionItem.findFirst({
+    where: { id: itemId, tenantId: session.user.tenantId },
+    include: { capa: { select: { id: true, status: true } } },
+  });
+  if (!existing) return { success: false, error: "Action item not found" };
+  if (!existing.deletedAt) return { success: false, error: "Action item is not deleted." };
+  if (LOCKED_CAPA_STATUSES.has(existing.capa.status)) {
+    return { success: false, error: ACTION_ITEMS_LOCKED_MESSAGE };
+  }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.cAPAActionItem.update({
+        where: { id: itemId },
+        data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
+      });
+      await syncCorrectiveActions(tx, existing.capaId, session.user.tenantId);
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: ACTION_ITEMS_AUDIT_MODULE,
+        action: "CAPA_ACTION_ITEM_RESTORED",
+        recordId: existing.capa.id,
+        oldValue: JSON.stringify({ itemId }),
+      },
+    });
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${existing.capa.id}`);
+    return { success: true, data: { id: itemId } };
+  } catch (err) {
+    console.error("[action] restoreActionItem failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to restore action item") };
   }
 }
 
@@ -605,7 +664,7 @@ export async function reorderActionItems(
     await prisma.$transaction(async (tx) => {
       // Verify all ids belong to this CAPA + tenant before mutating.
       const items = await tx.cAPAActionItem.findMany({
-        where: { capaId, tenantId: session.user.tenantId },
+        where: { capaId, tenantId: session.user.tenantId, deletedAt: null },
         select: { id: true },
       });
       const tenantItemIds = new Set(items.map((i) => i.id));
@@ -671,7 +730,7 @@ export async function loadActionItemsForCAPA(
   });
   if (!capa) return { success: false, error: "CAPA not found" };
   const items = await prisma.cAPAActionItem.findMany({
-    where: { capaId, tenantId: session.user.tenantId },
+    where: { capaId, tenantId: session.user.tenantId, deletedAt: null },
     orderBy: { sequence: "asc" },
   });
   return { success: true, data: items };

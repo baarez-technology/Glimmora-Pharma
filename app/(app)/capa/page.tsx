@@ -3,7 +3,7 @@ import { ErrorBoundary } from "@/components/errors";
 import { CAPAPage } from "@/modules/capa/CAPAPage";
 import { requireAuth } from "@/lib/auth";
 import { getCAPAs } from "@/lib/queries";
-import { getEffectivenessChecksDue } from "@/lib/queries/capas";
+import { getEffectivenessChecksDue, getOpenGapFindings, getOpenDeviations } from "@/lib/queries/capas";
 import { CAPA_MODULE_VIEW_ROLES } from "@/lib/permissions/roleSets";
 
 export const metadata = {
@@ -16,9 +16,11 @@ export default async function CAPAPageRoute() {
   // everyone else works their CAPAs through the Worklist.
   if (!CAPA_MODULE_VIEW_ROLES.includes(session.user.role)) redirect("/worklist");
   // Phase 6 — surface Phase 2's dormant effectiveness-due query in the tracker.
-  const [capas, effectivenessDue] = await Promise.all([
+  const [capas, effectivenessDue, gapFindings, deviations] = await Promise.all([
     getCAPAs(session.user.tenantId),
     getEffectivenessChecksDue(session.user.tenantId),
+    getOpenGapFindings(session.user.tenantId),
+    getOpenDeviations(session.user.tenantId),
   ]);
 
   return (
@@ -32,6 +34,8 @@ export default async function CAPAPageRoute() {
           risk: e.risk,
           effectivenessDate: e.effectivenessDate ? e.effectivenessDate.toISOString() : null,
         }))}
+        gapFindings={gapFindings}
+        deviations={deviations}
       />
     </ErrorBoundary>
   );

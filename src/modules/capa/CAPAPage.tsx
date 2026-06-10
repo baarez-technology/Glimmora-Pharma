@@ -31,7 +31,6 @@ import { Button } from "@/components/ui/Button";
 import { Popup } from "@/components/ui/Popup";
 import { Modal } from "@/components/ui/Modal";
 import { StatusGuide } from "@/components/shared";
-import { FlowExplainerInline } from "./components/FlowExplainer";
 import { CAPA_STATUSES } from "@/constants/statusTaxonomy";
 
 import { QMSBlueprintTab } from "./tabs/QMSBlueprintTab";
@@ -39,6 +38,7 @@ import { CAPATrackerTab } from "./tabs/CAPATrackerTab";
 import { CAPAMetricsTab } from "./tabs/CAPAMetricsTab";
 import { AddCAPAModal, type CAPAForm } from "./modals/AddCAPAModal";
 import { AIGenerateCAPAModal, type AICapaResponse, type AICapaForm } from "./modals/AIGenerateCAPAModal";
+import type { LinkableRecord } from "@/lib/queries/capas";
 
 /* ── Constants ── */
 
@@ -50,9 +50,11 @@ const TABS: { id: TabId; label: string; Icon: typeof BarChart3 }[] = [
 ];
 
 const QMS_PROCESSES = [
-  { title: "Deviation Management", Icon: AlertTriangle, color: "#f59e0b", sourceKey: "Deviation", targetState: "Risk-based classification within 24h. DI gate check for all deviations. Trend monitoring for recurrence.", currentGap: "Recurrence detection is manual \u2014 AGI deviation intelligence not yet active." },
-  { title: "Change Control", Icon: GitBranch, color: "#6366f1", sourceKey: "Change Control", targetState: "Impact assessment before any GMP change. CSV review for system changes. QA approval mandatory.", currentGap: "Change control SOP last reviewed 2023 \u2014 update required for Annex 11 alignment." },
-  { title: "Complaint Handling", Icon: MessageSquare, color: "#0ea5e9", sourceKey: "Complaint", targetState: "Complaint triage within 24h. Serious complaints trigger CAPA automatically. Monthly trend analysis.", currentGap: "Complaint data not yet integrated. Manual review process in place." },
+  // Phase G \u2014 status: Deviation is a built Phase-1 module; Change Control has no
+  // module yet and Complaint Handling is Phase 2, so both are flagged "planned".
+  { title: "Deviation Management", Icon: AlertTriangle, color: "#f59e0b", sourceKey: "Deviation", status: "live" as const, targetState: "Risk-based classification within 24h. DI gate check for all deviations. Trend monitoring for recurrence.", currentGap: "Recurrence detection is manual \u2014 AGI deviation intelligence not yet active." },
+  { title: "Change Control", Icon: GitBranch, color: "#6366f1", sourceKey: "Change Control", status: "planned" as const, targetState: "Impact assessment before any GMP change. CSV review for system changes. QA approval mandatory.", currentGap: "Change control SOP last reviewed 2023 \u2014 update required for Annex 11 alignment." },
+  { title: "Complaint Handling", Icon: MessageSquare, color: "#0ea5e9", sourceKey: "Complaint", status: "planned" as const, targetState: "Complaint triage within 24h. Serious complaints trigger CAPA automatically. Monthly trend analysis.", currentGap: "Complaint data not yet integrated. Manual review process in place." },
 ];
 
 /* ══════════════════════════════════════ */
@@ -71,9 +73,12 @@ interface CAPAPageProps {
   capas?: PrismaCAPA[];
   /** Phase 6 — closed CAPAs whose 90-day effectiveness check is due. */
   effectivenessDue?: EffectivenessDueItem[];
+  /** Batch 2b — open linkable records for the New CAPA source picker. */
+  gapFindings?: LinkableRecord[];
+  deviations?: LinkableRecord[];
 }
 
-export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = [] }: CAPAPageProps = {}) {
+export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = [], gapFindings = [], deviations = [] }: CAPAPageProps = {}) {
   const router = useRouter();
   const dispatch = useAppDispatch();
 
@@ -223,7 +228,11 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
         dueDate: data.dueDate,
         siteId: data.siteId,
         linkedFindingId: data.findingId || undefined,
+        linkedDeviationId: data.deviationId || undefined,
         diGateRequired: data.diGate,
+        rca: data.rca,
+        rcaMethod: data.rcaMethod,
+        rcaDetail: data.rcaDetail,
       });
       if (!res.success) {
         setErrorMsg(res.error || "Failed to create CAPA. Please try again.");
@@ -261,7 +270,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
   /* ══════════════════════════════════════ */
 
   return (
-    <main id="main-content" aria-label="QMS and CAPA tracker" className="w-full space-y-5">
+    <main id="main-content" aria-label="QMS and CAPA tracker" className="capa-shell w-full space-y-5">
       {/* Header */}
       <header className="flex items-start justify-between flex-wrap gap-4">
         <div>
@@ -273,8 +282,8 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
         {isCustomerAdmin && <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>CAPA actions require QA Head authorization</p>}
       </header>
 
-      {/* Phase B G3 — dismissible "How a CAPA flows" explainer under the guide. */}
-      <FlowExplainerInline />
+      {/* Batch 1 — the "How a CAPA flows" strip was removed; the QMS Blueprint
+          tab's 7-step lifecycle cards already teach the flow. */}
 
       {/* Tab bar */}
       <div role="tablist" aria-label="CAPA sections" className="flex gap-1 border-b border-(--bg-border)">
@@ -321,7 +330,7 @@ export function CAPAPage({ openCapaId, capas: serverCAPAs, effectivenessDue = []
 
       {/* Modals — edit/sign moved to the detail page (/capa/[id]); this list
           page keeps create / AI / reopen only. */}
-      <AddCAPAModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddCAPA} users={complianceUsers} sites={allSites} lockedSiteId={selectedSiteId} />
+      <AddCAPAModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddCAPA} users={complianceUsers} sites={allSites} lockedSiteId={selectedSiteId} gapFindings={gapFindings} deviations={deviations} />
 
       {/* RUNG 3D-CAPA — reopen a closed/rejected CAPA (reason required) */}
       <Modal

@@ -7,6 +7,7 @@ import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getSeverityVariant } from "@/lib/badgeVariants";
 import { submitForReview } from "@/actions/capas";
@@ -62,6 +63,7 @@ export function WorklistPage({
   currentUserRole: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const capaCan = usePermissions("capa");
   const isViewer = currentUserRole === "viewer";
   const canWrite = !isViewer;
@@ -96,16 +98,18 @@ export function WorklistPage({
 
   async function handleMarkNA() {
     if (!naModal) return;
-    if (naReason.trim().length < 10) { setNaError("Reason must be at least 10 characters."); return; }
+    if (naReason.trim().length < 10) { setNaError("Add a brief reason (at least 10 characters)."); return; }
     const res = await updateEvidenceStatus(naModal.evidenceItemId, { status: "NOT_APPLICABLE", naReason: naReason.trim() });
-    if (!res.success) { setNaError(res.error || "Failed"); return; }
+    if (!res.success) { setNaError(res.error || "Failed"); toast.error(res.error || "Could not update evidence."); return; }
     setNaModal(null);
     setNaReason("");
     setNaError(null);
+    toast.success("Evidence updated.");
     router.refresh();
   }
 
   return (
+    <div className="capa-shell min-h-full">
     <div className="p-6 max-w-5xl mx-auto">
       {/* ── Header ── */}
       <div className="mb-5">
@@ -303,6 +307,7 @@ export function WorklistPage({
           </div>
         </Modal>
       )}
+    </div>
     </div>
   );
 }

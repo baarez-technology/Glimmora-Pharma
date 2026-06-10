@@ -223,11 +223,12 @@ export async function updateCriterion(
  */
 export async function deleteCriterion(
   criterionId: string,
+  reason?: string,
 ): Promise<ActionResult> {
   const session = await requireAuth();
 
   const existing = await prisma.cAPAEffectivenessCriterion.findFirst({
-    where: { id: criterionId, tenantId: session.user.tenantId },
+    where: { id: criterionId, tenantId: session.user.tenantId, deletedAt: null },
     include: {
       capa: { select: { id: true, status: true, description: true } },
     },
@@ -257,8 +258,16 @@ export async function deleteCriterion(
       targetValue: existing.targetValue,
       monitoringPeriod: existing.monitoringPeriod,
     };
-    await prisma.cAPAEffectivenessCriterion.delete({
+    // Soft-delete (Part 11 retention) — row retained; criteria list/count
+    // queries filter deletedAt so the readiness gate ignores it.
+    await prisma.cAPAEffectivenessCriterion.update({
       where: { id: criterionId },
+      data: {
+        deletedAt: new Date(),
+        deletedById: actor.userId,
+        deletedByName: actor.displayName,
+        deletionReason: reason ? reason.slice(0, 200) : null,
+      },
     });
     await prisma.auditLog.create({
       data: {
@@ -271,6 +280,7 @@ export async function deleteCriterion(
         recordId: criterionId,
         recordTitle: existing.capa.description.slice(0, 80),
         oldValue: JSON.stringify(snapshot),
+        newValue: reason ? reason.slice(0, 200) : null,
       },
     });
     revalidatePath("/capa");
@@ -279,5 +289,51 @@ export async function deleteCriterion(
   } catch (err) {
     console.error("[action] deleteCriterion failed:", err);
     return { success: false, error: sanitizeServerError(err, "Failed to delete effectiveness criterion") };
+  }
+}
+
+export async function restoreCriterion(criterionId: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const existing = await prisma.cAPAEffectivenessCriterion.findFirst({
+    where: { id: criterionId, tenantId: session.user.tenantId },
+    include: { capa: { select: { id: true, status: true } } },
+  });
+  if (!existing) return { success: false, error: "Criterion not found" };
+  if (!existing.deletedAt) return { success: false, error: "Criterion is not deleted." };
+  if (LOCKED_CAPA_STATUSES.has(existing.capa.status)) {
+    return { success: false, error: LOCKED_CAPA_MESSAGE };
+  }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
+  try {
+    await prisma.cAPAEffectivenessCriterion.update({
+      where: { id: criterionId },
+      data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: AUDIT_MODULE,
+        action: "EFFECTIVENESS_CRITERION_RESTORED",
+        recordId: criterionId,
+        recordTitle: criterionId,
+      },
+    });
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${existing.capa.id}`);
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] restoreCriterion failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to restore effectiveness criterion") };
   }
 }

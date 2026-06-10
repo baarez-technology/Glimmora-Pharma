@@ -90,7 +90,7 @@ export function EffectivenessSection({ capa }: { capa: CAPA }) {
 
   const submitRecord = async () => {
     if (notes.trim().length < 20) {
-      setActionError("Notes must be at least 20 characters.");
+      setActionError("Add review notes (at least 20 characters).");
       return;
     }
     if (!password) {

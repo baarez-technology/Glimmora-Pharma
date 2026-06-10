@@ -110,11 +110,13 @@ export const FDA483_DELETE_ROLES: readonly string[] = ["qa_head", "customer_admi
  *   unchanged (Phases 3-5 own those). */
 export const CAPA_MODULE_VIEW_ROLES: readonly string[] = ["qa_head", "customer_admin"];
 
-/* ── Documents (documents.ts) ── NOTE: createDocument currently has NO server
- *   role gate (only requireAuth) — flagged in the audit. approve / delete =
- *   qa_head/super_admin. The GxP capa-evidence path (evidence.ts) uses
- *   COMPLIANCE_AUTHOR_ROLES; the capability map mirrors that GxP intent. */
-export const DOCUMENT_APPROVE_ROLES: readonly string[] = ["qa_head", "super_admin"];
+/* ── Documents (documents.ts) ── approve/sign/reject = qa_head. Delete mirrors
+ *   the app-wide GxP delete policy (qa_head + customer_admin, same as
+ *   FDA483_DELETE_ROLES). super_admin is walled from every document write by
+ *   requireGxPAuthor server-side; removed from this set so the capability map
+ *   never advertises a write super_admin can't perform. The GxP capa-evidence
+ *   path (evidence.ts) uses COMPLIANCE_AUTHOR_ROLES. */
+export const DOCUMENT_APPROVE_ROLES: readonly string[] = ["qa_head"];
 
 /* ── AGI console (agiConsole.ts) ── */
 export const AGI_MANAGE_ROLES: readonly string[] = ["customer_admin", "super_admin"];
@@ -243,7 +245,9 @@ export function getModuleCapabilities(
         canEdit: has(COMPLIANCE_AUTHOR_ROLES) && gxpOk,
         canApprove: has(DOCUMENT_APPROVE_ROLES) && gxpOk,
         canSign: has(DOCUMENT_APPROVE_ROLES) && gxpOk && gxp,
-        canDelete: has(DOCUMENT_APPROVE_ROLES) && gxpOk,
+        // Delete = qa_head OR customer_admin (app-wide GxP delete policy),
+        // matching the deleteDocument server gate. super_admin excluded by gxpOk.
+        canDelete: (has(DOCUMENT_APPROVE_ROLES) || has(ADMIN_DELETE_ROLES)) && gxpOk,
         canReview: has(DOCUMENT_APPROVE_ROLES) && gxpOk,
       };
 

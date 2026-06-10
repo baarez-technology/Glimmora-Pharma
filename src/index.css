@@ -41,6 +41,15 @@
   --status-done-bg: #e9fbf1;
   --status-blocked: #b91c1c;       /* red — ~5.9:1 on white */
   --status-blocked-bg: #fdecec;
+  /* Phase D — premium depth/hierarchy tokens (additive). Scoped to the CAPA
+     module via .capa-shell; the global app background is left untouched. */
+  --canvas: #f7f8fa;
+  --card: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
+  --shadow-md: 0 4px 12px rgba(16,24,40,.08);
+  --radius-card: 12px;
+  --radius-ctl: 8px;
+  --text-secondary-muted: #667085;  /* Phase D body-secondary */
   --card-bg: #ffffff;
   --card-border: #e8e4dd;
   --card-text: #302d29;
@@ -105,6 +114,15 @@
   --status-done-bg: rgba(16, 185, 129, 0.18);
   --status-blocked: #fca5a5;       /* red-300 */
   --status-blocked-bg: rgba(239, 68, 68, 0.20);
+  /* Phase D — dark: canvas is the darkest layer; cards one step lighter so
+     they lift off the page. Shadows deepen for separation on dark. */
+  --canvas: #0d0d10;
+  --card: #1c1c21;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.45);
+  --shadow-md: 0 6px 16px rgba(0,0,0,.55);
+  --radius-card: 12px;
+  --radius-ctl: 8px;
+  --text-secondary-muted: #9aa3b2;  /* Phase D body-secondary (dark, AA) */
   --card-bg: #17171a;
   --card-border: #2a2a30;
   --card-text: #f4ede6;
@@ -144,15 +162,28 @@
 .status-pill--done    { color: var(--status-done);    background: var(--status-done-bg); }
 .status-pill--blocked { color: var(--status-blocked); background: var(--status-blocked-bg); }
 
-/* Unified CAPA card — 1px border, subtle shadow, consistent radius/padding.
-   Gives separation from the warm canvas without touching --bg-base globally. */
-.capa-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--bg-border);
-  border-radius: 0.625rem;
-  box-shadow: var(--shadow-card);
-  padding: 1rem;
+/* Phase J — CAPA module shell. Background is intentionally NOT set: the shell
+   inherits the app work-area background (--bg-base) so there is ONE continuous
+   surface behind the cards (no grey "panel-in-panel" seam). It only scopes the
+   premium cool card border to the CAPA subtree; cards lift via --card + shadow. */
+.capa-shell {
+  --card-border: #e8eaed;
 }
+[data-theme="dark"] .capa-shell {
+  --card-border: #2a2a30;
+}
+
+/* Unified CAPA card — 1px border, subtle shadow, 12px radius, 20px padding.
+   Promotes every section to a consistent, lifted surface. */
+.capa-card {
+  background: var(--card);
+  border: 1px solid var(--card-border, var(--bg-border));
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem;
+}
+/* Consistent 16px rhythm between stacked cards. */
+.capa-stack > * + * { margin-top: 1rem; }
 
 /* Section heading — small-caps, muted (DESCRIPTION, APPROVALS, …). */
 .capa-section-title {

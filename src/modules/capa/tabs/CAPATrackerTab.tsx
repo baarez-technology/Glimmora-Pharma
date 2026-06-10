@@ -155,29 +155,27 @@ export function CAPATrackerTab({
 
   return (
     <div role="tabpanel" id="panel-tracker" aria-labelledby="tab-tracker" tabIndex={0}>
-      {/* ── Phase 6 queues ── */}
-      {(waitingOnYou.length > 0 || effectivenessDue.length > 0 || overdueQueue.length > 0) && (
-        <div className="grid gap-3 mb-5 md:grid-cols-3">
-          <QueueCard title="Waiting on you" Icon={Clock} tone="waiting" count={waitingOnYou.length}>
-            {waitingOnYou.slice(0, 6).map(({ c, why }) => (
-              <QueueRow key={`w-${c.id}-${why}`} label={c.reference ?? c.id.slice(0, 8)} sub={why} onClick={() => go(c.id)} />
-            ))}
-          </QueueCard>
-          <QueueCard title="Effectiveness checks due" Icon={TrendingUp} tone="active" count={effectivenessDue.length}>
-            {effectivenessDue.slice(0, 6).map((e) => (
-              <QueueRow key={e.id} label={e.reference ?? e.id.slice(0, 8)}
-                sub={`Due ${e.effectivenessDate ? dayjs.utc(e.effectivenessDate).tz(timezone).format("DD MMM") : "—"}`}
-                onClick={() => go(e.id)} />
-            ))}
-          </QueueCard>
-          <QueueCard title="Overdue" Icon={AlertTriangle} tone="blocked" count={overdueQueue.length}>
-            {overdueQueue.slice(0, 6).map((c) => (
-              <QueueRow key={c.id} label={c.reference ?? c.id.slice(0, 8)}
-                sub={isOverdue(c) ? "CAPA past due" : "Action item overdue"} onClick={() => go(c.id)} />
-            ))}
-          </QueueCard>
-        </div>
-      )}
+      {/* ── Queues (always shown, each with its own empty state) ── */}
+      <div className="grid gap-3 mb-5 md:grid-cols-3">
+        <QueueCard title="Waiting on you" Icon={Clock} tone="waiting" count={waitingOnYou.length} emptyText="Nothing waiting on you.">
+          {waitingOnYou.slice(0, 6).map(({ c, why }) => (
+            <QueueRow key={`w-${c.id}-${why}`} label={c.reference ?? c.id.slice(0, 8)} sub={why} onClick={() => go(c.id)} />
+          ))}
+        </QueueCard>
+        <QueueCard title="Effectiveness checks due" Icon={TrendingUp} tone="active" count={effectivenessDue.length} emptyText="No effectiveness checks due.">
+          {effectivenessDue.slice(0, 6).map((e) => (
+            <QueueRow key={e.id} label={e.reference ?? e.id.slice(0, 8)}
+              sub={`Due ${e.effectivenessDate ? dayjs.utc(e.effectivenessDate).tz(timezone).format("DD MMM") : "—"}`}
+              onClick={() => go(e.id)} />
+          ))}
+        </QueueCard>
+        <QueueCard title="Overdue" Icon={AlertTriangle} tone="blocked" count={overdueQueue.length} emptyText="Nothing overdue.">
+          {overdueQueue.slice(0, 6).map((c) => (
+            <QueueRow key={c.id} label={c.reference ?? c.id.slice(0, 8)}
+              sub={isOverdue(c) ? "CAPA past due" : "Action item overdue"} onClick={() => go(c.id)} />
+          ))}
+        </QueueCard>
+      </div>
 
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -195,8 +193,8 @@ export function CAPATrackerTab({
             the single create entry); "AI CAPA" hidden (no AI agents in Phase 1). */}
       </div>
 
-      {/* Table — always full width */}
-      <div className="overflow-x-auto">
+      {/* Table — always full width (Phase D: framed in a card) */}
+      <div className="capa-card overflow-x-auto" style={{ padding: 0 }}>
         {displayed.length === 0 ? (
           <div className="card p-8 text-center">
             <ClipboardCheck className="w-12 h-12 mx-auto mb-3" style={{ color: "#334155" }} aria-hidden="true" />
@@ -304,34 +302,40 @@ export function CAPATrackerTab({
 }
 
 /* ── Phase 6 queue card + row ── */
-// Phase C — queue cards keep their identity via STATUS tokens (no brand gold):
-// waiting-on-you → waiting (amber), effectiveness → active (blue), overdue → blocked (red).
-const QUEUE_TONE: Record<"waiting" | "active" | "blocked", { fg: string; border: string }> = {
-  waiting: { fg: "var(--status-waiting)", border: "var(--status-waiting)" },
-  active: { fg: "var(--status-active)", border: "var(--status-active)" },
-  blocked: { fg: "var(--status-blocked)", border: "var(--status-blocked)" },
+// Queue cards keep their identity via STATUS tokens (no brand gold): waiting-on-you
+// → waiting (amber), effectiveness → active (blue), overdue → blocked (red). The
+// tone is a subtle accent (left border + icon tint), not a heavy fill.
+const QUEUE_TONE: Record<"waiting" | "active" | "blocked", { fg: string; bg: string }> = {
+  waiting: { fg: "var(--status-waiting)", bg: "var(--status-waiting-bg)" },
+  active: { fg: "var(--status-active)", bg: "var(--status-active-bg)" },
+  blocked: { fg: "var(--status-blocked)", bg: "var(--status-blocked-bg)" },
 };
 
 function QueueCard({
-  title, Icon, tone, count, children,
+  title, Icon, tone, count, emptyText, children,
 }: {
   title: string;
   Icon: LucideIcon;
   tone: "waiting" | "active" | "blocked";
   count: number;
+  emptyText: string;
   children: React.ReactNode;
 }) {
   const t = QUEUE_TONE[tone];
   return (
-    <section className="card p-3" aria-label={title} style={{ borderColor: count > 0 ? t.border : "var(--card-border)" }}>
-      <p className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5 mb-2" style={{ color: t.fg }}>
-        <Icon className="w-3.5 h-3.5" aria-hidden="true" /> {title}
-        <span className="ml-auto text-[12px] font-bold">{count}</span>
-      </p>
+    <section className="capa-card overflow-hidden flex flex-col" aria-label={title} style={{ padding: 0, borderLeft: `3px solid ${t.fg}` }}>
+      {/* Header: icon (tinted) + title + big count */}
+      <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: "1px solid var(--card-border, var(--bg-border))" }}>
+        <span className="w-7 h-7 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: t.bg }}>
+          <Icon className="w-4 h-4" style={{ color: t.fg }} aria-hidden="true" />
+        </span>
+        <span className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>{title}</span>
+        <span className="ml-auto text-[18px] font-bold leading-none" style={{ color: count > 0 ? t.fg : "var(--text-muted)" }}>{count}</span>
+      </div>
       {count === 0 ? (
-        <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>Nothing here.</p>
+        <p className="text-[11px] px-3 py-5 text-center" style={{ color: "var(--text-muted)" }}>{emptyText}</p>
       ) : (
-        <ul className="list-none p-0 m-0 space-y-1">{children}</ul>
+        <ul className="list-none p-1.5 m-0 space-y-0.5">{children}</ul>
       )}
     </section>
   );
@@ -343,10 +347,10 @@ function QueueRow({ label, sub, onClick }: { label: string; sub: string; onClick
       <button
         type="button"
         onClick={onClick}
-        className="w-full text-left flex items-center gap-2 p-1.5 rounded-md border-none cursor-pointer bg-transparent hover:bg-(--bg-hover)"
+        className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md border-none cursor-pointer bg-transparent transition-colors hover:bg-(--bg-hover)"
       >
-        <span className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{label}</span>
-        <span className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>{sub}</span>
+        <span className="font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded border shrink-0" style={{ color: "var(--text-secondary)", borderColor: "var(--card-border, var(--bg-border))", background: "var(--bg-elevated)" }}>{label}</span>
+        <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>{sub}</span>
         <ChevronRight className="w-3.5 h-3.5 ml-auto shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
       </button>
     </li>

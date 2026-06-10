@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { FDA_SEVERITY, GENERIC_SEVERITY } from "@/lib/severity";
+import { CAPA_RCA_METHODS } from "@/constants/rcaMethods";
 
 /* ── Gap Assessment ── */
 
@@ -31,7 +32,7 @@ export const CAPASchema = z.object({
   siteId: z.string().min(1, "Select a site"),
   diGate: z.boolean().optional(),
   effectivenessCheck: z.boolean().optional(),
-  rcaMethod: z.enum(["5 Why", "Fishbone", "Fault Tree", "Other"]).optional(),
+  rcaMethod: z.enum(CAPA_RCA_METHODS).optional(),
   findingId: z.string().optional(),
 });
 export type CAPAFormData = z.infer<typeof CAPASchema>;
