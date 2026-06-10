@@ -156,7 +156,7 @@ export async function signAndCloseCAPA(
       select: { isConcern: true, resolvedAt: true, deletedAt: true },
     }),
     prisma.cAPAActionItem.findMany({
-      where: { capaId: id, tenantId: session.user.tenantId },
+      where: { capaId: id, tenantId: session.user.tenantId, deletedAt: null },
       orderBy: { sequence: "asc" },
       select: {
         id: true,

@@ -379,7 +379,7 @@ export function GapRegisterTab({
                 <textarea
                   id="edit-requirement"
                   rows={3}
-                  {...form.register("requirement", { required: "Requirement is required", minLength: { value: 10, message: "Requirement must be at least 10 characters" } })}
+                  {...form.register("requirement", { required: "Requirement is required", minLength: { value: 10, message: "Add the requirement (at least 10 characters)" } })}
                   className="w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-all duration-150 resize-none bg-(--bg-elevated) border border-(--bg-border) text-(--text-primary) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
                 />
                 {form.formState.errors.requirement && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{form.formState.errors.requirement.message}</p>}

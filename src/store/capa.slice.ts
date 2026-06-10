@@ -1,8 +1,10 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { CAPAStatus } from "@/types/capa";
+// Phase 1.5 — RCA method values unified into one shared constant.
+import type { CapaRCAMethod } from "@/constants/rcaMethods";
 
 export type CAPARisk = "Critical" | "High" | "Medium" | "Low";
-export type RCAMethod = "5 Why" | "Fishbone" | "Fault Tree" | "Other";
+export type RCAMethod = CapaRCAMethod;
 export type CAPASource = "483" | "Internal Audit" | "Deviation" | "Complaint" | "OOS" | "Change Control" | "Gap Assessment";
 
 export interface CAPA {
@@ -20,9 +22,13 @@ export interface CAPA {
   owner: string;
   dueDate: string;
   status: CAPAStatus;
+  title: string;
   description: string;
   rca?: string;
   rcaMethod?: RCAMethod;
+  /** Batch 2 — method-specific structured RCA as a JSON string (5-Why array /
+   *  Fishbone buckets / Fault-Tree fields). `rca` stays the readable mirror. */
+  rcaDetail?: string;
   correctiveActions?: string;
   effectivenessCheck: boolean;
   effectivenessDate?: string;
@@ -93,6 +99,7 @@ export interface CAPA {
   // separate fetch round-trip needed.
   deviation?: {
     id: string;
+    reference?: string | null;
     title: string;
     severity: string;
     status: string;

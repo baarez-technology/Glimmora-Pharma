@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk } from "@/lib/auth";
-import { DOCUMENT_APPROVE_ROLES, COMPLIANCE_AUTHOR_ROLES } from "@/lib/permissions/roleSets";
+import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { DOCUMENT_APPROVE_ROLES, COMPLIANCE_AUTHOR_ROLES, ADMIN_DELETE_ROLES } from "@/lib/permissions/roleSets";
 import {
   canonicalizeDocumentApprovalContent,
   computeContentHash,
@@ -46,6 +46,12 @@ export async function createDocument(
     return { success: false, error: "Your role does not permit creating documents." };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  // super_admin bright line — platform admin never authors GxP records.
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     const doc = await prisma.document.create({
       data: {
@@ -94,12 +100,18 @@ export async function approveDocument(
   }
 
   const existing = await prisma.document.findFirst({
-    where: { id, tenantId: session.user.tenantId },
+    where: { id, tenantId: session.user.tenantId, deletedAt: null },
     select: { id: true, fileName: true, version: true },
   });
   if (!existing) return { success: false, error: "Document not found" };
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  // super_admin bright line — platform admin never signs GxP records.
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
 
   // §11.200(a)(1)(ii) — re-authenticate at the moment of signing.
   const passwordOk = await verifyPasswordForSigning(
@@ -213,10 +225,16 @@ export async function approveDocument(
 
 export async function rejectDocument(id: string, reason: string): Promise<ActionResult> {
   const session = await requireAuth();
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!DOCUMENT_APPROVE_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can reject documents" };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  // super_admin bright line — platform admin never acts on GxP records.
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
   try {
     // Schema has no rejectedBy/rejectionReason — store reason in description
     // and flip status; full audit trail captures the rejection event.
@@ -244,12 +262,39 @@ export async function rejectDocument(id: string, reason: string): Promise<Action
   }
 }
 
-export async function deleteDocument(id: string): Promise<ActionResult> {
+export async function deleteDocument(id: string, reason?: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  // super_admin bright line — platform admin never deletes GxP records.
   try {
-    await prisma.document.delete({
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  // Delete restricted to qa_head + customer_admin (app-wide GxP delete policy,
+  // mirrors FDA483_DELETE_ROLES). Viewer and other roles blocked server-side.
+  if (
+    !DOCUMENT_APPROVE_ROLES.includes(session.user.role) &&
+    !ADMIN_DELETE_ROLES.includes(session.user.role)
+  ) {
+    return { success: false, error: "Only a QA Head or an administrator can delete documents." };
+  }
+  const existing = await prisma.document.findFirst({
+    where: { id, tenantId: session.user.tenantId, deletedAt: null },
+    select: { id: true, fileName: true },
+  });
+  if (!existing) return { success: false, error: "Document not found" };
+  try {
+    // Soft-delete (Part 11 retention) — set the existing deletedAt/deletedBy/
+    // deletionReason columns instead of destroying the row. List queries filter
+    // deletedAt IS NULL, so it disappears from views but stays retained.
+    await prisma.document.update({
       where: { id, tenantId: session.user.tenantId },
+      data: {
+        deletedAt: new Date(),
+        deletedBy: session.user.name,
+        deletionReason: reason ? reason.slice(0, 200) : null,
+      },
     });
     await prisma.auditLog.create({
       data: {
@@ -260,6 +305,8 @@ export async function deleteDocument(id: string): Promise<ActionResult> {
         module: "Evidence & Documents",
         action: "DOCUMENT_DELETED",
         recordId: id,
+        recordTitle: existing.fileName,
+        newValue: reason ? reason.slice(0, 200) : null,
       },
     });
     revalidatePath("/evidence");
@@ -267,5 +314,51 @@ export async function deleteDocument(id: string): Promise<ActionResult> {
   } catch (err) {
     console.error("[action] deleteDocument failed:", err);
     return { success: false, error: "Failed to delete document" };
+  }
+}
+
+export async function restoreDocument(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  // super_admin bright line — platform admin never acts on GxP records.
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (
+    !DOCUMENT_APPROVE_ROLES.includes(session.user.role) &&
+    !ADMIN_DELETE_ROLES.includes(session.user.role)
+  ) {
+    return { success: false, error: "Only a QA Head or an administrator can restore documents." };
+  }
+  const existing = await prisma.document.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: { id: true, fileName: true, deletedAt: true },
+  });
+  if (!existing) return { success: false, error: "Document not found" };
+  if (!existing.deletedAt) return { success: false, error: "Document is not deleted." };
+  try {
+    await prisma.document.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: { deletedAt: null, deletedBy: null, deletionReason: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: "Evidence & Documents",
+        action: "DOCUMENT_RESTORED",
+        recordId: id,
+        recordTitle: existing.fileName,
+      },
+    });
+    revalidatePath("/evidence");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] restoreDocument failed:", err);
+    return { success: false, error: "Failed to restore document" };
   }
 }

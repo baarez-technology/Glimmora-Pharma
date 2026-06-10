@@ -24,6 +24,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
 import { useRole } from "@/hooks/useRole";
+import { CAPA_MODULE_VIEW_ROLES } from "@/lib/permissions/roleSets";
 import { useSetupStatus } from "@/hooks/useSetupStatus";
 import { useActiveSite } from "@/hooks/useActiveSite";
 import { logout } from "@/store/auth.slice";
@@ -127,10 +128,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           // through the owner/driver paths, NOT the capa matrix entry. Visible
           // to every non-super_admin role (viewer gets a read-only page).
           if (item.path === "worklist") return true;
-          // Phase 6 cleanup FIX 1 — CAPA module locked to qa_head +
-          // customer_admin (matrix grants both `capa: full`); other roles use
-          // the Worklist. super_admin already returned [] above.
-          if (item.path === "capa") return role === "qa_head" || role === "customer_admin";
+          // Phase 6 cleanup FIX 1 — CAPA module locked to the shared
+          // CAPA_MODULE_VIEW_ROLES (qa_head + customer_admin); other roles use
+          // the Worklist. super_admin already returned [] above. Imported from
+          // roleSets so nav + routes share one source of truth (no drift).
+          if (item.path === "capa") return CAPA_MODULE_VIEW_ROLES.includes(role);
           if (item.path === "readiness" || item.path === "deviation") return true;
           if (item.path === "audit-trail")
             // super_admin already returned [] above, so it's excluded here.

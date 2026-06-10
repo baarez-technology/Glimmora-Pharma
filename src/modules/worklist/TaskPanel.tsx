@@ -110,7 +110,7 @@ export function TaskPanel({
   }
 
   async function postComment() {
-    if (comment.trim().length < 5) { setErr("Comment must be at least 5 characters."); return; }
+    if (comment.trim().length < 5) { setErr("Add a brief comment (at least 5 characters)."); return; }
     setBusy(true); setErr(null);
     const res = await addCAPAComment(capa.id, { body: comment.trim(), actionItemId: action.id });
     setBusy(false);

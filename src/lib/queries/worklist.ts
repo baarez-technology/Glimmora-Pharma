@@ -63,7 +63,8 @@ const OPEN_ITEM_STATUSES = new Set(["pending", "in_progress", "rework"]);
 export const getWorklist = cache(async (userId: string, tenantId: string): Promise<Worklist> => {
   const [items, drivenCapas] = await Promise.all([
     prisma.cAPAActionItem.findMany({
-      where: { ownerId: userId, tenantId },
+      // Exclude soft-deleted items and items whose parent CAPA was soft-deleted.
+      where: { ownerId: userId, tenantId, deletedAt: null, capa: { deletedAt: null } },
       orderBy: { dueDate: "asc" },
       include: {
         capa: {
@@ -75,7 +76,7 @@ export const getWorklist = cache(async (userId: string, tenantId: string): Promi
       },
     }),
     prisma.cAPA.findMany({
-      where: { tenantId, ownerId: userId, status: { in: ACTIVE_STATUSES } },
+      where: { tenantId, ownerId: userId, status: { in: ACTIVE_STATUSES }, deletedAt: null },
       select: { id: true, reference: true, description: true, status: true, dueDate: true, risk: true, ownerId: true },
     }),
   ]);
@@ -116,9 +117,9 @@ export const getWorklist = cache(async (userId: string, tenantId: string): Promi
 
     if (isDriver) {
       const [allActions, evidence, criteria, capaRow] = await Promise.all([
-        prisma.cAPAActionItem.findMany({ where: { capaId, tenantId }, select: { status: true } }),
+        prisma.cAPAActionItem.findMany({ where: { capaId, tenantId, deletedAt: null }, select: { status: true } }),
         prisma.evidenceItem.findMany({ where: { capaId }, select: { id: true, category: true, status: true } }),
-        prisma.cAPAEffectivenessCriterion.findMany({ where: { capaId }, select: { id: true } }),
+        prisma.cAPAEffectivenessCriterion.findMany({ where: { capaId, deletedAt: null }, select: { id: true } }),
         prisma.cAPA.findUnique({
           where: { id: capaId },
           select: { rcaApproved: true, alignmentStatus: true, alignmentOverrideReason: true, diGate: true, diGateStatus: true },

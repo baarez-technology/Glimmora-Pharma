@@ -8,6 +8,7 @@ type PrismaCAPA = {
   siteId: string | null;
   findingId: string | null;
   source: string;
+  title: string;
   description: string;
   risk: string;
   owner: string;
@@ -15,6 +16,7 @@ type PrismaCAPA = {
   status: string;
   rca: string | null;
   rcaMethod: string | null;
+  rcaDetail: string | null;
   correctiveActions: string | null;
   effectivenessCheck: boolean;
   effectivenessDate: Date | null;
@@ -94,6 +96,7 @@ type PrismaCAPA = {
   // Redux store carries the same shape.
   deviation?: {
     id: string;
+    reference: string | null;
     title: string;
     severity: string;
     status: string;
@@ -129,9 +132,11 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
     owner: row.owner,
     dueDate: row.dueDate ? row.dueDate.toISOString() : "",
     status: STATUS_MAP[row.status] ?? "open",
+    title: row.title,
     description: row.description,
     rca: row.rca ?? undefined,
     rcaMethod: (row.rcaMethod as RCAMethod | null) ?? undefined,
+    rcaDetail: row.rcaDetail ?? undefined,
     correctiveActions: row.correctiveActions ?? undefined,
     effectivenessCheck: row.effectivenessCheck,
     effectivenessDate: row.effectivenessDate ? row.effectivenessDate.toISOString() : undefined,
@@ -233,6 +238,7 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
     deviation: row.deviation
       ? {
           id: row.deviation.id,
+          reference: row.deviation.reference ?? null,
           title: row.deviation.title,
           severity: row.deviation.severity,
           status: row.deviation.status,

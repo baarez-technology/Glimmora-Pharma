@@ -14,6 +14,7 @@ import { readSigningProvenance } from "@/actions/capas/_shared";
 import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { FDA_SEVERITY, coerceSeverityCasing, normalizeSeverityForDisplay } from "@/lib/severity";
+import { INVESTIGATION_RCA_METHODS } from "@/constants/rcaMethods";
 import { sanitizeServerError } from "@/lib/errors";
 
 // NOTE — actor identity (AUDIT Finding #2 / Rung 3E): never write
@@ -579,10 +580,9 @@ export async function rejectDeviation(
  * that row (documented gap — legacy rows pre-date the createdById FK).
  * ────────────────────────────────────────────────────────────────────── */
 
-const DEVIATION_RCA_METHODS = ["5Why", "Fishbone", "FaultTree", "BarrierAnalysis"] as const;
-
+// Phase 1.5 — canonical values from the shared constant (was no-space drift).
 const SaveInvestigationSchema = z.object({
-  rcaMethod: z.enum(DEVIATION_RCA_METHODS),
+  rcaMethod: z.enum(INVESTIGATION_RCA_METHODS),
   // Structured form buffer as JSON text (codebase convention — see the
   // rcaData column note in schema.prisma). Optional on save-progress.
   rcaData: z.string().max(20000).optional(),
@@ -967,7 +967,7 @@ export async function editCAPADecision(
   }
 }
 
-export async function deleteDeviation(id: string): Promise<ActionResult> {
+export async function deleteDeviation(id: string, reason?: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
@@ -981,8 +981,20 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
     return { success: false, error: "Only an administrator can delete a deviation." };
   }
   try {
-    await prisma.deviation.delete({
+    const existing = await prisma.deviation.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) return { success: false, error: "Deviation not found" };
+    // Soft-delete (Part 11 retention) — row retained; list queries filter deletedAt.
+    await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
+      data: {
+        deletedAt: new Date(),
+        deletedById: actor.userId,
+        deletedByName: actor.displayName,
+        deletionReason: reason ? reason.slice(0, 200) : null,
+      },
     });
     await prisma.auditLog.create({
       data: {
@@ -993,6 +1005,7 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
         module: "Deviation Management",
         action: "DEVIATION_DELETED",
         recordId: id,
+        newValue: reason ? reason.slice(0, 200) : null,
       },
     });
     revalidatePath("/deviation");
@@ -1000,6 +1013,47 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
   } catch (err) {
     console.error("[action] deleteDeviation failed:", err);
     return { success: false, error: "Failed to delete deviation" };
+  }
+}
+
+export async function restoreDeviation(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!ADMIN_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only an administrator can restore a deviation." };
+  }
+  try {
+    const existing = await prisma.deviation.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!existing) return { success: false, error: "Deviation not found" };
+    if (!existing.deletedAt) return { success: false, error: "Deviation is not deleted." };
+    await prisma.deviation.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: "Deviation Management",
+        action: "DEVIATION_RESTORED",
+        recordId: id,
+      },
+    });
+    revalidatePath("/deviation");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] restoreDeviation failed:", err);
+    return { success: false, error: "Failed to restore deviation" };
   }
 }
 

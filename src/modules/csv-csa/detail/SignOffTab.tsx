@@ -99,7 +99,7 @@ export function SignOffTab({ system, role, timezone, dateFormat, onError, onOk, 
 
   async function onSign() {
     setPwError(null);
-    if (reason.trim().length < 10) { onError("Sign-off meaning must be at least 10 characters."); return; }
+    if (reason.trim().length < 10) { onError("Add the sign-off meaning (at least 10 characters)."); return; }
     if (!password) { setPwError("Password is required to sign."); return; }
     setBusy(true);
     const r = await signValidation(system.id, { nextReviewDate, reason, password });

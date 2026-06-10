@@ -27,6 +27,8 @@ import { sanitizeServerError } from "@/lib/errors";
 // â”€â”€ Schemas â”€â”€
 
 const CreateCAPASchema = z.object({
+  // Phase A — short human title (flows into create via ...rest).
+  title: z.string().min(1, "Title is required").max(120, "Title must be 120 characters or fewer"),
   description: z.string().min(10, "Description must be at least 10 characters"),
   source: z.enum([
     "Gap Assessment",
@@ -53,9 +55,21 @@ const CreateCAPASchema = z.object({
   // them, and updateCAPA edits them); they flow into the create via `...rest`.
   rca: z.string().optional(),
   rcaMethod: z.string().optional(),
+  // Batch 2 — optional structured RCA at creation (flows in via ...rest).
+  rcaDetail: z.string().optional(),
+  // Batch 2b — DI detail accepted on create too (the New CAPA modal collects
+  // only the toggle today; create maps diGateRequired → diGate + status
+  // "pending". These flow via ...rest if a caller supplies them).
+  diGateStatus: z.enum(["open", "cleared", "pending"]).optional(),
+  diGateReviewedBy: z.string().optional(),
+  diGateNotes: z.string().optional(),
 });
 
 const UpdateCAPASchema = z.object({
+  // Phase A — editable short title (written via ...parsed.data spread).
+  // Required + trimmed: a blank/whitespace title is rejected server-side with
+  // a clear message (the Edit form marks it required; enforce it here too).
+  title: z.string().trim().min(1, "Title is required").max(120, "Title must be 120 characters or fewer"),
   description: z.string().min(10).optional(),
   source: z.string().optional(),
   risk: z.enum(["Critical", "High", "Medium", "Low"]).optional(),
@@ -63,8 +77,13 @@ const UpdateCAPASchema = z.object({
   dueDate: z.string().optional(),
   // RUNG 3D-CAPA — status intentionally removed (was the Part 11 lifecycle
   // bypass, Finding #1). Transitions go through dedicated guarded actions.
+  // Phase E-REVERT — rca / rcaMethod restored: the Edit modal is the RCA
+  // authoring surface for Gap-Assessment + manual CAPAs (the Worklist B4 task
+  // doesn't cover those). Method must be one of the four RCAMethod values.
   rca: z.string().optional(),
   rcaMethod: z.string().optional(),
+  // Batch 2 — structured RCA JSON (the readable mirror still lands in `rca`).
+  rcaDetail: z.string().optional(),
   // SME Section 1, Stage 4 (FULL) â€” correctiveActions is now managed
   // via the structured CAPAActionItem rows (addActionItem /
   // updateActionItem / deleteActionItem / reorderActionItems). The
@@ -73,6 +92,12 @@ const UpdateCAPASchema = z.object({
   // structured surface is the only path. updateCAPA refuses payloads
   // that include it; see the guard below.
   correctiveActions: z.string().optional(),
+  // Batch 2b — DI gate detail (persisted from the Edit modal). diGateReviewDate
+  // is NOT accepted from the client — the server stamps it (see write below).
+  diGate: z.boolean().optional(),
+  diGateStatus: z.enum(["open", "cleared", "pending"]).optional(),
+  diGateReviewedBy: z.string().optional(),
+  diGateNotes: z.string().optional(),
 });
 
 const ClearDIGateSchema = z.object({
@@ -385,19 +410,14 @@ export async function updateCAPA(
     });
     if (!before) return { success: false, error: "CAPA not found" };
 
-    // SME Section 1, Stage 3 (partial) â€” RCA field-lock.
+    // SME Section 1, Stage 3 (partial) — RCA field-lock.
     // Once a CAPA enters QA review (and through closure/rejection), the
-    // rca and rcaMethod fields become the regulatory record of "what
-    // we determined caused the deviation." Editing them while QA is
-    // mid-review undermines the integrity of that review. Reuses the
-    // existing LOCKED_CAPA_STATUSES set so the boundary is one
-    // codebase-wide constant (matches evidence + alignment + criteria
-    // locks). Strict: even re-posting the same value is treated as a
-    // write attempt and blocked â€” server cannot distinguish intent.
-    // `!== undefined` (not falsy) â€” clearing to empty string is itself
-    // a destructive edit and must be blocked.
+    // rca and rcaMethod fields become the regulatory record. Editing them
+    // mid-review undermines the review's integrity, so block edits once the
+    // status is locked. Strict: even re-posting the same value is a write
+    // attempt; `!== undefined` (not falsy) so clearing to "" is blocked too.
     if (
-      (parsed.data.rca !== undefined || parsed.data.rcaMethod !== undefined) &&
+      (parsed.data.rca !== undefined || parsed.data.rcaMethod !== undefined || parsed.data.rcaDetail !== undefined) &&
       LOCKED_CAPA_STATUSES.has(before.status)
     ) {
       const attemptedFields = [
@@ -430,14 +450,11 @@ export async function updateCAPA(
       };
     }
 
-    // SME Section 1, Stage 3 (FULL) â€” auto-invalidate the RCA review
-    // when the underlying rca / rcaMethod text changes after approval.
-    // The Stage-3 RCA field-lock blocks edits >= pending_qa_review, but
-    // during "in_progress" the RCA is editable AND can already be
-    // approved by QA. Editing the approved content silently would mean
-    // QA's "Approved" verdict applies to text the reviewer never saw.
-    // So: detect any change, and if rcaApproved is true, clear the
-    // verdict + audit it so the reviewer re-reviews.
+    // SME Section 1, Stage 3 (FULL) — auto-invalidate the RCA review when the
+    // underlying rca / rcaMethod changes after approval. During "in_progress"
+    // the RCA is editable AND may already be approved by QA; editing it would
+    // mean QA's verdict applies to text the reviewer never saw. So detect the
+    // change and, if approved, clear the verdict + audit so QA re-reviews.
     const rcaChanged =
       parsed.data.rca !== undefined && parsed.data.rca !== before.rca;
     const rcaMethodChanged =
@@ -465,6 +482,17 @@ export async function updateCAPA(
         ? await resolveOwnerUserId(session.user.tenantId, parsed.data.owner)
         : undefined;
 
+    // Batch 2b — DI gate persistence. The server stamps diGateReviewDate (never
+    // trusts a client value); turning the gate OFF clears the detail. Spread
+    // AFTER ...parsed.data so these overrides win. The readiness gate still
+    // reads capa.diGate as before — unchanged.
+    const diGateData =
+      parsed.data.diGate === undefined
+        ? {}
+        : parsed.data.diGate
+          ? { diGateReviewDate: new Date() }
+          : { diGateStatus: null, diGateReviewedBy: null, diGateNotes: null, diGateReviewDate: null };
+
     const capa = await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
@@ -472,6 +500,7 @@ export async function updateCAPA(
         ...(parsed.data.dueDate ? { dueDate: new Date(parsed.data.dueDate) } : {}),
         ...(parsed.data.owner !== undefined ? { ownerId: ownerIdUpdate } : {}),
         ...rcaInvalidateData,
+        ...diGateData,
       },
     });
 
@@ -631,7 +660,7 @@ export async function submitForReview(id: string): Promise<ActionResult> {
     // tightening of submit so client and server can never disagree.
     const [actionItems, evidenceItems, criteria] = await Promise.all([
       prisma.cAPAActionItem.findMany({
-        where: { capaId: id, tenantId: session.user.tenantId },
+        where: { capaId: id, tenantId: session.user.tenantId, deletedAt: null },
         select: { status: true },
       }),
       prisma.evidenceItem.findMany({
@@ -639,7 +668,7 @@ export async function submitForReview(id: string): Promise<ActionResult> {
         select: { status: true },
       }),
       prisma.cAPAEffectivenessCriterion.findMany({
-        where: { capaId: id },
+        where: { capaId: id, deletedAt: null },
         select: { id: true },
       }),
     ]);
@@ -966,7 +995,7 @@ export async function reopenCAPA(
   }
 }
 
-export async function deleteCAPA(id: string): Promise<ActionResult> {
+export async function deleteCAPA(id: string, reason?: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
@@ -984,14 +1013,23 @@ export async function deleteCAPA(id: string): Promise<ActionResult> {
 
   try {
     const existing = await prisma.cAPA.findFirst({
-      where: { id, tenantId: session.user.tenantId },
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true },
     });
     if (!existing) {
       return { success: false, error: "CAPA not found" };
     }
 
-    await prisma.cAPA.delete({
+    // Soft-delete (Part 11 retention) — the row is retained; list/count queries
+    // filter deletedAt IS NULL so it disappears from tracker/worklist/dashboards.
+    await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
+      data: {
+        deletedAt: new Date(),
+        deletedById: actor.userId,
+        deletedByName: actor.displayName,
+        deletionReason: reason ? reason.slice(0, 200) : null,
+      },
     });
 
     await prisma.auditLog.create({
@@ -1003,6 +1041,7 @@ export async function deleteCAPA(id: string): Promise<ActionResult> {
         module: "CAPA",
         action: "CAPA_DELETED",
         recordId: id,
+        newValue: reason ? reason.slice(0, 200) : null,
       },
     });
 
@@ -1011,5 +1050,46 @@ export async function deleteCAPA(id: string): Promise<ActionResult> {
   } catch (err) {
     console.error("[action] deleteCAPA failed:", err);
     return { success: false, error: "Failed to delete CAPA" };
+  }
+}
+
+export async function restoreCAPA(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!ADMIN_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only an administrator can restore a CAPA." };
+  }
+  try {
+    const existing = await prisma.cAPA.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!existing) return { success: false, error: "CAPA not found" };
+    if (!existing.deletedAt) return { success: false, error: "CAPA is not deleted." };
+    await prisma.cAPA.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: "CAPA",
+        action: "CAPA_RESTORED",
+        recordId: id,
+      },
+    });
+    revalidatePath("/capa");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] restoreCAPA failed:", err);
+    return { success: false, error: "Failed to restore CAPA" };
   }
 }

@@ -186,6 +186,11 @@ model Finding {
   systemId       String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  // Soft-delete (Part 11 retention) — CAPA-family convention (CAPAComment).
+  deletedAt      DateTime?
+  deletedById    String?
+  deletedByName  String?
+  deletionReason String?
 
   tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   site   Site?         @relation(fields: [siteId], references: [id])
@@ -196,6 +201,8 @@ model Finding {
   // recurrence this Finding represents.
   previousCAPA CAPA? @relation("FindingRecurrenceOf", fields: [previousCAPAId], references: [id], onDelete: SetNull)
   edits  FindingEdit[]
+
+  @@index([deletedAt])
 }
 
 // Append-only edit trail for findings (Part 11 ALCOA+). One row per save that
@@ -236,6 +243,9 @@ model CAPA {
   // (replaces the former Redux-only soft match in DIAuditPanel).
   systemId           String?
   source             String
+  // Phase A — short human title (the tracker's primary label). Required;
+  // backfilled from the first 120 chars of description for pre-existing rows.
+  title              String
   description        String
   risk               String
   owner              String
@@ -246,6 +256,11 @@ model CAPA {
   status             String    @default("open")
   rca                String?
   rcaMethod          String?
+  // Batch 2 — method-specific structured RCA (5-Why array / Fishbone buckets /
+  // Fault-Tree fields), stored as a JSON string. Additive + portable. `rca`
+  // remains the human-readable mirror that readiness / rca-review read; this
+  // column is only the structured source the Edit modal reconstructs from.
+  rcaDetail          String?
   correctiveActions  String?
   // ── Substage 4.7 — Action-to-Cause Alignment Review (manual reviewer flag) ──
   // alignmentStatus values: "aligned" | "cosmetic" | "needs_review" | null.
@@ -305,7 +320,9 @@ model CAPA {
   // binds this date (see canonicalizeCAPAClosureContent) so an
   // inspector reading a signed closure has the 90-day commitment
   // cryptographically attested.
-  effectivenessCheck         Boolean   @default(false)
+  // Phase A — the 90-day effectiveness check is always scheduled at closure
+  // (not optional); default true. signAndCloseCAPA also sets it true atomically.
+  effectivenessCheck         Boolean   @default(true)
   effectivenessDate          DateTime?
   // Six fields capturing the review outcome — populated by
   // recordEffectivenessReview, cleared by revokeEffectivenessReview.
@@ -374,6 +391,11 @@ model CAPA {
   rejectedAt         DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+  // Soft-delete (Part 11 retention) — CAPA-family convention (CAPAComment).
+  deletedAt          DateTime?
+  deletedById        String?
+  deletedByName      String?
+  deletionReason     String?
 
   tenant                 Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   site                   Site?                        @relation(fields: [siteId], references: [id])
@@ -410,6 +432,7 @@ model CAPA {
   // effectiveness check has come due (effectivenessDate <= now) without a
   // full table scan.
   @@index([effectivenessDate])
+  @@index([deletedAt])
 }
 
 // ── SME Section 1, Stage 4 (FULL) — Structured CAPA Action Plan items ──
@@ -455,6 +478,11 @@ model CAPAActionItem {
   createdBy       String
   createdById     String?
   updatedAt       DateTime @updatedAt
+  // Soft-delete (Part 11 retention) — CAPA-family convention (CAPAComment).
+  deletedAt       DateTime?
+  deletedById     String?
+  deletedByName   String?
+  deletionReason  String?
 
   // Phase 2 — per-action attachments + comments (reverse relations).
   evidenceFiles   EvidenceFile[] @relation("ActionItemEvidenceFiles")
@@ -465,6 +493,7 @@ model CAPAActionItem {
   @@index([dueDate])
   // Phase 2 — Worklist foundation: getMyActionItems filters by ownerId.
   @@index([ownerId])
+  @@index([deletedAt])
 }
 
 model CAPADocument {
@@ -562,6 +591,11 @@ model Deviation {
   capaDecisionById           String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+  // Soft-delete (Part 11 retention) — CAPA-family convention (CAPAComment).
+  deletedAt            DateTime?
+  deletedById          String?
+  deletedByName        String?
+  deletionReason       String?
 
   tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   site              Site?          @relation(fields: [siteId], references: [id])
@@ -580,6 +614,8 @@ model Deviation {
   // above — same logical relationship, different sides; createCAPA
   // writes both atomically.
   sourcedCAPA       CAPA?          @relation("CAPADeviationSource")
+
+  @@index([deletedAt])
 }
 
 // ── FDA 483 ──
@@ -1245,8 +1281,8 @@ model EvidenceFile {
 // Measurable, time-bound success criteria defined per CAPA. Locked when the
 // CAPA progresses to QA review (LOCKED_CAPA_STATUSES in src/lib/evidence-lock.ts);
 // the lock mirrors EvidenceItem's pattern. lockedSignatureId stays null until
-// the e-signature substage lands. Hard-deleted (no soft-delete column) — the
-// audit trail captures the deletion event with the full pre-delete snapshot.
+// the e-signature substage lands. Soft-deleted (Part 11 retention) — see the
+// deletedAt/deletedById columns below; the audit trail captures the event too.
 model CAPAEffectivenessCriterion {
   id                 String    @id @default(cuid())
   tenantId           String
@@ -1267,10 +1303,17 @@ model CAPAEffectivenessCriterion {
   lockedBy           String?
   lockedSignatureId  String?
 
+  // Soft-delete (Part 11 retention) — CAPA-family convention (CAPAComment).
+  deletedAt          DateTime?
+  deletedById        String?
+  deletedByName      String?
+  deletionReason     String?
+
   capa               CAPA      @relation(fields: [capaId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, capaId])
   @@index([capaId])
+  @@index([deletedAt])
 }
 
 // ── SIGNED RECORDS (Part 11 §11.50, §11.70, §11.200) ──

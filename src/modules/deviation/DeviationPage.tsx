@@ -205,6 +205,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   async function handleRaiseCAPAFromDetail() {
     if (!selected || !user) return;
     const result = await createCAPAAction({
+      title: selected.title.slice(0, 120),
       description: `${selected.title} (from ${selected.id})`,
       source: "Deviation",
       risk: severityToRisk(selected.severity),
@@ -378,7 +379,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
 
       </div>
 
-      {/* Detail modal — frame matches CAPADetailModal (max-w-2xl,
+      {/* Detail modal — shared detail-modal frame (max-w-2xl,
           centered, dimmed backdrop, Escape + outside-click close via
           the shared Modal primitive). Content body is the same single-
           scroll composition the side panel used; only the container

@@ -24,6 +24,7 @@ import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 import {
   addEvidenceFile,
   loadEvidenceForCAPA,
@@ -44,7 +45,7 @@ interface EvidenceCollectionPanelProps {
    *  CAPA is closed or the viewer is read-only. */
   readOnly?: boolean;
   /** Invoked after every successful items load with the per-status counts so
-   *  the parent (e.g. CAPADetailModal) can render a tab badge like "3/7"
+   *  the parent (e.g. the CAPA detail page) can render a tab badge like "3/7"
    *  without re-querying. Optional — panel works standalone without it. */
   onCountsChange?: (counts: { complete: number; inProgress: number; pending: number; total: number }) => void;
 }
@@ -69,11 +70,12 @@ const CATEGORY_ICON: Record<EvidenceCategory, typeof FileText> = {
   SUPPLIER_DATA: Truck,
 };
 
+// Batch 4 Part 4 — at-a-glance labels: Pending / In progress / Answered / N/A.
 const STATUS_LABEL: Record<EvidenceStatus, string> = {
   PENDING: "Pending",
-  IN_PROGRESS: "In Progress",
-  COMPLETE: "Complete",
-  NOT_APPLICABLE: "Not Applicable",
+  IN_PROGRESS: "In progress",
+  COMPLETE: "Answered",
+  NOT_APPLICABLE: "N/A",
 };
 
 const STATUS_VARIANT: Record<EvidenceStatus, "gray" | "amber" | "green" | "blue"> = {
@@ -116,14 +118,6 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
   // win — `expandedSet === null` is the "before first items load" sentinel
   // so the seed-from-items effect can run exactly once.
   const [expandedSet, setExpandedSet] = useState<Set<string> | null>(null);
-
-  function isItemSelfActive(it: EvidenceItemSummary): boolean {
-    return (
-      it.status !== "PENDING" ||
-      it.files.length > 0 ||
-      (it.notes ?? "").length > 0
-    );
-  }
 
   function toggleExpanded(category: string) {
     setExpandedSet((prev) => {
@@ -179,18 +173,12 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
     refresh();
   }, [refresh]);
 
-  // Seed the expanded set once items first arrive. Categories that are
-  // already in motion (status, files, or notes) start expanded; truly
-  // empty Pending categories start collapsed. Only runs once per panel
-  // mount — subsequent refreshes don't re-seed, so a user's manual
-  // toggle isn't undone by a save round-trip.
+  // Batch 4 Part 4 — every category collapsed by default (the status pill +
+  // file count make the row legible without expanding). Seeds once on first
+  // load; manual toggles afterward aren't undone by a save round-trip.
   useEffect(() => {
     if (expandedSet !== null || items === null) return;
-    const seeded = new Set<string>();
-    for (const it of items) {
-      if (isItemSelfActive(it)) seeded.add(it.category);
-    }
-    setExpandedSet(seeded);
+    setExpandedSet(new Set());
   }, [items, expandedSet]);
 
   if (loading && items === null) {
@@ -305,6 +293,7 @@ interface CardProps {
 }
 
 function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }: CardProps) {
+  const toast = useToast();
   const Icon = CATEGORY_ICON[item.category];
   const locked = item.isLocked;
   const disabled = readOnly || locked;
@@ -341,8 +330,10 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }
       setSavingNotes(false);
       if (!result.success) {
         setCardError(result.error);
+        toast.error(result.error || "Could not save evidence notes.");
         return;
       }
+      toast.success("Evidence notes saved.");
       onChange();
     }, 1000);
     return () => {
@@ -374,8 +365,10 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }
     if (!result.success) {
       setStatus(previous);
       setCardError(result.error);
+      toast.error(result.error || "Could not update evidence.");
       return { ok: false, error: result.error };
     }
+    toast.success("Evidence updated.");
     onChange();
     return { ok: true };
   };
@@ -422,8 +415,15 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }
           <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>
             {CATEGORY_LABEL[item.category]}
           </p>
+          {/* Batch 4 Part 4 — file count / status hint instead of a static line. */}
           <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-            Not yet started
+            {item.files.length > 0
+              ? `${item.files.length} file${item.files.length === 1 ? "" : "s"} attached`
+              : status === "NOT_APPLICABLE"
+                ? "Marked not applicable"
+                : status === "COMPLETE"
+                  ? "Answered — no files"
+                  : "No files yet"}
           </p>
         </div>
         <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
@@ -496,6 +496,13 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }
             This evidence package was locked. Contact QA to unlock.
           </p>
         </div>
+      )}
+
+      {/* Phase B G2 — teaching empty state for a pending category. */}
+      {status === "PENDING" && !locked && (
+        <p className="text-[11px] mb-2" style={{ color: "var(--text-muted)" }}>
+          Needs files or N/A + reason. Assigned fixers answer theirs; the driver sweeps the rest.
+        </p>
       )}
 
       {/* Status + notes */}
@@ -668,7 +675,7 @@ function FileList({ item, disabled, onChange }: FileListProps) {
             void handleFiles(e.dataTransfer.files?.[0]);
           }}
           onClick={() => inputRef.current?.click()}
-          className="rounded-md p-3 text-center cursor-pointer transition-colors"
+          className="rounded-md px-3 py-2 cursor-pointer transition-colors flex items-center gap-2"
           style={{
             border: `1px dashed ${dragOver ? "var(--brand)" : "var(--bg-border)"}`,
             background: dragOver ? "var(--brand-muted)" : "transparent",
@@ -683,13 +690,14 @@ function FileList({ item, disabled, onChange }: FileListProps) {
             }
           }}
         >
-          <Upload className="w-4 h-4 mx-auto mb-1" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
-          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+          {/* Batch 4 Part 4 — compact single-row dropzone (was a large box). */}
+          <Upload className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+          <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
             {uploading ? "Uploading…" : "Drag & drop or click to upload"}
-          </p>
-          <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-            PDF, PNG, JPG, XLSX, DOCX, CSV, TXT · Max {MAX_MB} MB
-          </p>
+          </span>
+          <span className="text-[10px] ml-auto" style={{ color: "var(--text-muted)" }}>
+            Max {MAX_MB} MB
+          </span>
           <input
             ref={inputRef}
             type="file"

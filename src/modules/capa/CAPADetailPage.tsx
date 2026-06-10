@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Pencil, Send, ShieldCheck, AlertTriangle, CheckCircle2, Clock, Link2, Users,
+  ArrowLeft, Pencil, Send, ShieldCheck, AlertTriangle, Lock, Clock, Link2, Users, Check, History, TrendingUp,
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
@@ -15,9 +15,10 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
-import { getSeverityVariant, normalizeSeverityForDisplay, CAPA_STATUS_VARIANT } from "@/lib/badgeVariants";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
+import { StatusPill, CAPA_STATUS_TOKEN } from "./lib/statusTokens";
 import { STATUS_LABEL, isOverdue as isOverdueHelper } from "@/types/capa";
-import { displayUserName } from "@/lib/identity-display";
+import { displayUserName, displaySiteName } from "@/lib/identity-display";
 import type { CAPA } from "@/store/capa.slice";
 import type { CAPAReadiness } from "@/lib/capa-readiness";
 import {
@@ -29,13 +30,24 @@ import {
 } from "@/actions/capas";
 import { OverviewBody } from "./modals/sections/OverviewBody";
 import { RcaBody } from "./modals/sections/RcaBody";
-import { ActionsPanel } from "./tabs/ActionsPanel";
+// Phase B — sections relocated out of the old ActionsPanel into their zones:
+// Discussion/Approvals/Verification → Overview; ActionItems+Alignment → Actions;
+// Effectiveness → Criteria. The components themselves are rendered untouched.
+import { ActionItemsSection } from "./tabs/sections/ActionItemsSection";
+import { AlignmentReviewSection } from "./tabs/sections/AlignmentReviewSection";
+import { DiscussionSection } from "./tabs/sections/DiscussionSection";
+import { ApprovalsSection } from "./tabs/sections/ApprovalsSection";
+import { VerificationSection } from "./tabs/sections/VerificationSection";
+import { EffectivenessSection } from "./tabs/sections/EffectivenessSection";
 import { EvidenceCollectionPanel } from "./tabs/EvidenceCollectionPanel";
 import { EffectivenessCriteriaPanel } from "./tabs/EffectivenessCriteriaPanel";
 import { SubmissionChecklist } from "./modals/components/SubmissionChecklist";
+import { FlowExplainer } from "./components/FlowExplainer";
+import { CapaAuditTrailBar } from "./components/CapaAuditTrailBar";
 import { SignCloseModal } from "./modals/SignCloseModal";
 import { EditCAPAModal, type EditForm } from "./modals/EditCAPAModal";
 import { getNextStep, type DetailSubTab } from "./modals/helpers/getNextStep";
+import type { CapaAuditEntry } from "@/lib/queries/capas";
 
 const SOURCE_LABEL: Record<string, string> = {
   "483": "FDA 483 Observation", "Gap Assessment": "Gap Assessment Finding", Deviation: "Deviation Report",
@@ -48,15 +60,17 @@ export interface CAPADetailPageProps {
   readiness: CAPAReadiness;
   evidence: { resolved: number; total: number };
   criteriaCount: number;
+  /** Phase B — Zone 6 audit trail for this CAPA (newest first). */
+  auditTrail: CapaAuditEntry[];
 }
 
-export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAPADetailPageProps) {
+export function CAPADetailPage({ capa, readiness, evidence, criteriaCount, auditTrail }: CAPADetailPageProps) {
   const router = useRouter();
   const { canSign, canCloseCapa, isViewOnly } = useRole();
   const capaCan = usePermissions("capa", { capaRisk: capa.risk });
   const { isQAHead } = usePermissions();
   const complianceUsers = useComplianceUsers();
-  const { users, org } = useTenantConfig();
+  const { users, org, sites } = useTenantConfig();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
   const isDark = useAppSelector((s) => s.theme.mode === "dark");
@@ -75,6 +89,28 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [okMsg, setOkMsg] = useState("");
+  // Phase B — bumps when the Discussion thread mutates so ApprovalsSection's
+  // close-gate re-evaluates against fresh comment state (was owned by ActionsPanel).
+  const [discussionVersion, setDiscussionVersion] = useState(0);
+  const [flowOpen, setFlowOpen] = useState(false);
+
+  // Phase B — banner Approve/Verify CTAs anchor-scroll to their relocated
+  // sections (now in the Overview tab) and still fire the wired e-sign flow.
+  function goToSection(anchorId: string) {
+    clearFilter();
+    setActiveTab("overview");
+    // Defer until the Overview tab has painted, then scroll the section in.
+    setTimeout(() => {
+      document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  }
+
+  // Batch 3a #5 — header "Audit" button: expand + scroll to the Zone-6 bar
+  // (which stays at the bottom on every tab; nothing is hidden or moved).
+  function openAudit() {
+    const el = document.getElementById("capa-audit-bar") as HTMLDetailsElement | null;
+    if (el) { el.open = true; el.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  }
 
   const actionItems = capa.actionItems ?? [];
   const liveActions = actionItems.filter((a) => a.status !== "skipped");
@@ -121,7 +157,7 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
   }
 
   async function handleReject() {
-    if (rejectReason.trim().length < 5) { setErrorMsg("Rejection reason must be at least 5 characters."); return; }
+    if (rejectReason.trim().length < 5) { setErrorMsg("Add a rejection reason (at least 5 characters)."); return; }
     clearFilter();
     setBusy(true); setErrorMsg("");
     const res = await rejectCAPAServer(capa.id, { reason: rejectReason.trim(), reworkItems: reworkIds });
@@ -141,12 +177,21 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
   }
 
   function handleEditSave(data: EditForm) {
+    // Phase E-REVERT — Edit authors RCA again; entering RCA on an open CAPA
+    // auto-advances it to in_progress (original behavior).
     const autoAdvance = capa.status === "open" && !!data.rca?.trim();
     setBusy(true); setErrorMsg("");
     void (async () => {
       const res = await updateCAPAServer(capa.id, {
+        title: data.title,
         description: data.description, owner: data.owner, dueDate: data.dueDate,
         risk: data.risk as never, rcaMethod: (data.rcaMethod as string) || undefined, rca: data.rca ?? "",
+        rcaDetail: data.rcaDetail,
+        // Batch 2b — DI gate detail (server stamps the review date).
+        diGate: data.diGate,
+        diGateStatus: data.diGateStatus,
+        diGateReviewedBy: data.diGateReviewedBy,
+        diGateNotes: data.diGateNotes,
       });
       if (!res.success) { setBusy(false); setErrorMsg(res.error || "Save failed"); return; }
       if (autoAdvance) await startCAPAProgressServer(capa.id);
@@ -154,14 +199,15 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
     })();
   }
 
-  const TONE_BG: Record<string, string> = { warning: "var(--warning-bg)", info: "var(--info-bg)", success: "var(--success-bg)" };
-
-  // ── Status-morphing banner ──
+  // ── Status-morphing readiness/action row — Phase J: returns INNER content
+  //    only (no card chrome). It is rendered inside the one header card, below
+  //    the divider, above the readiness rail. All handlers are unchanged so
+  //    submit / approve / reject / sign still fire exactly as before. ──
   function renderBanner() {
     if (capa.status === "in_progress" || capa.status === "open") {
       const canSubmit = isDriver || isAuthor;
       return (
-        <div className="rounded-lg border p-3 mb-4" style={{ background: TONE_BG[nextStep.tone], borderColor: "var(--brand-border)" }}>
+        <div>
           {capa.rejectionReason && (
             <div className="alert mb-2 flex items-start gap-2" style={{ background: "var(--danger-bg, #fef2f2)", border: "1px solid var(--danger)" }}>
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "var(--danger)" }} aria-hidden="true" />
@@ -170,19 +216,30 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
           )}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <p className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>
-                Readiness: {readiness.conditions.filter((c) => c.met).length} of {readiness.conditions.length}
-                {readiness.allMet ? " — ready to submit" : ` — next: ${nextStep.title}`}
+              <p className="text-[13px] font-semibold flex items-center gap-1.5 flex-wrap" style={{ color: "var(--text-primary)" }}>
+                <span>Ready to submit: {readiness.conditions.filter((c) => c.met).length} of {readiness.conditions.length} done</span>
+                {!readiness.allMet && nextStep.targetTab && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <button type="button" onClick={() => setActiveTab(nextStep.targetTab!)} className="underline bg-transparent border-none cursor-pointer p-0 font-semibold" style={{ color: "var(--brand)" }}>
+                      next: {nextStep.title}
+                    </button>
+                  </>
+                )}
+                <button type="button" onClick={() => setFlowOpen(true)} aria-label="How a CAPA flows" title="How a CAPA flows" className="w-4 h-4 inline-flex items-center justify-center rounded-full border text-[10px] bg-transparent cursor-pointer" style={{ color: "var(--text-muted)", borderColor: "var(--bg-border)" }}>?</button>
               </p>
               <button type="button" onClick={() => setChecklistOpen((v) => !v)} className="text-[11px] underline bg-transparent border-none cursor-pointer p-0" style={{ color: "var(--brand)" }}>
                 {checklistOpen ? "Hide checklist" : "Show checklist"}
               </button>
             </div>
             {canSubmit && (
-              <Button variant="primary" size="sm" icon={Send} disabled={!readiness.allMet || busy} loading={busy}
-                onClick={() => void handleSubmit()} title={readiness.allMet ? "Submit for QA review" : "Resolve all readiness conditions first"}>
-                Submit for review
-              </Button>
+              <div className="flex flex-col items-end gap-1">
+                <Button variant="primary" size="sm" icon={Send} disabled={!readiness.allMet || busy} loading={busy}
+                  onClick={() => void handleSubmit()} title={readiness.allMet ? "Submit for QA review" : "Complete the checklist items first."}>
+                  Submit for review
+                </Button>
+                {!readiness.allMet && <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Complete the checklist items first.</span>}
+              </div>
             )}
           </div>
           {checklistOpen && <div className="mt-2"><SubmissionChecklist conditions={readiness.conditions} onChangeTab={setActiveTab} /></div>}
@@ -191,58 +248,100 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
     }
     if (capa.status === "pending_qa_review") {
       return (
-        <div className="rounded-lg border p-3 mb-4" style={{ background: "var(--info-bg)", borderColor: "var(--brand-border)" }}>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: "var(--brand)" }}>
-              <Clock className="w-4 h-4" aria-hidden="true" /> Awaiting QA review — approvals recorded on the Action Plans tab.
-            </p>
-            <div className="flex gap-2">
-              {capaCan.canApprove && (
-                <Button variant="secondary" size="sm" icon={ShieldCheck} onClick={() => setActiveTab("actions")}>Record approval</Button>
-              )}
-              {isQAHead && (
-                <Button variant="danger" size="sm" icon={AlertTriangle} onClick={() => { clearFilter(); setRejectOpen(true); }}>Reject</Button>
-              )}
-              {canSign && canCloseCapa && (
-                <Button variant="primary" size="sm" icon={ShieldCheck} onClick={() => { clearFilter(); setSignError(null); setSignOpen(true); }}>Sign &amp; Close</Button>
-              )}
-            </div>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[13px] font-semibold flex items-center gap-1.5" style={{ color: "var(--status-waiting)" }}>
+            <Clock className="w-4 h-4" aria-hidden="true" /> Awaiting QA review.
+          </p>
+          <div className="flex gap-2">
+            {capaCan.canApprove && (
+              <Button variant="secondary" size="sm" icon={ShieldCheck} onClick={() => goToSection("capa-approvals")}>Record approval</Button>
+            )}
+            {isQAHead && (
+              <Button variant="danger" size="sm" icon={AlertTriangle} onClick={() => { clearFilter(); setRejectOpen(true); }}>Reject</Button>
+            )}
+            {canSign && canCloseCapa && (
+              <Button variant="primary" size="sm" icon={ShieldCheck} onClick={() => { clearFilter(); setSignError(null); setSignOpen(true); }}>Sign &amp; Close</Button>
+            )}
           </div>
         </div>
       );
     }
     if (capa.status === "pending_verification") {
+      const verifiedTint = capa.verifiedAt;
       return (
-        <div className="rounded-lg border p-3 mb-4" style={{ background: "var(--info-bg)", borderColor: "var(--brand-border)" }}>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: "var(--brand)" }}>
-              <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-              {capa.verifiedAt ? "Verified — ready for sign & close." : "Awaiting independent QA verification (Action Plans tab)."}
-            </p>
-            <div className="flex gap-2">
-              {capaCan.canApprove && !capa.verifiedAt && (
-                <Button variant="secondary" size="sm" icon={ShieldCheck} onClick={() => setActiveTab("actions")}>Verify</Button>
-              )}
-              {canSign && canCloseCapa && (
-                <Button variant="primary" size="sm" icon={ShieldCheck} onClick={() => { clearFilter(); setSignError(null); setSignOpen(true); }}>Sign &amp; Close</Button>
-              )}
-            </div>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[13px] font-semibold flex items-center gap-1.5" style={{ color: verifiedTint ? "var(--status-done)" : "var(--status-active)" }}>
+            <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+            {capa.verifiedAt ? "Verified — ready for sign & close." : "Awaiting independent QA verification."}
+          </p>
+          <div className="flex gap-2">
+            {capaCan.canApprove && !capa.verifiedAt && (
+              <Button variant="secondary" size="sm" icon={ShieldCheck} onClick={() => goToSection("capa-verification")}>Verify</Button>
+            )}
+            {canSign && canCloseCapa && (
+              <Button variant="primary" size="sm" icon={ShieldCheck} onClick={() => { clearFilter(); setSignError(null); setSignOpen(true); }}>Sign &amp; Close</Button>
+            )}
           </div>
         </div>
       );
     }
-    // closed
+    // closed — grey, locked
     return (
-      <div className="rounded-lg border p-3 mb-4" style={{ background: "var(--success-bg)", borderColor: "var(--success)" }}>
-        <p className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: "var(--success)" }}>
-          <CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Closed{capa.closedAt ? ` on ${dayjs.utc(capa.closedAt).tz(timezone).format(dateFormat)}` : ""}.
+      <div>
+        <p className="text-[13px] font-semibold flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
+          <Lock className="w-4 h-4" aria-hidden="true" /> Closed{capa.closedAt ? ` on ${dayjs.utc(capa.closedAt).tz(timezone).format(dateFormat)}` : ""}.
         </p>
         {capa.effectivenessCheck && capa.effectivenessDate && (
           <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
             90-day effectiveness check due {dayjs.utc(capa.effectivenessDate).tz(timezone).format(dateFormat)}
-            {capa.effectivenessVerdict ? ` — verdict: ${capa.effectivenessVerdict}` : " — review on the Effectiveness Criteria tab."}
+            {capa.effectivenessVerdict ? ` — verdict: ${capa.effectivenessVerdict}` : " — review on the Criteria tab."}
           </p>
         )}
+      </div>
+    );
+  }
+
+  // ── Phase J: the readiness RAIL — a horizontal projection of the SAME
+  //    readiness object (readiness.conditions), in gate order. Each stop's
+  //    done/active/pending is read from .met (never recomputed). It therefore
+  //    always agrees with the "N of M done" text above it. ──
+  const RAIL_LABEL: Record<string, string> = {
+    rca: "RCA", alignment: "Alignment", diGate: "DI gate", actions: "Actions", evidence: "Evidence", criteria: "Criteria",
+  };
+  function railCount(key: string): string | null {
+    if (key === "actions") return `${doneActions}/${actionItems.length}`;
+    if (key === "evidence") return `${evidence.resolved}/${evidence.total}`;
+    return null;
+  }
+  function renderRail() {
+    const firstUnmet = readiness.conditions.findIndex((c) => !c.met);
+    return (
+      <div className="mt-3 pt-3 overflow-x-auto" style={{ borderTop: "1px solid var(--card-border, var(--bg-border))" }}>
+        <ol className="flex items-center gap-0 list-none p-0 m-0 min-w-max">
+          {readiness.conditions.map((c, i) => {
+            const state = c.met ? "done" : i === firstUnmet ? "active" : "pending";
+            const color = state === "done" ? "var(--status-done)" : state === "active" ? "var(--status-active)" : "var(--text-muted)";
+            const cnt = railCount(c.key);
+            return (
+              <li key={c.key} className="flex items-center">
+                <div className="flex items-center gap-1.5 px-1">
+                  <span className="w-5 h-5 rounded-full inline-flex items-center justify-center text-[9px] font-bold shrink-0"
+                    style={state === "done" ? { background: "var(--status-done)", color: "#fff" }
+                      : state === "active" ? { border: `2px solid ${color}`, color }
+                      : { border: "1px solid var(--card-border, var(--bg-border))", color }}>
+                    {c.met ? <Check className="w-3 h-3" aria-hidden="true" /> : i + 1}
+                  </span>
+                  <span className="text-[11px] font-medium" style={{ color: state === "pending" ? "var(--text-muted)" : "var(--text-primary)" }}>
+                    {RAIL_LABEL[c.key] ?? c.label}{cnt ? ` ${cnt}` : ""}
+                  </span>
+                </div>
+                {i < readiness.conditions.length - 1 && (
+                  <span className="h-0.5 shrink-0 mx-1" style={{ width: 18, background: c.met ? "var(--status-done)" : "var(--card-border, var(--bg-border))" }} aria-hidden="true" />
+                )}
+              </li>
+            );
+          })}
+        </ol>
       </div>
     );
   }
@@ -251,9 +350,9 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
   const tabs: { id: DetailSubTab; label: string; badge: string | null }[] = [
     { id: "overview", label: "Overview", badge: null },
     { id: "rca", label: "RCA", badge: rcaState },
-    { id: "actions", label: "Action Plans", badge: filterActive ? `${personActionCount} of ${liveActions.length}` : (liveActions.length ? `${doneActions}/${actionItems.length}` : null) },
+    { id: "actions", label: "Actions", badge: filterActive ? `${personActionCount} of ${liveActions.length}` : (liveActions.length ? `${doneActions}/${actionItems.length}` : null) },
     { id: "evidence", label: "Evidence", badge: `${evidence.resolved}/${evidence.total}` },
-    { id: "criteria", label: "Effectiveness Criteria", badge: criteriaCount ? String(criteriaCount) : null },
+    { id: "criteria", label: "Criteria", badge: criteriaCount ? String(criteriaCount) : null },
   ];
 
   const noneOfTheirs = (
@@ -261,54 +360,70 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
   );
 
   return (
-    <main className="w-full max-w-4xl mx-auto p-5">
+    <main className="capa-shell w-full min-h-full">
+      {/* Phase F — contained, centered ~900px sheet with comfortable margins. */}
+      {/* Phase J — full-width, left-aligned content (no narrow centered column,
+          no centered margins). Side padding comes from the app work-area main. */}
+      <div className="w-full max-w-[1400px] pb-8">
       <button type="button" onClick={() => router.push("/capa")} className="text-[12px] inline-flex items-center gap-1 bg-transparent border-none cursor-pointer mb-3" style={{ color: "var(--text-secondary)" }}>
         <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" /> Back to CAPA Tracker
       </button>
 
-      {/* ── HEADER ── */}
-      <header className="mb-4">
+      {/* ── ONE HEADER CARD (Phase J): identity + readiness line + rail merged
+          into a single card. Replaces the old separate header band, banner, and
+          Phase-I stepper — one progress representation on the page. ── */}
+      <div className="capa-card mb-4">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono text-[12px]" style={{ color: "var(--text-secondary)" }}>{reference}</span>
+          <span className="font-mono text-[11px] px-2 py-0.5 rounded-md border" style={{ color: "var(--text-secondary)", borderColor: "var(--card-border)", background: "var(--bg-elevated)" }}>{reference}</span>
           <Badge variant={getSeverityVariant(capa.risk, "generic")}>{normalizeSeverityForDisplay(capa.risk, "generic") ?? capa.risk}</Badge>
-          <Badge variant={CAPA_STATUS_VARIANT[capa.status]}>{STATUS_LABEL[capa.status]}</Badge>
-          {isOverdueHelper(capa) && <Badge variant="red">Overdue</Badge>}
-          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>CAPA due {dayjs.utc(capa.dueDate).tz(timezone).format(dateFormat)}</span>
+          <StatusPill token={CAPA_STATUS_TOKEN[capa.status]}>{STATUS_LABEL[capa.status]}</StatusPill>
+          {isOverdueHelper(capa) && <StatusPill token="blocked">Overdue</StatusPill>}
+          {reworkCount > 0 && <StatusPill token="blocked">Rework {reworkCount}</StatusPill>}
+          <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>Due {dayjs.utc(capa.dueDate).tz(timezone).format(dateFormat)}</span>
           {capa.findingId && (
-            <button type="button" onClick={() => router.push(`/gap-assessment?openFindingId=${encodeURIComponent(capa.findingId!)}`)} className="text-[11px] inline-flex items-center gap-1 bg-transparent border-none cursor-pointer" style={{ color: "#0ea5e9" }}>
+            <button type="button" onClick={() => router.push(`/gap-assessment?openFindingId=${encodeURIComponent(capa.findingId!)}`)} className="text-[12px] inline-flex items-center gap-1 bg-transparent border-none cursor-pointer" style={{ color: "#0ea5e9" }}>
               <Link2 className="w-3 h-3" aria-hidden="true" /> {SOURCE_LABEL[capa.source] ?? capa.source}
             </button>
           )}
+          {/* Batch 3a #5 — quick jump to the always-present Zone-6 audit bar. */}
+          <button type="button" onClick={openAudit} className="ml-auto text-[12px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border bg-transparent cursor-pointer transition-colors hover:bg-(--bg-hover)" style={{ color: "var(--text-secondary)", borderColor: "var(--card-border)" }}>
+            <History className="w-3 h-3" aria-hidden="true" /> Audit
+          </button>
           {editAllowed && (
-            <button type="button" onClick={() => setEditOpen(true)} className="ml-auto text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded-md border bg-transparent cursor-pointer" style={{ color: "var(--brand)", borderColor: "var(--brand-border)" }}>
+            <button type="button" onClick={() => setEditOpen(true)} className="text-[12px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border bg-transparent cursor-pointer transition-colors hover:bg-(--bg-hover)" style={{ color: "var(--text-secondary)", borderColor: "var(--card-border)" }}>
               <Pencil className="w-3 h-3" aria-hidden="true" /> Edit
             </button>
           )}
         </div>
-        <h1 className="text-[16px] font-semibold mt-2" style={{ color: "var(--text-primary)" }}>{capa.description}</h1>
-        <p className="text-[12px] mt-1" style={{ color: "var(--text-secondary)" }}>
-          Author: {capa.createdBy ?? "—"} <span aria-hidden="true">·</span> Assigned to: {capa.owner ? displayUserName(capa.owner, users) : displayUserName(capa.owner, users)}
+        {/* Title (focal) — fall back to the first line of the description, then
+            the reference, so the header is never blank. */}
+        <h1 className="text-[20px] font-semibold mt-2.5 leading-snug" style={{ color: "var(--text-primary)" }}>
+          {capa.title?.trim() || capa.description?.split("\n")[0]?.trim().slice(0, 120) || reference}
+        </h1>
+        <p className="text-[12px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+          Site: {displaySiteName(capa.siteId, sites)} <span aria-hidden="true">·</span> Author: {capa.createdBy ?? "—"} <span aria-hidden="true">·</span> Assigned to: {capa.owner ? displayUserName(capa.owner, users) : "Unassigned"}
         </p>
-      </header>
 
-      {/* ── BANNER ── */}
-      {renderBanner()}
-
-      {/* ── METRICS strip ── */}
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] mb-4 pb-3 border-b" style={{ borderColor: "var(--bg-border)", color: "var(--text-secondary)" }}>
-        <span>Actions <strong style={{ color: "var(--text-primary)" }}>{doneActions}/{actionItems.length}</strong></span>
-        <span>Evidence <strong style={{ color: "var(--text-primary)" }}>{evidence.resolved}/{evidence.total}</strong></span>
-        <span>RCA <strong style={{ color: capa.rcaApproved === true ? "var(--success)" : "var(--warning)" }}>{capa.rcaApproved === true ? "approved" : capa.rcaApproved === false ? "rejected" : "unreviewed"}</strong></span>
-        <span>Criteria <strong style={{ color: "var(--text-primary)" }}>{criteriaCount}</strong></span>
-        <span>Rework <strong style={{ color: reworkCount > 0 ? "var(--danger)" : "var(--text-primary)" }}>{reworkCount}</strong></span>
+        {/* Divider, then the status-morphing readiness/action row + the rail. */}
+        <div className="my-3" style={{ borderTop: "1px solid var(--card-border, var(--bg-border))" }} />
+        {renderBanner()}
+        {renderRail()}
       </div>
 
-      {/* ── PEOPLE PILLS ── */}
+      {/* ── PEOPLE PILLS (Phase F — leading "Everyone" reset pill) ── */}
       {contributors.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap mb-3">
           <Users className="w-3.5 h-3.5" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+          {/* Everyone = the filter-reset; highlighted when no person filter is active. */}
+          <button type="button" onClick={clearFilter} aria-pressed={!filterActive}
+            className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer"
+            style={!filterActive
+              ? { background: "var(--brand)", color: "#fff", borderColor: "var(--brand)" }
+              : { background: "transparent", color: "var(--text-secondary)", borderColor: "var(--bg-border)" }}>
+            Everyone
+          </button>
           {contributors.map((c) => (
-            <button key={c.id} type="button"
+            <button key={c.id} type="button" aria-pressed={selectedPerson === c.id}
               onClick={() => setSelectedPerson((prev) => (prev === c.id ? null : c.id))}
               className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer"
               style={selectedPerson === c.id
@@ -324,7 +439,7 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
       {filterActive && (
         <div className="alert mb-3 flex items-center justify-between gap-2" style={{ background: "var(--warning-bg)", border: "1px solid var(--warning)" }}>
           <span className="text-[12px]" style={{ color: "var(--warning)" }}>
-            Showing <strong>{filteredPersonName}</strong> only — other tabs hidden while filtered.
+            Showing <strong>{filteredPersonName}</strong> only — Actions shows their items; RCA / Evidence / Criteria hidden.
           </span>
           <Button variant="secondary" size="xs" onClick={clearFilter}>Everyone</Button>
         </div>
@@ -344,29 +459,63 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
         ))}
       </div>
 
+      {/* Phase J — single-column, full-width tab content (Phase-I side card removed;
+          CAPA metadata lives in the header card + Overview's meta block). */}
+      {/* ZONE 5 — Overview: description/classification/source (OverviewBody),
+          then the relocated Discussion / Approvals / Verification sections
+          (anchored so the banner CTAs can scroll to them). */}
       {activeTab === "overview" && (
-        <OverviewBody capa={capa} isDark={isDark} users={users} timezone={timezone} dateFormat={dateFormat}
-          showMigrationNotice={false} onDismissNotice={() => undefined}
-          onNavigateGap={(fid) => router.push(`/gap-assessment?openFindingId=${encodeURIComponent(fid)}`)}
-          onChangeTab={setActiveTab} onEditOpen={() => setEditOpen(true)} editAllowed={editAllowed}
-          readinessConditions={readiness.conditions} />
+        <div className="capa-stack">
+          <OverviewBody capa={capa} isDark={isDark} users={users} timezone={timezone} dateFormat={dateFormat}
+            showMigrationNotice={false} onDismissNotice={() => undefined}
+            onNavigateGap={(fid) => router.push(`/gap-assessment?openFindingId=${encodeURIComponent(fid)}`)}
+            onEditOpen={() => setEditOpen(true)} editAllowed={editAllowed} />
+          {/* Phase D — wrap the relocated (protected) sections in a card; internals untouched. */}
+          <section id="capa-discussion" className="capa-card"><DiscussionSection capa={capa} onCommentsChange={() => setDiscussionVersion((v) => v + 1)} /></section>
+          {/* Batch 3a #2 — Approvals + Independent Verification combined into ONE
+              card, two sub-sections. Anchor ids kept on the inner divs so the
+              banner CTAs still scroll here; section components unchanged. */}
+          <section className="capa-card">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div id="capa-approvals" className="min-w-0"><ApprovalsSection capa={capa} discussionVersion={discussionVersion} /></div>
+              <div id="capa-verification" className="min-w-0 lg:pl-4 lg:border-l" style={{ borderColor: "var(--card-border, var(--bg-border))" }}><VerificationSection capa={capa} /></div>
+            </div>
+          </section>
+        </div>
       )}
-      {activeTab === "rca" && (filterActive ? noneOfTheirs : <RcaBody capa={capa} />)}
+      {activeTab === "rca" && (filterActive ? noneOfTheirs : <div className="capa-card"><RcaBody capa={capa} /></div>)}
+      {/* Actions — action-items table + Alignment Review only. */}
       {activeTab === "actions" && (
-        <ActionsPanel capa={capa} isDark={isDark} actionLines={[]} users={users} dateFormat={dateFormat}
-          canSign={canSign && capaCan.canSign} canCloseCapa={canCloseCapa && capaCan.canSign}
-          isOwner={currentUser?.id === capa.owner || isDriver}
-          onSubmitForReview={() => void handleSubmit()}
-          onSignOpen={() => { clearFilter(); setSignError(null); setSignOpen(true); }}
-          onAlignmentChange={() => router.refresh()}
-          hideLifecycleButtons ownerFilter={selectedPerson} />
+        <div className="capa-stack">
+          <div className="capa-card"><ActionItemsSection capa={capa} ownerFilter={selectedPerson} /></div>
+          {!filterActive && <div className="capa-card"><AlignmentReviewSection capa={capa} onAlignmentChange={() => router.refresh()} /></div>}
+        </div>
       )}
       {activeTab === "evidence" && (filterActive ? noneOfTheirs : (
-        <EvidenceCollectionPanel capaId={capa.id} readOnly={isViewOnly || capa.status === "closed"} />
+        <div className="capa-card"><EvidenceCollectionPanel capaId={capa.id} readOnly={isViewOnly || capa.status === "closed"} /></div>
       ))}
+      {/* Criteria — criteria list + the 90-day Effectiveness Review beneath. */}
       {activeTab === "criteria" && (filterActive ? noneOfTheirs : (
-        <EffectivenessCriteriaPanel capaId={capa.id} capaStatus={capa.status} readOnly={isViewOnly || capa.status === "closed"} />
+        <div className="capa-stack">
+          <div className="capa-card"><EffectivenessCriteriaPanel capaId={capa.id} capaStatus={capa.status} readOnly={isViewOnly || capa.status === "closed"} /></div>
+          {/* Batch 3a #3 — Effectiveness review is premature before closure, so
+              collapse it by default (quiet summary; expands on demand). It's
+              auto-open once the CAPA is closed (when it's actually actionable). */}
+          <details className="capa-card" open={capa.status === "closed"}>
+            <summary className="cursor-pointer list-none text-[12px] font-medium flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
+              <TrendingUp className="w-3.5 h-3.5" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+              Effectiveness review — scheduled 90 days after closure
+            </summary>
+            <div className="mt-3"><EffectivenessSection capa={capa} /></div>
+          </details>
+        </div>
       ))}
+
+      {/* ZONE 6 — collapsed audit-trail bar, visible on every tab. */}
+      <CapaAuditTrailBar entries={auditTrail} timezone={timezone} dateFormat={dateFormat} />
+
+      {/* G3 — flow explainer (also opened from the tracker's status guide). */}
+      <FlowExplainer open={flowOpen} onClose={() => setFlowOpen(false)} />
 
       {/* ── Targeted reject dialog ── */}
       {rejectOpen && (
@@ -398,6 +547,7 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount }: CAP
 
       <Popup isOpen={!!okMsg} variant="success" title="Done" description={okMsg} onDismiss={() => setOkMsg("")} />
       <Popup isOpen={!!errorMsg} variant="error" title="Action failed" description={errorMsg} onDismiss={() => setErrorMsg("")} />
+      </div>
     </main>
   );
 }

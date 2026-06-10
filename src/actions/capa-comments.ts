@@ -171,10 +171,11 @@ export async function addCAPAComment(
   // If a parent is given, verify it belongs to the same CAPA AND isn't
   // soft-deleted (replying to a deleted parent is disallowed; existing
   // replies stay visible but new ones can't pile on).
+  let effectiveParentId: string | null = null;
   if (parsed.data.parentId) {
     const parent = await prisma.cAPAComment.findFirst({
       where: { id: parsed.data.parentId, capaId },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, parentId: true },
     });
     if (!parent) {
       return { success: false, error: "Parent comment not found on this CAPA" };
@@ -185,6 +186,9 @@ export async function addCAPAComment(
         error: "Cannot reply to a deleted comment.",
       };
     }
+    // Batch 3b — max depth = 1 (root → replies). A reply to a reply attaches
+    // to the ROOT instead, so the thread never nests beyond one level.
+    effectiveParentId = parent.parentId ?? parent.id;
   }
 
   // If an action item is given, verify it belongs to the same CAPA, and note
@@ -234,7 +238,7 @@ export async function addCAPAComment(
       data: {
         tenantId: capa.tenantId,
         capaId,
-        parentId: parsed.data.parentId ?? null,
+        parentId: effectiveParentId,
         // Phase 2 — optional action-level scope (validated above).
         actionItemId: parsed.data.actionItemId ?? null,
         body: parsed.data.body,
@@ -256,7 +260,7 @@ export async function addCAPAComment(
         recordTitle: recordTitleFor(capa),
         newValue: JSON.stringify({
           isConcern: parsed.data.isConcern,
-          parentId: parsed.data.parentId ?? null,
+          parentId: effectiveParentId,
           actionItemId: parsed.data.actionItemId ?? null,
           accessBasis,
           bodyPreview: parsed.data.body.slice(0, 120),

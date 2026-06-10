@@ -33,6 +33,27 @@
   --danger-bg: #fef2f2;
   --info: #4a8fa8;
   --info-bg: #eef6fa;
+  /* Phase C — semantic STATUS tokens (never brand gold). fg values are AA on
+     their -bg tint; -bg values are AA-separated from the white card surface. */
+  --status-pending: #4b5563;       /* slate — ~8:1 on white */
+  --status-pending-bg: #eceae6;
+  --status-active: #1d4ed8;        /* blue — ~6.3:1 on white */
+  --status-active-bg: #eaf1ff;
+  --status-waiting: #92600a;       /* amber/brown — ~5.6:1 on white */
+  --status-waiting-bg: #fdf3e2;
+  --status-done: #047857;          /* green — ~4.9:1 on white */
+  --status-done-bg: #e9fbf1;
+  --status-blocked: #b91c1c;       /* red — ~5.9:1 on white */
+  --status-blocked-bg: #fdecec;
+  /* Phase D — premium depth/hierarchy tokens (additive). Scoped to the CAPA
+     module via .capa-shell; the global app background is left untouched. */
+  --canvas: #f7f8fa;
+  --card: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
+  --shadow-md: 0 4px 12px rgba(16,24,40,.08);
+  --radius-card: 12px;
+  --radius-ctl: 8px;
+  --text-secondary-muted: #667085;  /* Phase D body-secondary */
   --card-bg: #ffffff;
   --card-border: #e8e4dd;
   --card-text: #302d29;
@@ -85,6 +106,27 @@
   --danger-bg: rgba(239, 68, 68, 0.15);
   --info: #4a8fa8;
   --info-bg: rgba(74, 143, 168, 0.15);
+  /* Phase C — STATUS tokens (dark). fg are light-300 tints (AA on the dark
+     surface + on their translucent -bg); -bg are low-alpha fills. */
+  --status-pending: #b4bccb;       /* slate-300ish — AA on charcoal */
+  --status-pending-bg: rgba(148, 163, 184, 0.16);
+  --status-active: #93c5fd;        /* blue-300 */
+  --status-active-bg: rgba(59, 130, 246, 0.20);
+  --status-waiting: #fcd34d;       /* amber-300 */
+  --status-waiting-bg: rgba(217, 164, 38, 0.20);
+  --status-done: #6ee7b7;          /* green-300 */
+  --status-done-bg: rgba(16, 185, 129, 0.18);
+  --status-blocked: #fca5a5;       /* red-300 */
+  --status-blocked-bg: rgba(239, 68, 68, 0.20);
+  /* Phase D — dark: canvas is the darkest layer; cards one step lighter so
+     they lift off the page. Shadows deepen for separation on dark. */
+  --canvas: #0d0d10;
+  --card: #1c1c21;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.45);
+  --shadow-md: 0 6px 16px rgba(0,0,0,.55);
+  --radius-card: 12px;
+  --radius-ctl: 8px;
+  --text-secondary-muted: #9aa3b2;  /* Phase D body-secondary (dark, AA) */
   --card-bg: #17171a;
   --card-border: #2a2a30;
   --card-text: #f4ede6;
@@ -100,6 +142,65 @@
      var()-referenced definitions from the base block, which resolve to the
      dark surface + brand tokens above. */
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Phase C — CAPA visual system (presentation only)
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Status pill — the single token-driven status chip. Modifier sets the
+   fg/bg pair; never uses brand gold (reserved for primary/active/links). */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.status-pill--pending { color: var(--status-pending); background: var(--status-pending-bg); }
+.status-pill--active  { color: var(--status-active);  background: var(--status-active-bg); }
+.status-pill--waiting { color: var(--status-waiting); background: var(--status-waiting-bg); }
+.status-pill--done    { color: var(--status-done);    background: var(--status-done-bg); }
+.status-pill--blocked { color: var(--status-blocked); background: var(--status-blocked-bg); }
+
+/* Phase J — CAPA module shell. Background is intentionally NOT set: the shell
+   inherits the app work-area background (--bg-base) so there is ONE continuous
+   surface behind the cards (no grey "panel-in-panel" seam). It only scopes the
+   premium cool card border to the CAPA subtree; cards lift via --card + shadow. */
+.capa-shell {
+  --card-border: #e8eaed;
+}
+[data-theme="dark"] .capa-shell {
+  --card-border: #2a2a30;
+}
+
+/* Unified CAPA card — 1px border, subtle shadow, 12px radius, 20px padding.
+   Promotes every section to a consistent, lifted surface. */
+.capa-card {
+  background: var(--card);
+  border: 1px solid var(--card-border, var(--bg-border));
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem;
+}
+/* Consistent 16px rhythm between stacked cards. */
+.capa-stack > * + * { margin-top: 1rem; }
+
+/* Section heading — small-caps, muted (DESCRIPTION, APPROVALS, …). */
+.capa-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Tracker table — denser rows + clear hover. */
+.capa-table tbody tr { transition: background-color 120ms ease; }
+.capa-table tbody tr:hover { background: var(--bg-hover); }
 
 /* ══════════════════════════════════════════════════════════════════
    Color theme overrides — brand color only, no background tinting

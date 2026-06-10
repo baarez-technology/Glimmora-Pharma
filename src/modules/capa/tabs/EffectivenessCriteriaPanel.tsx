@@ -33,18 +33,18 @@ interface EffectivenessCriteriaPanelProps {
 // Kept in sync deliberately so failures show inline pre-submit; server still
 // re-validates as the security boundary.
 const formSchema = z.object({
-  description: z.string().min(5, "Description must be at least 5 characters"),
-  targetMetric: z.string().min(3, "Target metric must be at least 3 characters"),
+  description: z.string().min(5, "Add a description (at least 5 characters)"),
+  targetMetric: z.string().min(3, "Add a target metric (at least 3 characters)"),
   measurementMethod: z
     .string()
-    .min(5, "Measurement method must be at least 5 characters"),
+    .min(5, "Add a measurement method (at least 5 characters)"),
   targetValue: z
     .string()
     .min(1, "Target value is required")
     .max(500, "Target value must be 500 characters or fewer"),
   monitoringPeriod: z
     .string()
-    .min(3, "Monitoring period must be at least 3 characters"),
+    .min(3, "Add a monitoring period (at least 3 characters)"),
 });
 type CriterionFormValues = z.infer<typeof formSchema>;
 
@@ -201,7 +201,7 @@ export function EffectivenessCriteriaPanel({
             className="text-[12px] font-medium mb-1"
             style={{ color: "var(--text-primary)" }}
           >
-            No effectiveness criteria defined yet
+            How will you know the fix worked?
           </p>
           {/* "Add criteria before submitting for QA review" copy was
               removed — the SubmissionChecklist on the CAPA Overview tab
@@ -212,7 +212,7 @@ export function EffectivenessCriteriaPanel({
             className="text-[11px] mb-3"
             style={{ color: "var(--text-secondary)" }}
           >
-            Define how you&apos;ll measure that the corrective action worked.
+            Define at least one measurable success criterion (a number + a timeframe). Required before this CAPA can be submitted.
           </p>
           {!disabled && (
             <Button

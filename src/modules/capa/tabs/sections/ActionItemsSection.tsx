@@ -30,6 +30,8 @@ import {
 } from "@/actions/capas";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import { displayUserName } from "@/lib/identity-display";
+import { roleLabel } from "@/lib/labels/roles";
+import { useToast } from "@/components/ui/Toast";
 import type { CAPA, CAPAActionItem } from "@/store/capa.slice";
 
 /* ── SME Section 1, Stage 4 (FULL) — structured Action Plan table ──
@@ -50,10 +52,12 @@ import type { CAPA, CAPAActionItem } from "@/store/capa.slice";
  * pulling in a drag-and-drop library; can swap to dnd later).
  */
 
+// Phase B — display-only mapping (underlying enum values unchanged):
+// pending → "Not started", in_progress → "In progress", complete → "Done".
 const STATUS_LABEL: Record<CAPAActionItem["status"], string> = {
-  pending: "Pending",
-  in_progress: "In Progress",
-  complete: "Complete",
+  pending: "Not started",
+  in_progress: "In progress",
+  complete: "Done",
   skipped: "Skipped",
   rework: "Rework",
 };
@@ -83,6 +87,7 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
   const authUser = useAppSelector((s) => s.auth.user);
   const isViewer = authUser?.role === "viewer";
   const { users } = useTenantConfig();
+  const toast = useToast();
   // Live items — seeded from the Redux CAPA prop, refetched on every
   // successful mutation so the row state stays consistent with the
   // server (sequence renumbers, auto-invalidate cascade, etc.).
@@ -192,9 +197,14 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
   const [deleteReason, setDeleteReason] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Batch 4 Part 2 — assignable owners = active tenant users in fixer-eligible
+  // roles (exclude super_admin, who is walled to /admin and can't author GxP,
+  // and viewer). Each option shows NAME — ROLE (friendly label).
   const ownerOptions = useMemo(
     () =>
-      users.map((u) => ({ value: u.id, label: u.name })),
+      users
+        .filter((u) => u.status === "Active" && u.role !== "super_admin" && u.role !== "viewer")
+        .map((u) => ({ value: u.id, label: `${u.name} — ${roleLabel(u.role)}` })),
     [users],
   );
 
@@ -207,7 +217,7 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
 
   const handleAdd = async () => {
     if (addDesc.trim().length < 3) {
-      setAddError("Description must be at least 3 characters.");
+      setAddError("Add an action description (at least 3 characters).");
       return;
     }
     if (!addOwner) {
@@ -230,19 +240,21 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
     setBusy(false);
     if (!result.success) {
       setAddError(result.error);
+      toast.error(result.error || "Could not add action item.");
       return;
     }
     setAddOpen(false);
     setAddDesc("");
     setAddOwner("");
     setAddDueDate("");
+    toast.success("Action item added.");
     await refresh();
   };
 
   const handleEdit = async () => {
     if (!editId) return;
     if (editDesc.trim().length < 3) {
-      setEditError("Description must be at least 3 characters.");
+      setEditError("Add an action description (at least 3 characters).");
       return;
     }
     if (!editOwner) {
@@ -265,9 +277,11 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
     setBusy(false);
     if (!result.success) {
       setEditError(result.error);
+      toast.error(result.error || "Could not update action item.");
       return;
     }
     setEditId(null);
+    toast.success("Action item updated.");
     await refresh();
   };
 
@@ -280,15 +294,17 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
     setBusy(false);
     if (!result.success) {
       setLoadError(result.error);
+      toast.error(result.error || "Could not update status.");
       return;
     }
+    toast.success("Status updated.");
     await refresh();
   };
 
   const handleStatusChangeWithNotes = async () => {
     if (!statusModalItem || !statusModalTarget) return;
     if (statusNotes.trim().length < 5) {
-      setStatusError("Notes must be at least 5 characters.");
+      setStatusError("Add a brief note (at least 5 characters).");
       return;
     }
     setBusy(true);
@@ -300,18 +316,20 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
     setBusy(false);
     if (!result.success) {
       setStatusError(result.error);
+      toast.error(result.error || "Could not update status.");
       return;
     }
     setStatusModalItem(null);
     setStatusModalTarget(null);
     setStatusNotes("");
+    toast.success("Status updated.");
     await refresh();
   };
 
   const handleDelete = async () => {
     if (!deleteId) return;
     if (deleteReason.trim().length < 5) {
-      setDeleteError("Reason must be at least 5 characters.");
+      setDeleteError("Add a brief reason (at least 5 characters).");
       return;
     }
     setBusy(true);
@@ -320,10 +338,12 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
     setBusy(false);
     if (!result.success) {
       setDeleteError(result.error);
+      toast.error(result.error || "Could not delete action item.");
       return;
     }
     setDeleteId(null);
     setDeleteReason("");
+    toast.success("Action item deleted.");
     await refresh();
   };
 
@@ -411,7 +431,7 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
         >
           {ownerFilter
             ? "(none of theirs) — no action items owned by the filtered person."
-            : `No action plan items yet. ${canStructuralEdit ? "Add the first step below." : "The author has not yet defined the action plan."}`}
+            : `Add action items and assign each to a person. Each task appears in that person's Worklist. ${canStructuralEdit ? "Add the first step below." : "The author has not yet defined the action plan."}`}
         </p>
       ) : (
         <table className="w-full text-[11px] mb-3" role="table">
@@ -615,81 +635,43 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
         </table>
       )}
 
-      {/* Add row affordance — only when structural edits are allowed. */}
+      {/* Batch 4 Part 1 — Add action item via a proper modal (was inline). */}
       {canStructuralEdit && (
-        <div>
-          {addOpen ? (
-            <div
-              className="rounded-md p-2 space-y-2"
-              style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}
-            >
-              <p className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>
-                Add action item
-              </p>
-              <textarea
-                className="input text-[11px] min-h-[40px] w-full"
-                value={addDesc}
-                onChange={(e) => setAddDesc(e.target.value)}
-                placeholder="Describe the action (≥ 3 chars)"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <Dropdown
-                  value={addOwner}
-                  onChange={setAddOwner}
-                  options={ownerOptions}
-                  placeholder="Owner"
-                  width="w-full"
-                />
-                <input
-                  type="date"
-                  className="input text-[11px]"
-                  value={addDueDate}
-                  onChange={(e) => setAddDueDate(e.target.value)}
-                />
+        <Button variant="secondary" size="sm" icon={Plus} onClick={() => setAddOpen(true)}>
+          Add action item
+        </Button>
+      )}
+      {addOpen && (
+        <Modal
+          open
+          onClose={busy ? () => undefined : () => { setAddOpen(false); setAddDesc(""); setAddOwner(""); setAddDueDate(""); setAddError(null); }}
+          title="Add action item"
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setAddOpen(false); setAddDesc(""); setAddOwner(""); setAddDueDate(""); setAddError(null); }}>Cancel</Button>
+              <Button variant="primary" size="sm" icon={Plus} disabled={busy} loading={busy} onClick={() => void handleAdd()}>Create</Button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="ai-desc" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Action <span className="text-(--danger)">*</span></label>
+              <textarea id="ai-desc" rows={3} className="input text-[12px] w-full resize-none" value={addDesc} onChange={(e) => setAddDesc(e.target.value)} placeholder="Describe the action to take (≥ 3 characters)" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Owner <span className="text-(--danger)">*</span></p>
+                <Dropdown value={addOwner} onChange={setAddOwner} options={ownerOptions} placeholder="Select owner" width="w-full" />
               </div>
-              {addError && (
-                <p role="alert" className="text-[11px]" style={{ color: "var(--danger)" }}>
-                  {addError}
-                </p>
-              )}
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setAddOpen(false);
-                    setAddDesc("");
-                    setAddOwner("");
-                    setAddDueDate("");
-                    setAddError(null);
-                  }}
-                  disabled={busy}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon={Plus}
-                  onClick={() => void handleAdd()}
-                  disabled={busy}
-                  loading={busy}
-                >
-                  Add
-                </Button>
+              <div>
+                <label htmlFor="ai-due" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Due date <span className="text-(--danger)">*</span></label>
+                <input id="ai-due" type="date" className="input text-[12px]" value={addDueDate} onChange={(e) => setAddDueDate(e.target.value)} />
               </div>
             </div>
-          ) : (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={Plus}
-              onClick={() => setAddOpen(true)}
-            >
-              Add action item
-            </Button>
-          )}
-        </div>
+            {addError && <p role="alert" className="text-[11px]" style={{ color: "var(--danger)" }}>{addError}</p>}
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>The owner sees this task in their Worklist.</p>
+          </div>
+        </Modal>
       )}
 
       {/* Status-change modal — notes required for complete + skipped. */}

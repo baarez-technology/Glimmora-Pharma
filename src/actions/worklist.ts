@@ -2,8 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
-import { COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
-import { isAssignedToTask } from "@/lib/permissions/roleSets";
+import { isAssignedToTask, CAPA_MODULE_VIEW_ROLES } from "@/lib/permissions/roleSets";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -40,10 +39,12 @@ export interface TaskDetail {
 }
 
 /**
- * Phase 5 — read the full task context for the Worklist task panel. Scoped to
- * the action's OWNER, the parent CAPA's DRIVER, or an author role; never
- * exposes another person's task to an unrelated user. Read-only; all mutations
- * go through the existing owner/driver server paths.
+ * Phase 5 — read the full task context for the Worklist task panel. Access is
+ * limited to participants: the action's OWNER, the parent CAPA's DRIVER
+ * (ownerId), or a CAPA-module role (qa_head / customer_admin — the roles who
+ * can see the CAPA module anyway). Other compliance-author roles (csv_val_lead,
+ * regulatory_affairs) do NOT get blanket in-tenant task reads. Read-only; all
+ * mutations go through the existing owner/driver server paths.
  */
 export async function getActionItemTask(actionItemId: string): Promise<ActionResult<TaskDetail>> {
   const session = await requireAuth();
@@ -62,8 +63,8 @@ export async function getActionItemTask(actionItemId: string): Promise<ActionRes
 
   const isOwner = isAssignedToTask(session, item);
   const isDriver = isAssignedToTask(session, { ownerId: item.capa.ownerId });
-  const isAuthor = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
-  if (!isOwner && !isDriver && !isAuthor) {
+  const isModuleRole = CAPA_MODULE_VIEW_ROLES.includes(session.user.role);
+  if (!isOwner && !isDriver && !isModuleRole) {
     return { success: false, error: "You do not have access to this task." };
   }
 

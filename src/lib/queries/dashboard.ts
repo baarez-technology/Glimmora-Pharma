@@ -18,15 +18,15 @@ export const getDashboardStats = cache(async (tenantId: string) => {
 
   const [findings, capas, deviations, events, inspections, recentLogs] = await Promise.all([
     prisma.finding.findMany({
-      where: { tenantId },
+      where: { tenantId, deletedAt: null },
       select: { id: true, severity: true, status: true, area: true, requirement: true, createdAt: true },
     }),
     prisma.cAPA.findMany({
-      where: { tenantId },
+      where: { tenantId, deletedAt: null },
       select: { id: true, status: true, dueDate: true, risk: true, description: true },
     }),
     prisma.deviation.findMany({
-      where: { tenantId },
+      where: { tenantId, deletedAt: null },
       select: { id: true, status: true, severity: true, title: true },
     }),
     prisma.fDA483Event.findMany({

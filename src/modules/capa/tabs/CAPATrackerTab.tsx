@@ -11,15 +11,17 @@ import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
-import { CAPA_STATUS_VARIANT, getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
+import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { displayUserName, displaySiteName } from "@/lib/identity-display";
 import { usePermissions } from "@/hooks/usePermissions";
+import { StatusPill, CAPA_STATUS_TOKEN } from "../lib/statusTokens";
 
 /* ── Helpers ── */
 const SOURCE_LABEL: Record<string, string> = { "483": "FDA 483 Observation", "Gap Assessment": "Gap Assessment Finding", Deviation: "Deviation Report", "Internal Audit": "Internal Audit", Complaint: "Complaint", OOS: "OOS", "Change Control": "Change Control" };
 function sourceLabel(s: string) { return SOURCE_LABEL[s] ?? s; }
 function riskBadge(r: CAPARisk) { return <Badge variant={getSeverityVariant(r, "generic")}>{normalizeSeverityForDisplay(r, "generic") ?? r}</Badge>; }
-function capaStatusBadge(s: CAPAStatus) { return <Badge variant={CAPA_STATUS_VARIANT[s]}>{STATUS_LABEL[s]}</Badge>; }
+// Phase C — status rendered as a semantic token pill (never brand gold).
+function capaStatusBadge(s: CAPAStatus) { return <StatusPill token={CAPA_STATUS_TOKEN[s]}>{STATUS_LABEL[s]}</StatusPill>; }
 function ownerName(uid: string, users: UserConfig[]) { return displayUserName(uid, users); }
 
 interface SiteOption {
@@ -77,9 +79,11 @@ function hasReworkItem(c: CAPA): boolean {
 export function CAPATrackerTab({
   capas, filteredCAPAs, selectedCAPA, onSelectCAPA,
   isDark, isViewOnly, users, user, sites, timezone, dateFormat,
-  onAddOpen, onAiOpen, onReopen,
+  onAddOpen, onReopen,
   onNavigateCapa, effectivenessDue = [],
 }: CAPATrackerTabProps) {
+  // Phase A — onAiOpen intentionally not consumed (AI CAPA hidden in Phase 1);
+  // kept optional on the interface so CAPAPage's call site is unchanged.
   // Phase 6 — onEditOpen/onSignOpen/onSubmitForReview/onNavigateGap are no
   // longer consumed here (detail moved to /capa/[id]); kept on the interface
   // so CAPAPage's call site is unchanged.
@@ -151,29 +155,27 @@ export function CAPATrackerTab({
 
   return (
     <div role="tabpanel" id="panel-tracker" aria-labelledby="tab-tracker" tabIndex={0}>
-      {/* ── Phase 6 queues ── */}
-      {(waitingOnYou.length > 0 || effectivenessDue.length > 0 || overdueQueue.length > 0) && (
-        <div className="grid gap-3 mb-5 md:grid-cols-3">
-          <QueueCard title="Waiting on you" Icon={Clock} tone="brand" count={waitingOnYou.length}>
-            {waitingOnYou.slice(0, 6).map(({ c, why }) => (
-              <QueueRow key={`w-${c.id}-${why}`} label={c.reference ?? c.id.slice(0, 8)} sub={why} onClick={() => go(c.id)} />
-            ))}
-          </QueueCard>
-          <QueueCard title="Effectiveness checks due" Icon={TrendingUp} tone="info" count={effectivenessDue.length}>
-            {effectivenessDue.slice(0, 6).map((e) => (
-              <QueueRow key={e.id} label={e.reference ?? e.id.slice(0, 8)}
-                sub={`Due ${e.effectivenessDate ? dayjs.utc(e.effectivenessDate).tz(timezone).format("DD MMM") : "—"}`}
-                onClick={() => go(e.id)} />
-            ))}
-          </QueueCard>
-          <QueueCard title="Overdue" Icon={AlertTriangle} tone="danger" count={overdueQueue.length}>
-            {overdueQueue.slice(0, 6).map((c) => (
-              <QueueRow key={c.id} label={c.reference ?? c.id.slice(0, 8)}
-                sub={isOverdue(c) ? "CAPA past due" : "Action item overdue"} onClick={() => go(c.id)} />
-            ))}
-          </QueueCard>
-        </div>
-      )}
+      {/* ── Queues (always shown, each with its own empty state) ── */}
+      <div className="grid gap-3 mb-5 md:grid-cols-3">
+        <QueueCard title="Waiting on you" Icon={Clock} tone="waiting" count={waitingOnYou.length} emptyText="Nothing waiting on you.">
+          {waitingOnYou.slice(0, 6).map(({ c, why }) => (
+            <QueueRow key={`w-${c.id}-${why}`} label={c.reference ?? c.id.slice(0, 8)} sub={why} onClick={() => go(c.id)} />
+          ))}
+        </QueueCard>
+        <QueueCard title="Effectiveness checks due" Icon={TrendingUp} tone="active" count={effectivenessDue.length} emptyText="No effectiveness checks due.">
+          {effectivenessDue.slice(0, 6).map((e) => (
+            <QueueRow key={e.id} label={e.reference ?? e.id.slice(0, 8)}
+              sub={`Due ${e.effectivenessDate ? dayjs.utc(e.effectivenessDate).tz(timezone).format("DD MMM") : "—"}`}
+              onClick={() => go(e.id)} />
+          ))}
+        </QueueCard>
+        <QueueCard title="Overdue" Icon={AlertTriangle} tone="blocked" count={overdueQueue.length} emptyText="Nothing overdue.">
+          {overdueQueue.slice(0, 6).map((c) => (
+            <QueueRow key={c.id} label={c.reference ?? c.id.slice(0, 8)}
+              sub={isOverdue(c) ? "CAPA past due" : "Action item overdue"} onClick={() => go(c.id)} />
+          ))}
+        </QueueCard>
+      </div>
 
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -187,12 +189,12 @@ export function CAPATrackerTab({
         <Dropdown placeholder="All sources" value={sourceFilter} onChange={setSourceFilter} width="w-40" options={[{ value: "", label: "All sources" }, { value: "483", label: "483" }, { value: "Internal Audit", label: "Internal Audit" }, { value: "Deviation", label: "Deviation" }, { value: "Complaint", label: "Complaint" }, { value: "OOS", label: "OOS" }, { value: "Change Control", label: "Change Control" }, { value: "Gap Assessment", label: "Gap Assessment" }]} />
         <Dropdown placeholder="Anyone assigned" value={assignedFilter} onChange={setAssignedFilter} width="w-44" options={[{ value: "", label: "Anyone assigned" }, ...assignedOptions]} />
         {anyFilterActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
-        {!isViewOnly && capaCan.canCreate && onAiOpen && <Button variant="secondary" size="sm" icon={Sparkles} onClick={onAiOpen}>AI CAPA</Button>}
-        {!isViewOnly && capaCan.canCreate && <Button variant="primary" size="sm" icon={Plus} onClick={onAddOpen}>New CAPA</Button>}
+        {/* Phase A — duplicate "New CAPA" removed (the top-right header button is
+            the single create entry); "AI CAPA" hidden (no AI agents in Phase 1). */}
       </div>
 
-      {/* Table — always full width */}
-      <div className="overflow-x-auto">
+      {/* Table — always full width (Phase D: framed in a card) */}
+      <div className="capa-card overflow-x-auto" style={{ padding: 0 }}>
         {displayed.length === 0 ? (
           <div className="card p-8 text-center">
             <ClipboardCheck className="w-12 h-12 mx-auto mb-3" style={{ color: "#334155" }} aria-hidden="true" />
@@ -213,18 +215,18 @@ export function CAPATrackerTab({
             )}
           </div>
         ) : (
-          <table className="data-table" aria-label="CAPA register">
+          <table className="data-table capa-table" aria-label="CAPA register">
             <caption className="sr-only">Corrective and preventive actions with RCA, status and closure tracking</caption>
             <thead><tr>
               <th scope="col">Reference</th>
               {showSiteColumn && <th scope="col">Site</th>}
-              <th scope="col">Source</th><th scope="col">Description</th>
+              <th scope="col">Source</th><th scope="col">Title</th>
               <th scope="col">Risk</th><th scope="col">Status</th><th scope="col">Owner</th>
               <th scope="col">Due date</th><th scope="col" title="90-day effectiveness check status">Effectiveness</th><th scope="col"><span className="sr-only">Open</span></th>
             </tr></thead>
             <tbody>
               {displayed.map((c) => {
-                // Mirrors CAPADetailModal: prefer the per-tenant reference;
+                // Mirrors the CAPA detail page: prefer the per-tenant reference;
                 // fall back to a stable legacy label rather than exposing the
                 // raw cuid, which carries no domain meaning. The cuid stays
                 // available on hover (title) for support / log lookups.
@@ -244,22 +246,22 @@ export function CAPATrackerTab({
                   </th>
                   {showSiteColumn && <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{siteName(c.siteId)}</td>}
                   <td><Badge variant="gray">{sourceLabel(c.source)}</Badge></td>
-                  <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 200, color: "var(--text-primary)" }}>{c.description}</span></td>
+                  <td><span className="text-[12px] line-clamp-2 block" style={{ maxWidth: 200, color: "var(--text-primary)" }}>{c.title}</span></td>
                   <td>{riskBadge(c.risk)}</td>
                   <td>
                     {capaStatusBadge(c.status)}
                     {/* Phase 4 — hint that an in-progress CAPA was bounced back
                         by QA and has action items awaiting rework. */}
                     {c.status === "in_progress" && (c.actionItems ?? []).some((a) => a.status === "rework") && (
-                      <Badge variant="red">Rework</Badge>
+                      <StatusPill token="blocked">Rework</StatusPill>
                     )}
                   </td>
                   <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{ownerName(c.owner, users)}</td>
                   <td className="whitespace-nowrap">
                     <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>{dayjs.utc(c.dueDate).tz(timezone).format(dateFormat)}</div>
-                    {isOverdue(c) && <div className="text-[10px] text-[#ef4444] font-medium">Overdue</div>}
+                    {isOverdue(c) && <div className="text-[10px] font-medium" style={{ color: "var(--status-blocked)" }}>Overdue</div>}
                   </td>
-                  <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4 text-[#10b981]" aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
+                  <td>{c.effectivenessCheck ? <CheckCircle2 className="w-4 h-4" style={{ color: "var(--status-done)" }} aria-label="Effectiveness check planned" /> : <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>&mdash;</span>}</td>
                   <td>
                     <div className="flex items-center justify-end gap-1">
                       {/* AI Lifecycle — opens /ai-capa/<reference> in the
@@ -300,32 +302,40 @@ export function CAPATrackerTab({
 }
 
 /* ── Phase 6 queue card + row ── */
-const QUEUE_TONE: Record<"brand" | "info" | "danger", { fg: string; border: string }> = {
-  brand: { fg: "var(--brand)", border: "var(--brand-border)" },
-  info: { fg: "var(--brand)", border: "var(--brand-border)" },
-  danger: { fg: "var(--danger)", border: "var(--danger)" },
+// Queue cards keep their identity via STATUS tokens (no brand gold): waiting-on-you
+// → waiting (amber), effectiveness → active (blue), overdue → blocked (red). The
+// tone is a subtle accent (left border + icon tint), not a heavy fill.
+const QUEUE_TONE: Record<"waiting" | "active" | "blocked", { fg: string; bg: string }> = {
+  waiting: { fg: "var(--status-waiting)", bg: "var(--status-waiting-bg)" },
+  active: { fg: "var(--status-active)", bg: "var(--status-active-bg)" },
+  blocked: { fg: "var(--status-blocked)", bg: "var(--status-blocked-bg)" },
 };
 
 function QueueCard({
-  title, Icon, tone, count, children,
+  title, Icon, tone, count, emptyText, children,
 }: {
   title: string;
   Icon: LucideIcon;
-  tone: "brand" | "info" | "danger";
+  tone: "waiting" | "active" | "blocked";
   count: number;
+  emptyText: string;
   children: React.ReactNode;
 }) {
   const t = QUEUE_TONE[tone];
   return (
-    <section className="card p-3" aria-label={title} style={{ borderColor: count > 0 ? t.border : "var(--card-border)" }}>
-      <p className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5 mb-2" style={{ color: t.fg }}>
-        <Icon className="w-3.5 h-3.5" aria-hidden="true" /> {title}
-        <span className="ml-auto text-[12px] font-bold">{count}</span>
-      </p>
+    <section className="capa-card overflow-hidden flex flex-col" aria-label={title} style={{ padding: 0, borderLeft: `3px solid ${t.fg}` }}>
+      {/* Header: icon (tinted) + title + big count */}
+      <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: "1px solid var(--card-border, var(--bg-border))" }}>
+        <span className="w-7 h-7 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: t.bg }}>
+          <Icon className="w-4 h-4" style={{ color: t.fg }} aria-hidden="true" />
+        </span>
+        <span className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>{title}</span>
+        <span className="ml-auto text-[18px] font-bold leading-none" style={{ color: count > 0 ? t.fg : "var(--text-muted)" }}>{count}</span>
+      </div>
       {count === 0 ? (
-        <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>Nothing here.</p>
+        <p className="text-[11px] px-3 py-5 text-center" style={{ color: "var(--text-muted)" }}>{emptyText}</p>
       ) : (
-        <ul className="list-none p-0 m-0 space-y-1">{children}</ul>
+        <ul className="list-none p-1.5 m-0 space-y-0.5">{children}</ul>
       )}
     </section>
   );
@@ -337,10 +347,10 @@ function QueueRow({ label, sub, onClick }: { label: string; sub: string; onClick
       <button
         type="button"
         onClick={onClick}
-        className="w-full text-left flex items-center gap-2 p-1.5 rounded-md border-none cursor-pointer bg-transparent hover:bg-(--bg-hover)"
+        className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md border-none cursor-pointer bg-transparent transition-colors hover:bg-(--bg-hover)"
       >
-        <span className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{label}</span>
-        <span className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>{sub}</span>
+        <span className="font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded border shrink-0" style={{ color: "var(--text-secondary)", borderColor: "var(--card-border, var(--bg-border))", background: "var(--bg-elevated)" }}>{label}</span>
+        <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>{sub}</span>
         <ChevronRight className="w-3.5 h-3.5 ml-auto shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
       </button>
     </li>

@@ -270,6 +270,7 @@ export async function loadLinkableCAPAs(ccId: string): Promise<ActionResult> {
       tenantId: cc.tenantId,
       status: { notIn: Array.from(LINK_BLOCKED_CAPA_STATUSES) },
       id: { notIn: Array.from(linkedIds) },
+      deletedAt: null,
     },
     select: {
       id: true,

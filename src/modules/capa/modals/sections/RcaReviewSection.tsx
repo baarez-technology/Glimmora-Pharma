@@ -93,7 +93,7 @@ export function RcaReviewSection({
 
   const submitReview = async (verdict: boolean) => {
     if (notes.trim().length < 10) {
-      setError("Notes must be at least 10 characters.");
+      setError("Add review notes (at least 10 characters).");
       return;
     }
     setBusy(true);
@@ -114,7 +114,7 @@ export function RcaReviewSection({
   const submitOverride = async () => {
     if (overrideReason.trim().length < OVERRIDE_REASON_MIN_LENGTH) {
       setOverrideError(
-        `Reason must be at least ${OVERRIDE_REASON_MIN_LENGTH} characters.`,
+        `Add an override reason (at least ${OVERRIDE_REASON_MIN_LENGTH} characters).`,
       );
       return;
     }

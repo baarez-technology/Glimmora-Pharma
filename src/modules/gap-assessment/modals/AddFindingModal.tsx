@@ -22,7 +22,7 @@ const FRAMEWORK_LABELS: Record<string, string> = {
 const findingSchema = z.object({
   siteId: z.string().min(1, "Site required"),
   area: z.string().min(1, "Area required"),
-  requirement: z.string().min(10, "Requirement must be at least 10 characters"),
+  requirement: z.string().min(10, "Add the requirement (at least 10 characters)"),
   purpose: z.string().optional(),
   framework: z.string().min(1, "Framework required"),
   severity: z.enum(["Critical", "High", "Low"]),
