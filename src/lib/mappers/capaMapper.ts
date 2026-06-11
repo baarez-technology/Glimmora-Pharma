@@ -102,6 +102,14 @@ type PrismaCAPA = {
     status: string;
     createdAt: Date;
   } | null;
+  // Optional include — linked Gap (Finding) provenance. getCAPA uses
+  // `finding: true` (full row, structurally a superset); getCAPAs selects
+  // id/reference/owner. Mapper passes id/reference/owner to the slice.
+  finding?: {
+    id: string;
+    reference: string | null;
+    owner: string;
+  } | null;
 };
 
 export const STATUS_MAP: Record<string, CAPAStatus> = {
@@ -243,6 +251,13 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
           severity: row.deviation.severity,
           status: row.deviation.status,
           createdAt: row.deviation.createdAt.toISOString(),
+        }
+      : undefined,
+    finding: row.finding
+      ? {
+          id: row.finding.id,
+          reference: row.finding.reference ?? null,
+          owner: row.finding.owner ?? null,
         }
       : undefined,
   };

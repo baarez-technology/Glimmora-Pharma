@@ -13,6 +13,8 @@ import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
+import { displayUserName } from "@/lib/identity-display";
+import { roleLabel } from "@/lib/labels/roles";
 import type { CAPA } from "@/store/capa.slice";
 import type { UserConfig } from "@/store/settings.slice";
 
@@ -51,9 +53,9 @@ interface OverviewBodyProps {
 export function OverviewBody({
   capa,
   isDark,
-  // Phase F — users/timezone/dateFormat no longer consumed here (Owner/Due
-  // removed; Created uses fromNow). Kept on the interface so callers are
-  // unchanged.
+  // CAPA-module batch #4 — `users` consumed again to resolve gap-owner +
+  // driver name+role. timezone/dateFormat still unused here.
+  users,
   showMigrationNotice,
   onDismissNotice,
   onNavigateGap,
@@ -153,8 +155,8 @@ export function OverviewBody({
         {capa.findingId && (
           <>
             <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>·</span>
-            <span className="font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>{capa.findingId}</span>
-            <button type="button" onClick={() => onNavigateGap(capa.findingId!)} className="inline-flex items-center gap-0.5 hover:underline bg-transparent border-none cursor-pointer p-0" style={{ color: "#0ea5e9" }}>
+            <span className="font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>{capa.finding?.reference ?? capa.findingId}</span>
+            <button type="button" onClick={() => onNavigateGap(capa.findingId!)} className="inline-flex items-center gap-0.5 hover:underline bg-transparent border-none cursor-pointer p-0" style={{ color: "var(--brand)" }}>
               <Link2 className="w-3.5 h-3.5" aria-hidden="true" />View →
             </button>
           </>
@@ -164,7 +166,7 @@ export function OverviewBody({
             <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>·</span>
             <span className="font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>{capa.deviation.reference ?? "Deviation"}</span>
             <Badge variant={getSeverityVariant(capa.deviation.severity, "fda")}>{normalizeSeverityForDisplay(capa.deviation.severity, "fda") ?? capa.deviation.severity}</Badge>
-            <button type="button" onClick={() => router.push("/deviation")} className="inline-flex items-center gap-0.5 hover:underline bg-transparent border-none cursor-pointer p-0" style={{ color: "#0ea5e9" }}>
+            <button type="button" onClick={() => router.push("/deviation")} className="inline-flex items-center gap-0.5 hover:underline bg-transparent border-none cursor-pointer p-0" style={{ color: "var(--brand)" }}>
               <Link2 className="w-3.5 h-3.5" aria-hidden="true" />View →
             </button>
           </>
@@ -178,6 +180,33 @@ export function OverviewBody({
         <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>·</span>
         <Badge variant={baseVariant}>{normalizeSeverityForDisplay(capa.risk, "generic") ?? capa.risk}</Badge>
       </div>
+
+      {/* CAPA-module batch #4 — provenance vs ownership, shown distinctly:
+          the SOURCE record's owner (read-only, from the linked gap) and the
+          CAPA's current DRIVER. Name + role on each; gap owner omitted when the
+          source has none (e.g. external FDA-483). */}
+      {(capa.finding?.owner || capa.owner) && (() => {
+        const nameRole = (uid: string) => {
+          const u = users.find((x) => x.id === uid);
+          return `${displayUserName(uid, users)}${u ? ` (${roleLabel(u.role)})` : ""}`;
+        };
+        return (
+          <div className="capa-card flex flex-wrap items-center gap-x-6 gap-y-1 text-[12px]">
+            {capa.finding?.owner && (
+              <span>
+                <span style={{ color: "var(--text-muted)" }}>Gap owner: </span>
+                <span style={{ color: "var(--text-primary)" }}>{nameRole(capa.finding.owner)}</span>
+              </span>
+            )}
+            {capa.owner && (
+              <span>
+                <span style={{ color: "var(--text-muted)" }}>Assigned to (driver): </span>
+                <span style={{ color: "var(--text-primary)" }}>{nameRole(capa.owner)}</span>
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {capa.diGate && (() => {
         const diOpen = capa.diGateStatus !== "cleared";

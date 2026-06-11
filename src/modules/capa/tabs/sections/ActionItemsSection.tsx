@@ -4,22 +4,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  CheckCircle2,
   ChevronDown,
-  Clock,
   Lock,
   Pencil,
   Plus,
+  Save,
   Trash2,
-  XCircle,
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useAppSelector } from "@/hooks/useAppSelector";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import {
   addActionItem,
@@ -81,11 +79,6 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
   // later phase). canView stays open so they can still read the plan.
   const capaCan = usePermissions("capa");
   // Phase 3 — assigned-owner access path. An owner who is NOT an author role
-  // may still work the task addressed to them (status + completion notes). ID
-  // comparison only; viewers are excluded (mirrors the server isAssignedToTask
-  // and the server gate in updateActionItem).
-  const authUser = useAppSelector((s) => s.auth.user);
-  const isViewer = authUser?.role === "viewer";
   const { users } = useTenantConfig();
   const toast = useToast();
   // Live items — seeded from the Redux CAPA prop, refetched on every
@@ -158,16 +151,6 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
   // Gated on capaCan.canEdit (COMPLIANCE_AUTHOR_ROLES) to match the server.
   // Structural edits + skip stay author-only.
   const canStructuralEdit = !isTerminal && !isLocked && capaCan.canEdit;
-  const canStatusUpdate = !isTerminal && capaCan.canEdit;
-  // Phase 3 — the assigned owner of THIS row may set in-progress / complete
-  // (+ notes), even without an author role. Skip + structural remain author-only
-  // (the server rejects owner skip/structural edits).
-  function isAssignedOwner(item: CAPAActionItem): boolean {
-    return !isViewer && !!item.ownerId && item.ownerId === authUser?.id;
-  }
-  function canOwnerStatus(item: CAPAActionItem): boolean {
-    return !isTerminal && isAssignedOwner(item);
-  }
 
   // Add-row state.
   const [addOpen, setAddOpen] = useState(false);
@@ -177,20 +160,15 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
   const [busy, setBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
-  // Edit-row state.
+  // Edit-action MODAL state (replaces the old inline-row edit). Status is
+  // editable here; "complete"/"skipped" carry completionNotes (server rule).
   const [editId, setEditId] = useState<string | null>(null);
   const [editDesc, setEditDesc] = useState("");
   const [editOwner, setEditOwner] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
-  // editError surfaces through loadError until a per-row error band is
-  // added; held in a ref-like setState slot for future use.
-  const [, setEditError] = useState<string | null>(null);
-
-  // Status-change modal (complete / skipped require notes).
-  const [statusModalItem, setStatusModalItem] = useState<CAPAActionItem | null>(null);
-  const [statusModalTarget, setStatusModalTarget] = useState<"complete" | "skipped" | null>(null);
-  const [statusNotes, setStatusNotes] = useState("");
-  const [statusError, setStatusError] = useState<string | null>(null);
+  const [editStatus, setEditStatus] = useState<CAPAActionItem["status"]>("pending");
+  const [editNotes, setEditNotes] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Delete modal (requires reason ≥ 5 chars).
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -221,11 +199,11 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
       return;
     }
     if (!addOwner) {
-      setAddError("Owner is required.");
+      setAddError("Select who this is assigned to.");
       return;
     }
     if (!addDueDate) {
-      setAddError("Due date is required.");
+      setAddError("Pick a due date.");
       return;
     }
     setBusy(true);
@@ -251,20 +229,25 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
     await refresh();
   };
 
+  // Open the Edit modal for a row, prefilling all fields incl. status + notes.
+  const openEdit = (item: CAPAActionItem) => {
+    setEditId(item.id);
+    setEditDesc(item.description);
+    setEditOwner(item.ownerId ?? "");
+    setEditDueDate(dayjs.utc(item.dueDate).format("YYYY-MM-DD"));
+    setEditStatus(item.status);
+    setEditNotes(item.completionNotes ?? "");
+    setEditError(null);
+  };
+  const closeEdit = () => { setEditId(null); setEditError(null); };
+
   const handleEdit = async () => {
     if (!editId) return;
-    if (editDesc.trim().length < 3) {
-      setEditError("Add an action description (at least 3 characters).");
-      return;
-    }
-    if (!editOwner) {
-      setEditError("Owner is required.");
-      return;
-    }
-    if (!editDueDate) {
-      setEditError("Due date is required.");
-      return;
-    }
+    if (editDesc.trim().length < 3) { setEditError("Add an action description (at least 3 characters)."); return; }
+    if (!editOwner) { setEditError("Select who this is assigned to."); return; }
+    if (!editDueDate) { setEditError("Pick a due date."); return; }
+    const needsNotes = editStatus === "complete" || editStatus === "skipped";
+    if (needsNotes && editNotes.trim().length < 5) { setEditError("Add completion notes (at least 5 characters)."); return; }
     setBusy(true);
     setEditError(null);
     const ownerName = userNameById(editOwner);
@@ -273,6 +256,8 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
       owner: ownerName,
       ownerId: editOwner,
       dueDate: dayjs(editDueDate).utc().toISOString(),
+      status: editStatus,
+      ...(needsNotes ? { completionNotes: editNotes.trim() } : {}),
     });
     setBusy(false);
     if (!result.success) {
@@ -282,47 +267,6 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
     }
     setEditId(null);
     toast.success("Action item updated.");
-    await refresh();
-  };
-
-  const handleStatusChangeSimple = async (
-    item: CAPAActionItem,
-    target: "pending" | "in_progress",
-  ) => {
-    setBusy(true);
-    const result = await updateActionItem(item.id, { status: target });
-    setBusy(false);
-    if (!result.success) {
-      setLoadError(result.error);
-      toast.error(result.error || "Could not update status.");
-      return;
-    }
-    toast.success("Status updated.");
-    await refresh();
-  };
-
-  const handleStatusChangeWithNotes = async () => {
-    if (!statusModalItem || !statusModalTarget) return;
-    if (statusNotes.trim().length < 5) {
-      setStatusError("Add a brief note (at least 5 characters).");
-      return;
-    }
-    setBusy(true);
-    setStatusError(null);
-    const result = await updateActionItem(statusModalItem.id, {
-      status: statusModalTarget,
-      completionNotes: statusNotes.trim(),
-    });
-    setBusy(false);
-    if (!result.success) {
-      setStatusError(result.error);
-      toast.error(result.error || "Could not update status.");
-      return;
-    }
-    setStatusModalItem(null);
-    setStatusModalTarget(null);
-    setStatusNotes("");
-    toast.success("Status updated.");
     await refresh();
   };
 
@@ -439,10 +383,10 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
             <tr style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--bg-border)" }}>
               <th className="text-left py-1 pr-2 w-6">#</th>
               <th className="text-left py-1 pr-2">Description</th>
-              <th className="text-left py-1 pr-2 w-32">Owner</th>
+              <th className="text-left py-1 pr-2 w-40">Assigned To</th>
               <th className="text-left py-1 pr-2 w-28">Due</th>
               <th className="text-left py-1 pr-2 w-28">Status</th>
-              <th className="text-right py-1 w-32">Actions</th>
+              {canStructuralEdit && <th className="text-right py-1 w-28">Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -451,7 +395,6 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
               // rendering rows filtered out by the active person filter.
               if (ownerFilter && item.ownerId !== ownerFilter) return null;
               const overdue = overdueDays(item);
-              const isEditing = editId === item.id;
               return (
                 <tr
                   key={item.id}
@@ -462,46 +405,12 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
                 >
                   <td className="py-2 pr-2 align-top font-mono">{item.sequence}</td>
                   <td className="py-2 pr-2 align-top">
-                    {isEditing ? (
-                      <textarea
-                        className="input text-[11px] min-h-[40px] w-full"
-                        value={editDesc}
-                        onChange={(e) => setEditDesc(e.target.value)}
-                      />
-                    ) : (
-                      <span style={{ color: "var(--text-primary)" }}>{item.description}</span>
-                    )}
+                    <span style={{ color: "var(--text-primary)" }}>{item.description}</span>
                   </td>
+                  <td className="py-2 pr-2 align-top">{userNameById(item.ownerId ?? "") || item.owner}</td>
                   <td className="py-2 pr-2 align-top">
-                    {isEditing ? (
-                      <Dropdown
-                        value={editOwner}
-                        onChange={setEditOwner}
-                        options={ownerOptions}
-                        width="w-full"
-                      />
-                    ) : (
-                      item.owner
-                    )}
-                  </td>
-                  <td className="py-2 pr-2 align-top">
-                    {isEditing ? (
-                      <input
-                        type="date"
-                        className="input text-[11px] w-full"
-                        value={editDueDate}
-                        onChange={(e) => setEditDueDate(e.target.value)}
-                      />
-                    ) : (
-                      <>
-                        <div>{dayjs.utc(item.dueDate).format("DD MMM")}</div>
-                        {overdue !== null && (
-                          <Badge variant="red">
-                            Overdue {overdue}d
-                          </Badge>
-                        )}
-                      </>
-                    )}
+                    <div>{dayjs.utc(item.dueDate).format("DD MMM")}</div>
+                    {overdue !== null && <Badge variant="red">Overdue {overdue}d</Badge>}
                   </td>
                   <td className="py-2 pr-2 align-top">
                     <Badge variant={STATUS_VARIANT[item.status]}>
@@ -520,114 +429,18 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
                       </div>
                     )}
                   </td>
-                  <td className="py-2 align-top text-right">
-                    {isEditing ? (
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="secondary"
-                          size="xs"
-                          onClick={() => setEditId(null)}
-                          disabled={busy}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          variant="primary"
-                          size="xs"
-                          onClick={() => void handleEdit()}
-                          disabled={busy}
-                          loading={busy}
-                        >
-                          Save
-                        </Button>
-                      </div>
-                    ) : (
+                  {/* Structural actions only — status changes moved to the Edit
+                      modal (QA) and the fixer's Worklist task (owner). */}
+                  {canStructuralEdit && (
+                    <td className="py-2 align-top text-right">
                       <div className="flex justify-end gap-1 flex-wrap">
-                        {/* Status quick-actions — author OR assigned owner.
-                            "rework" items can also be picked back up (the
-                            Phase-4 repair walk: rework → in_progress → complete). */}
-                        {(canStatusUpdate || canOwnerStatus(item)) && (item.status === "pending" || item.status === "rework") && (
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            icon={Clock}
-                            onClick={() => void handleStatusChangeSimple(item, "in_progress")}
-                            disabled={busy}
-                            title="Mark in progress"
-                          />
-                        )}
-                        {(canStatusUpdate || canOwnerStatus(item)) && item.status !== "complete" && item.status !== "skipped" && (
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            icon={CheckCircle2}
-                            onClick={() => {
-                              setStatusModalItem(item);
-                              setStatusModalTarget("complete");
-                            }}
-                            disabled={busy}
-                            title="Mark complete"
-                          />
-                        )}
-                        {/* Skip stays author-only (server rejects owner skip). */}
-                        {canStatusUpdate && item.status !== "complete" && item.status !== "skipped" && (
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            icon={XCircle}
-                            onClick={() => {
-                              setStatusModalItem(item);
-                              setStatusModalTarget("skipped");
-                            }}
-                            disabled={busy}
-                            title="Skip"
-                          />
-                        )}
-                        {/* Structural editor — only when unlocked */}
-                        {canStructuralEdit && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              icon={ArrowUp}
-                              onClick={() => void handleReorder(idx, -1)}
-                              disabled={busy || idx === 0}
-                              title="Move up"
-                            />
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              icon={ArrowDown}
-                              onClick={() => void handleReorder(idx, +1)}
-                              disabled={busy || idx === items.length - 1}
-                              title="Move down"
-                            />
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              icon={Pencil}
-                              onClick={() => {
-                                setEditId(item.id);
-                                setEditDesc(item.description);
-                                setEditOwner(item.ownerId ?? "");
-                                setEditDueDate(dayjs.utc(item.dueDate).format("YYYY-MM-DD"));
-                              }}
-                              disabled={busy}
-                              title="Edit"
-                            />
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              icon={Trash2}
-                              onClick={() => setDeleteId(item.id)}
-                              disabled={busy}
-                              title="Delete"
-                            />
-                          </>
-                        )}
+                        <Button variant="ghost" size="xs" icon={ArrowUp} onClick={() => void handleReorder(idx, -1)} disabled={busy || idx === 0} title="Move up" />
+                        <Button variant="ghost" size="xs" icon={ArrowDown} onClick={() => void handleReorder(idx, +1)} disabled={busy || idx === items.length - 1} title="Move down" />
+                        <Button variant="ghost" size="xs" icon={Pencil} onClick={() => openEdit(item)} disabled={busy} title="Edit" />
+                        <Button variant="ghost" size="xs" icon={Trash2} onClick={() => setDeleteId(item.id)} disabled={busy} title="Delete" />
                       </div>
-                    )}
-                  </td>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -660,83 +473,66 @@ export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFil
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Owner <span className="text-(--danger)">*</span></p>
-                <Dropdown value={addOwner} onChange={setAddOwner} options={ownerOptions} placeholder="Select owner" width="w-full" />
+                <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Assigned To <span className="text-(--danger)">*</span></p>
+                <Dropdown value={addOwner} onChange={setAddOwner} options={ownerOptions} placeholder="Select assignee" width="w-full" />
               </div>
               <div>
-                <label htmlFor="ai-due" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Due date <span className="text-(--danger)">*</span></label>
-                <input id="ai-due" type="date" className="input text-[12px]" value={addDueDate} onChange={(e) => setAddDueDate(e.target.value)} />
+                <DatePicker id="ai-due" label="Due date" required value={addDueDate} onChange={setAddDueDate} />
               </div>
             </div>
             {addError && <p role="alert" className="text-[11px]" style={{ color: "var(--danger)" }}>{addError}</p>}
-            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>The owner sees this task in their Worklist.</p>
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>The assignee sees this task in their Worklist.</p>
           </div>
         </Modal>
       )}
 
-      {/* Status-change modal — notes required for complete + skipped. */}
-      {statusModalItem && statusModalTarget && (
+      {/* Edit Action modal (replaces inline-row edit). Status is editable here;
+          "Done"/"Skipped" require completion notes (the server's rule). */}
+      {editId && (
         <Modal
           open
-          onClose={busy ? () => undefined : () => {
-            setStatusModalItem(null);
-            setStatusModalTarget(null);
-            setStatusNotes("");
-            setStatusError(null);
-          }}
-          title={
-            statusModalTarget === "complete"
-              ? "Mark action item complete"
-              : "Skip action item"
+          onClose={busy ? () => undefined : closeEdit}
+          title="Edit action item"
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" disabled={busy} onClick={closeEdit}>Cancel</Button>
+              <Button variant="primary" size="sm" icon={Save} disabled={busy} loading={busy} onClick={() => void handleEdit()}>Save changes</Button>
+            </div>
           }
         >
-          <p className="text-[12px] mb-3" style={{ color: "var(--text-secondary)" }}>
-            #{statusModalItem.sequence}: {statusModalItem.description}
-          </p>
-          <textarea
-            className="input text-[12px] min-h-[80px] mb-2"
-            value={statusNotes}
-            onChange={(e) => setStatusNotes(e.target.value)}
-            placeholder={
-              statusModalTarget === "complete"
-                ? "Completion notes (≥ 5 chars) — what was done?"
-                : "Skip justification (≥ 5 chars) — why is this no longer needed?"
-            }
-            maxLength={2000}
-            disabled={busy}
-          />
-          {statusError && (
-            <p role="alert" className="text-[11px] mb-2" style={{ color: "var(--danger)" }}>
-              {statusError}
-            </p>
-          )}
-          <div
-            className="flex justify-end gap-2 pt-2"
-            style={{ borderTop: "1px solid var(--bg-border)" }}
-          >
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setStatusModalItem(null);
-                setStatusModalTarget(null);
-                setStatusNotes("");
-                setStatusError(null);
-              }}
-              disabled={busy}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              icon={statusModalTarget === "complete" ? CheckCircle2 : XCircle}
-              onClick={() => void handleStatusChangeWithNotes()}
-              disabled={busy || statusNotes.trim().length < 5}
-              loading={busy}
-            >
-              {statusModalTarget === "complete" ? "Mark complete" : "Skip"}
-            </Button>
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="ai-edit-desc" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Action <span className="text-(--danger)">*</span></label>
+              <textarea id="ai-edit-desc" rows={3} className="input text-[12px] w-full resize-none" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Assigned To <span className="text-(--danger)">*</span></p>
+                <Dropdown value={editOwner} onChange={setEditOwner} options={ownerOptions} placeholder="Select assignee" width="w-full" />
+              </div>
+              <div>
+                <DatePicker id="ai-edit-due" label="Due date" required value={editDueDate} onChange={setEditDueDate} />
+              </div>
+            </div>
+            <div>
+              <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Status</p>
+              <Dropdown
+                value={editStatus}
+                onChange={(v) => setEditStatus(v as CAPAActionItem["status"])}
+                width="w-full"
+                options={(["pending", "in_progress", "complete", "skipped"].includes(editStatus)
+                  ? (["pending", "in_progress", "complete", "skipped"] as CAPAActionItem["status"][])
+                  : ([editStatus, "pending", "in_progress", "complete", "skipped"] as CAPAActionItem["status"][])
+                ).map((s) => ({ value: s, label: s === "skipped" ? "Skipped (N/A)" : STATUS_LABEL[s] }))}
+              />
+            </div>
+            {(editStatus === "complete" || editStatus === "skipped") && (
+              <div>
+                <label htmlFor="ai-edit-notes" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Completion notes <span className="text-(--danger)">*</span></label>
+                <textarea id="ai-edit-notes" rows={2} className="input text-[12px] w-full resize-none" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="What was done? (≥ 5 characters)" />
+              </div>
+            )}
+            {editError && <p role="alert" className="text-[11px]" style={{ color: "var(--danger)" }}>{editError}</p>}
           </div>
         </Modal>
       )}

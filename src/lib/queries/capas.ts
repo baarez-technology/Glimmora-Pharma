@@ -31,7 +31,14 @@ export const getCAPAs = cache(async (tenantId: string) => {
   return prisma.cAPA.findMany({
     where: { tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
-    include: { documents: true, deviation: DEVIATION_INCLUDE, actionItems: ACTION_ITEMS_INCLUDE },
+    include: {
+      documents: true,
+      deviation: DEVIATION_INCLUDE,
+      // CAPA-module batch — linked Gap reference + owner for the tracker's
+      // readable source column (mirrors the deviation include).
+      finding: { select: { id: true, reference: true, owner: true } },
+      actionItems: ACTION_ITEMS_INCLUDE,
+    },
   });
 });
 

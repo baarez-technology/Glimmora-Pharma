@@ -35,6 +35,8 @@ export interface EvidenceFileSummary {
   contentHashSha256: string;
   retainUntil: Date;
   uploadedBy: string;
+  // CAPA Evidence batch — uploader FK so the UI can show name + role (roleLabel).
+  uploadedById: string | null;
   createdAt: Date;
 }
 
@@ -102,6 +104,7 @@ export const getEvidenceForCAPA = cache(async (capaId: string, tenantId: string)
         contentHashSha256: f.contentHashSha256,
         retainUntil: f.retainUntil,
         uploadedBy: f.uploadedBy,
+        uploadedById: f.uploadedById,
         createdAt: f.createdAt,
       })),
       deletedFileCount: it._count.files,

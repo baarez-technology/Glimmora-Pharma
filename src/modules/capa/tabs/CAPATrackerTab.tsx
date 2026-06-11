@@ -242,7 +242,15 @@ export function CAPATrackerTab({
                     >
                       {referenceDisplay}
                     </div>
-                    {c.findingId && <div className="flex items-center gap-1 mt-0.5"><Link2 className="w-3 h-3 text-[#0ea5e9]" aria-hidden="true" /><span className="text-[10px] text-[#0ea5e9]">{c.findingId}</span></div>}
+                    {/* Readable source reference (gap / deviation), not the raw cuid. */}
+                    {(c.findingId || c.deviation) && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Link2 className="w-3 h-3" style={{ color: "var(--brand)" }} aria-hidden="true" />
+                        <span className="text-[10px]" style={{ color: "var(--brand)" }}>
+                          {c.findingId ? (c.finding?.reference ?? c.findingId) : (c.deviation?.reference ?? "Deviation")}
+                        </span>
+                      </div>
+                    )}
                   </th>
                   {showSiteColumn && <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{siteName(c.siteId)}</td>}
                   <td><Badge variant="gray">{sourceLabel(c.source)}</Badge></td>

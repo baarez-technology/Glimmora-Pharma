@@ -6,10 +6,36 @@ import dayjs from "@/lib/dayjs";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
+import { roleLabel } from "@/lib/labels/roles";
+import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { updateActionItem } from "@/actions/capas";
 import { addEvidenceFile, initializeEvidenceForCAPA } from "@/actions/evidence";
 import { addCAPAComment } from "@/actions/capa-comments";
 import { getActionItemTask, type TaskDetail } from "@/actions/worklist";
+
+// Display-only labels (enum values unchanged).
+const TASK_STATUS_LABEL: Record<string, string> = {
+  pending: "Pending",
+  in_progress: "In Progress",
+  complete: "Completed",
+  skipped: "Skipped",
+  rework: "Rework",
+};
+const EVIDENCE_CATEGORY_LABEL: Record<string, string> = {
+  BATCH_RECORDS: "Batch records",
+  TRAINING_RECORDS: "Training records",
+  EQUIPMENT_LOGS: "Equipment logs",
+  ENVIRONMENTAL_DATA: "Environmental data",
+  DEVIATION_HISTORY: "Deviation history",
+  WITNESS_INTERVIEWS: "Witness interviews",
+  SUPPLIER_DATA: "Supplier data",
+};
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 /**
  * Phase 5 — the fixer's task view. Read-only context (parent CAPA, the action
@@ -34,6 +60,9 @@ export function TaskPanel({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const toast = useToast();
+  // Resolve the uploader's role for file provenance (consistent with Evidence).
+  const { users } = useTenantConfig();
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -83,8 +112,9 @@ export function TaskPanel({
     const input = target === "complete" ? { status: target, completionNotes: notes.trim() } : { status: target };
     const res = await updateActionItem(action.id, input);
     setBusy(false);
-    if (!res.success) { setErr(res.error || "Update failed"); return; }
+    if (!res.success) { setErr(res.error || "Update failed"); toast.error(res.error || "Could not update task."); return; }
     setCompleting(false); setNotes("");
+    toast.success(target === "complete" ? "Task marked complete." : "Task started.");
     await refresh();
   }
 
@@ -105,7 +135,8 @@ export function TaskPanel({
     const res = await addEvidenceFile(evidenceItemId, fd, action.id);
     setBusy(false);
     if (fileRef.current) fileRef.current.value = "";
-    if (!res.success) { setErr(res.error || "Upload failed"); return; }
+    if (!res.success) { setErr(res.error || "Upload failed"); toast.error(res.error || "Could not upload file."); return; }
+    toast.success("Evidence uploaded.");
     await refresh();
   }
 
@@ -114,13 +145,38 @@ export function TaskPanel({
     setBusy(true); setErr(null);
     const res = await addCAPAComment(capa.id, { body: comment.trim(), actionItemId: action.id });
     setBusy(false);
-    if (!res.success) { setErr(res.error || "Comment failed"); return; }
+    if (!res.success) { setErr(res.error || "Comment failed"); toast.error(res.error || "Could not post comment."); return; }
     setComment("");
+    toast.success("Comment posted.");
     await refresh();
   }
 
   return (
-    <Modal open onClose={onClose} title={`Task · ${capa.reference ?? capa.id.slice(0, 8)}`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Task · ${capa.reference ?? capa.id.slice(0, 8)}`}
+      footer={canStatus ? (
+        <div className="flex justify-end gap-2">
+          {!completing ? (
+            <>
+              {action.status !== "in_progress" && action.status !== "complete" && (
+                <Button variant="secondary" size="sm" icon={Clock} disabled={busy} onClick={() => void setStatus("in_progress")}>Mark in progress</Button>
+              )}
+              {action.status !== "complete" && (
+                <Button variant="primary" size="sm" icon={CheckCircle2} disabled={busy} onClick={() => setCompleting(true)}>Mark complete</Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setCompleting(false); setNotes(""); }}>Cancel</Button>
+              {/* "Done is earned" — still requires completion notes ≥ 5 chars. */}
+              <Button variant="primary" size="sm" disabled={busy || notes.trim().length < 5} loading={busy} onClick={() => void setStatus("complete")}>Confirm complete</Button>
+            </>
+          )}
+        </div>
+      ) : undefined}
+    >
       {/* Context (read-only) */}
       <div className="mb-3">
         <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
@@ -128,7 +184,7 @@ export function TaskPanel({
         </p>
         <p className="text-[13px] font-medium mt-2" style={{ color: "var(--text-primary)" }}>{action.description}</p>
         <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-          Due {dayjs.utc(action.dueDate).format("DD MMM YYYY")} · <Badge variant={action.status === "rework" ? "red" : action.status === "complete" ? "green" : "amber"}>{action.status}</Badge>
+          Due {dayjs.utc(action.dueDate).format("DD MMM YYYY")} · <Badge variant={action.status === "rework" ? "red" : action.status === "complete" ? "green" : "amber"}>{TASK_STATUS_LABEL[action.status] ?? action.status}</Badge>
         </p>
         {action.status === "rework" && action.reworkReason && (
           <div className="alert mt-2 flex items-start gap-2" style={{ background: "var(--danger-bg, #fef2f2)", border: "1px solid var(--danger)" }}>
@@ -155,27 +211,12 @@ export function TaskPanel({
         </div>
       )}
 
-      {/* Status controls */}
-      {canStatus && (
-        <div className="mb-3">
-          {!completing ? (
-            <div className="flex gap-2">
-              {action.status !== "in_progress" && action.status !== "complete" && (
-                <Button variant="secondary" size="sm" icon={Clock} disabled={busy} onClick={() => void setStatus("in_progress")}>Mark in progress</Button>
-              )}
-              {action.status !== "complete" && (
-                <Button variant="primary" size="sm" icon={CheckCircle2} disabled={busy} onClick={() => setCompleting(true)}>Mark complete</Button>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-md p-2" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
-              <textarea className="input text-[12px] w-full min-h-20" placeholder="Completion notes (≥ 5 chars) — what was done?" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
-              <div className="flex justify-end gap-2 mt-2">
-                <Button variant="secondary" size="sm" disabled={busy} onClick={() => { setCompleting(false); setNotes(""); }}>Cancel</Button>
-                <Button variant="primary" size="sm" disabled={busy || notes.trim().length < 5} loading={busy} onClick={() => void setStatus("complete")}>Confirm complete</Button>
-              </div>
-            </div>
-          )}
+      {/* Completion notes — the actions live in the sticky footer; this is the
+          required "what was done?" note (≥ 5 chars) shown while completing. */}
+      {canStatus && completing && (
+        <div className="mb-3 rounded-md p-2" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)" }}>
+          <label htmlFor="task-complete-notes" className="text-[10px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-muted)" }}>Completion notes <span className="text-(--danger)">*</span></label>
+          <textarea id="task-complete-notes" className="input text-[12px] w-full min-h-20" placeholder="What was done? (≥ 5 characters)" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
         </div>
       )}
 
@@ -186,11 +227,18 @@ export function TaskPanel({
           <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No files yet.</p>
         ) : (
           <ul className="list-none p-0 m-0 space-y-1">
-            {files.map((f) => (
-              <li key={f.id} className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                {f.fileName} <span style={{ color: "var(--text-muted)" }}>· {f.uploadedBy} · {dayjs.utc(f.createdAt).format("DD MMM")}</span>
-              </li>
-            ))}
+            {files.map((f) => {
+              const uploaderUser = f.uploadedById ? users.find((x) => x.id === f.uploadedById) : undefined;
+              const uploaderLabel = uploaderUser ? `${f.uploadedBy} (${roleLabel(uploaderUser.role)})` : f.uploadedBy;
+              return (
+                <li key={f.id} className="text-[11px]">
+                  <p className="font-medium truncate" style={{ color: "var(--text-primary)" }}>{f.fileName}</p>
+                  <p style={{ color: "var(--text-muted)" }}>
+                    {EVIDENCE_CATEGORY_LABEL[f.category] ?? f.category} · {formatSize(f.fileSize)} · {uploaderLabel} · {dayjs.utc(f.createdAt).format("DD MMM")}
+                  </p>
+                </li>
+              );
+            })}
           </ul>
         )}
         {canUpload && (
@@ -213,6 +261,11 @@ export function TaskPanel({
             {comments.map((c) => (
               <li key={c.id} className="text-[11px]">
                 <span className="font-medium" style={{ color: "var(--text-primary)" }}>{c.authorName}</span>
+                {c.authorRole && (
+                  <span className="ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--card-border, var(--bg-border))" }}>
+                    {roleLabel(c.authorRole)}
+                  </span>
+                )}
                 <span style={{ color: "var(--text-muted)" }}> · {dayjs.utc(c.createdAt).format("DD MMM HH:mm")}</span>
                 <p style={{ color: "var(--text-secondary)" }}>{c.body}</p>
               </li>

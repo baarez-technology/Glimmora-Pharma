@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, ChevronRight, Send, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Send, Wrench, LayoutGrid, List, X } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { Dropdown } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getSeverityVariant } from "@/lib/badgeVariants";
@@ -75,8 +76,29 @@ export function WorklistPage({
   const [naError, setNaError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
 
+  // View + filters (component state only — not persisted).
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [dueByFilter, setDueByFilter] = useState("");
+  const anyFilter = !!(statusFilter || dueByFilter);
+  const clearFilters = () => { setStatusFilter(""); setDueByFilter(""); };
+  const matchesFilters = (item: WorklistItem): boolean => {
+    if (statusFilter && item.status !== statusFilter) return false;
+    if (dueByFilter && dayjs.utc(item.dueDate).isAfter(dayjs.utc(dueByFilter).endOf("day"))) return false;
+    return true;
+  };
+
+  // Summary counts (computed from the full worklist, pre-filter).
+  const allItems = worklist.groups.flatMap((g) => g.items);
+  const overdueCount = allItems.filter((i) => overdueDays(i.dueDate, i.status) !== null).length;
+  const dueSoonCount = allItems.filter((i) => {
+    if (!(i.status === "pending" || i.status === "in_progress" || i.status === "rework")) return false;
+    const d = dayjs.utc(i.dueDate);
+    return d.isAfter(dayjs()) && d.isBefore(dayjs().add(7, "day"));
+  }).length;
+
   const reworkItems: { item: WorklistItem; group: WorklistGroup }[] = worklist.groups.flatMap((g) =>
-    g.items.filter((i) => i.status === "rework").map((item) => ({ item, group: g })),
+    g.items.filter((i) => i.status === "rework" && matchesFilters(i)).map((item) => ({ item, group: g })),
   );
 
   async function handleSubmit(capaId: string) {
@@ -110,19 +132,69 @@ export function WorklistPage({
 
   return (
     <div className="capa-shell min-h-full">
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6">
       {/* ── Header ── */}
-      <div className="mb-5">
+      <div className="mb-4">
         <h1 className="text-[18px] font-semibold" style={{ color: "var(--text-primary)" }}>My Worklist</h1>
         <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
           {currentUserName} · {ROLE_LABEL[currentUserRole] ?? currentUserRole}
           {isViewer && " · read-only"}
         </p>
-        <div className="flex gap-4 mt-3 text-[12px]">
-          <span style={{ color: "var(--text-secondary)" }}>Open tasks: <strong style={{ color: "var(--text-primary)" }}>{worklist.openCount}</strong></span>
-          <span style={{ color: "var(--text-secondary)" }}>Needs rework: <strong style={{ color: worklist.reworkCount > 0 ? "var(--status-blocked)" : "var(--text-primary)" }}>{worklist.reworkCount}</strong></span>
-          <span style={{ color: "var(--text-secondary)" }}>Next due: <strong style={{ color: "var(--text-primary)" }}>{worklist.nextDue ? dayjs.utc(worklist.nextDue).format("DD MMM YYYY") : "—"}</strong></span>
+      </div>
+
+      {/* ── Summary cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <SummaryCard label="Open tasks" value={worklist.openCount} />
+        <SummaryCard label="Needs rework" value={worklist.reworkCount} tone={worklist.reworkCount > 0 ? "blocked" : undefined} />
+        <SummaryCard label="Due soon (7d)" value={dueSoonCount} tone={dueSoonCount > 0 ? "waiting" : undefined} />
+        <SummaryCard label="Overdue" value={overdueCount} tone={overdueCount > 0 ? "blocked" : undefined} />
+      </div>
+
+      {/* ── Toolbar: view toggle + filters ── */}
+      <div className="flex items-center gap-2 flex-wrap mb-4">
+        <div className="inline-flex rounded-lg border overflow-hidden" style={{ borderColor: "var(--card-border)" }} role="group" aria-label="View mode">
+          {(["list", "grid"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setViewMode(m)}
+              aria-pressed={viewMode === m}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border-none cursor-pointer"
+              style={{
+                background: viewMode === m ? "var(--brand-muted)" : "transparent",
+                color: viewMode === m ? "var(--brand)" : "var(--text-secondary)",
+              }}
+            >
+              {m === "list" ? <List className="w-3.5 h-3.5" aria-hidden="true" /> : <LayoutGrid className="w-3.5 h-3.5" aria-hidden="true" />}
+              {m === "list" ? "List" : "Grid"}
+            </button>
+          ))}
         </div>
+        <Dropdown
+          placeholder="All statuses"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          width="w-40"
+          options={[
+            { value: "", label: "All statuses" },
+            { value: "rework", label: "Rework" },
+            { value: "pending", label: "Pending" },
+            { value: "in_progress", label: "In Progress" },
+            { value: "complete", label: "Complete" },
+            { value: "skipped", label: "Skipped" },
+          ]}
+        />
+        <input
+          type="date"
+          className="input text-[12px]"
+          value={dueByFilter}
+          onChange={(e) => setDueByFilter(e.target.value)}
+          aria-label="Due on or before"
+          style={{ width: 150 }}
+        />
+        {anyFilter && (
+          <Button variant="ghost" size="sm" icon={X} onClick={clearFilters}>Clear</Button>
+        )}
       </div>
 
       {banner && (
@@ -173,9 +245,14 @@ export function WorklistPage({
 
       {/* ── Per-CAPA groups ── */}
       {worklist.groups.map((group) => {
-        const openItems = group.items.filter((i) => i.status === "pending" || i.status === "in_progress");
-        const doneItems = group.items.filter((i) => i.status === "complete" || i.status === "skipped");
-        const reworkInGroup = group.items.filter((i) => i.status === "rework");
+        const openItems = group.items.filter((i) => (i.status === "pending" || i.status === "in_progress") && matchesFilters(i));
+        const doneItems = group.items.filter((i) => (i.status === "complete" || i.status === "skipped") && matchesFilters(i));
+        const reworkInGroup = group.items.filter((i) => i.status === "rework" && matchesFilters(i));
+        // When filtering, hide groups with no matching items unless the viewer
+        // drives the CAPA (keep the driver cockpit visible).
+        if (anyFilter && !group.capa.isDriver && openItems.length === 0 && doneItems.length === 0 && reworkInGroup.length === 0) {
+          return null;
+        }
         return (
           <section key={group.capa.id} className="mb-5 card p-0 overflow-hidden">
             {/* Group header */}
@@ -244,13 +321,13 @@ export function WorklistPage({
               )}
             </div>
 
-            {/* Rows */}
-            <div>
+            {/* Rows — rework first, then open. List = rows; grid = cards. */}
+            <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 gap-2 p-3" : ""}>
               {reworkInGroup.map((item) => (
-                <Row key={item.id} item={item} onOpen={() => setSelectedTaskId(item.id)} />
+                <Row key={item.id} item={item} grid={viewMode === "grid"} onOpen={() => setSelectedTaskId(item.id)} />
               ))}
               {openItems.map((item) => (
-                <Row key={item.id} item={item} onOpen={() => setSelectedTaskId(item.id)} />
+                <Row key={item.id} item={item} grid={viewMode === "grid"} onOpen={() => setSelectedTaskId(item.id)} />
               ))}
               {group.items.length === 0 && (
                 <p className="text-[11px] italic p-3" style={{ color: "var(--text-muted)" }}>
@@ -312,8 +389,42 @@ export function WorklistPage({
   );
 }
 
-function Row({ item, onOpen, muted }: { item: WorklistItem; onOpen: () => void; muted?: boolean }) {
+function SummaryCard({ label, value, tone }: { label: string; value: number; tone?: "blocked" | "waiting" }) {
+  const valueColor = tone ? `var(--status-${tone})` : "var(--text-primary)";
+  return (
+    <div className="card p-3">
+      <p className="text-[22px] font-semibold leading-none" style={{ color: valueColor }}>{value}</p>
+      <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>{label}</p>
+    </div>
+  );
+}
+
+function Row({ item, onOpen, muted, grid }: { item: WorklistItem; onOpen: () => void; muted?: boolean; grid?: boolean }) {
   const od = overdueDays(item.dueDate, item.status);
+  const due = (
+    <span style={{ color: od !== null ? "var(--status-blocked)" : "var(--text-muted)" }}>
+      Due {dayjs.utc(item.dueDate).format("DD MMM")}{od !== null && ` · Overdue ${od}d`}
+    </span>
+  );
+  const pill = <StatusPill token={ACTION_STATUS_TOKEN[item.status] ?? "pending"}>{ITEM_STATUS_LABEL[item.status] ?? item.status}</StatusPill>;
+
+  if (grid) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className="text-left flex flex-col gap-2 p-3 rounded-lg border cursor-pointer bg-transparent hover:bg-(--bg-hover)"
+        style={{ borderColor: "var(--card-border)", opacity: muted ? 0.6 : 1 }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{item.description}</p>
+          {pill}
+        </div>
+        <p className="text-[11px]">{due}</p>
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -323,11 +434,9 @@ function Row({ item, onOpen, muted }: { item: WorklistItem; onOpen: () => void; 
     >
       <div className="flex-1 min-w-0">
         <p className="text-[12px] truncate" style={{ color: "var(--text-primary)" }}>{item.description}</p>
-        <p className="text-[11px]" style={{ color: od !== null ? "var(--status-blocked)" : "var(--text-muted)" }}>
-          Due {dayjs.utc(item.dueDate).format("DD MMM")}{od !== null && ` · Overdue ${od}d`}
-        </p>
+        <p className="text-[11px]">{due}</p>
       </div>
-      <StatusPill token={ACTION_STATUS_TOKEN[item.status] ?? "pending"}>{ITEM_STATUS_LABEL[item.status] ?? item.status}</StatusPill>
+      {pill}
       <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
     </button>
   );

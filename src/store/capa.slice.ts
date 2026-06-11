@@ -105,6 +105,15 @@ export interface CAPA {
     status: string;
     createdAt: string;
   } | null;
+  // CAPA-module batch — linked Gap (Finding) provenance, threaded like
+  // deviation: the human reference (for readable display + click-through) and
+  // the gap owner (shown alongside the CAPA driver). Populated by getCAPA /
+  // getCAPAs; null when the source isn't a gap finding.
+  finding?: {
+    id: string;
+    reference?: string | null;
+    owner?: string | null;
+  } | null;
   // SME Section 1, Stage 4 (FULL) — structured action plan items.
   // Replaces correctiveActions as the source of truth; the
   // correctiveActions string remains on the CAPA as a denormalised

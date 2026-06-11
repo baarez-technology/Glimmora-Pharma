@@ -24,7 +24,10 @@ import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { Dropdown } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
+import { useTenantConfig } from "@/hooks/useTenantConfig";
+import { roleLabel } from "@/lib/labels/roles";
 import {
   addEvidenceFile,
   loadEvidenceForCAPA,
@@ -415,16 +418,28 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }
           <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>
             {CATEGORY_LABEL[item.category]}
           </p>
-          {/* Batch 4 Part 4 — file count / status hint instead of a static line. */}
-          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-            {item.files.length > 0
-              ? `${item.files.length} file${item.files.length === 1 ? "" : "s"} attached`
+          {/* FIX 3 — clarity: a category with files that isn't resolved yet says
+              so explicitly (amber) instead of a silent count, so a fresh upload
+              on a collapsed row reads as "there but not done", not "missing". */}
+          {(() => {
+            const n = item.files.length;
+            const resolved = status === "COMPLETE" || status === "NOT_APPLICABLE";
+            const unresolvedWithFiles = n > 0 && !resolved;
+            const text = n > 0
+              ? (resolved
+                  ? `${n} file${n === 1 ? "" : "s"} attached`
+                  : `${n} file${n === 1 ? "" : "s"} • not yet marked resolved`)
               : status === "NOT_APPLICABLE"
                 ? "Marked not applicable"
                 : status === "COMPLETE"
                   ? "Answered — no files"
-                  : "No files yet"}
-          </p>
+                  : "No files yet";
+            return (
+              <p className="text-[10px]" style={{ color: unresolvedWithFiles ? "var(--status-waiting)" : "var(--text-muted)" }}>
+                {text}
+              </p>
+            );
+          })()}
         </div>
         <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
         <ChevronRight
@@ -506,19 +521,14 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }
       )}
 
       {/* Status + notes */}
-      <div className="grid grid-cols-[120px_1fr] gap-2 items-start mb-3">
-        <select
-          className="select text-[12px]"
+      <div className="grid grid-cols-[150px_1fr] gap-2 items-start mb-3">
+        <Dropdown
           value={status}
-          onChange={(e) => handleStatusChange(e.target.value as EvidenceStatus)}
+          onChange={(v) => void handleStatusChange(v as EvidenceStatus)}
           disabled={disabled || savingStatus}
-          aria-label={`Status for ${CATEGORY_LABEL[item.category]}`}
-        >
-          <option value="PENDING">Pending</option>
-          <option value="IN_PROGRESS">In Progress</option>
-          <option value="COMPLETE">Complete</option>
-          <option value="NOT_APPLICABLE">Not Applicable</option>
-        </select>
+          width="w-full"
+          options={(["PENDING", "IN_PROGRESS", "COMPLETE", "NOT_APPLICABLE"] as EvidenceStatus[]).map((s) => ({ value: s, label: STATUS_LABEL[s] }))}
+        />
         <div>
           <textarea
             className="input text-[12px] min-h-[60px]"
@@ -581,6 +591,8 @@ interface FileListProps {
 }
 
 function FileList({ item, disabled, onChange }: FileListProps) {
+  // CAPA Evidence batch — resolve the uploader's role for file provenance.
+  const { users } = useTenantConfig();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -622,7 +634,11 @@ function FileList({ item, disabled, onChange }: FileListProps) {
           No files uploaded yet.
         </p>
       )}
-      {item.files.map((f) => (
+      {item.files.map((f) => {
+        // Full provenance: resolve the uploader's role for name + role display.
+        const uploaderUser = f.uploadedById ? users.find((x) => x.id === f.uploadedById) : undefined;
+        const uploaderLabel = uploaderUser ? `${f.uploadedBy} (${roleLabel(uploaderUser.role)})` : f.uploadedBy;
+        return (
         <div
           key={f.id}
           className="flex items-center gap-2 rounded-md p-2 text-[11px]"
@@ -632,7 +648,7 @@ function FileList({ item, disabled, onChange }: FileListProps) {
           <div className="flex-1 min-w-0">
             <p className="font-medium truncate" style={{ color: "var(--text-primary)" }}>{f.fileName}</p>
             <p style={{ color: "var(--text-muted)" }}>
-              {formatSize(f.fileSize)} · {f.uploadedBy} · {dayjs(f.createdAt).fromNow()} ·{" "}
+              {CATEGORY_LABEL[item.category]} · {formatSize(f.fileSize)} · {uploaderLabel} · {dayjs(f.createdAt).fromNow()} ·{" "}
               <span title={`SHA-256: ${f.contentHashSha256}`} className="font-mono">
                 SHA {f.contentHashSha256.slice(0, 8)}
               </span>
@@ -660,7 +676,8 @@ function FileList({ item, disabled, onChange }: FileListProps) {
             </button>
           )}
         </div>
-      ))}
+        );
+      })}
 
       {!disabled && (
         <div

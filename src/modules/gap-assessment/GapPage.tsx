@@ -333,8 +333,16 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
       console.error("[gap] handleRaiseCapa failed:", result.error);
       return;
     }
-    const capaData = result.data as { id: string };
-    setRaisedCapaId(capaData.id);
+    const capaData = result.data as { id: string; reference?: string };
+    // FIX 1a — show the human reference (CAPA-…), not the raw cuid.
+    setRaisedCapaId(capaData.reference ?? capaData.id);
+    // FIX 1b — the detail modal renders from the selectedFinding snapshot; flip
+    // its "Raise CAPA" button to "linked" instantly by stamping capaId. Redux
+    // also refreshes via router.refresh()'s effect (kept), but the open snapshot
+    // needs this direct update so it doesn't require close+reopen.
+    setSelectedFinding((prev) =>
+      prev && prev.id === finding.id ? { ...prev, capaId: capaData.id } : prev,
+    );
     setCapaRaisedPopup(true);
     router.refresh();
   }

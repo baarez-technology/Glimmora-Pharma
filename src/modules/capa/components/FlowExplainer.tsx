@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { X, Info } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 
 /**
@@ -40,24 +38,5 @@ export function FlowExplainer({ open, onClose }: { open: boolean; onClose: () =>
     <Modal open={open} onClose={onClose} title="How a CAPA flows">
       <FlowSteps />
     </Modal>
-  );
-}
-
-/** Inline dismissible variant — sits under the tracker's Status guide. */
-export function FlowExplainerInline() {
-  const [dismissed, setDismissed] = useState(false);
-  if (dismissed) return null;
-  return (
-    <div className="rounded-lg border p-3 mb-4" style={{ borderColor: "var(--bg-border)", background: "var(--bg-elevated)" }}>
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
-          <Info className="w-3.5 h-3.5" aria-hidden="true" /> How a CAPA flows
-        </p>
-        <button type="button" onClick={() => setDismissed(true)} aria-label="Dismiss" className="bg-transparent border-none cursor-pointer p-0.5" style={{ color: "var(--text-muted)" }}>
-          <X className="w-3.5 h-3.5" aria-hidden="true" />
-        </button>
-      </div>
-      <FlowSteps />
-    </div>
   );
 }

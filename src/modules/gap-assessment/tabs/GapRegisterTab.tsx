@@ -24,6 +24,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { displayName, displayUserName, displaySiteName } from "@/lib/identity-display";
+import { roleLabel } from "@/lib/labels/roles";
+import { DatePicker } from "@/components/ui/DatePicker";
 
 /* ── Helpers ── */
 
@@ -353,24 +355,30 @@ export function GapRegisterTab({
       </div>
 
       {/* ── Finding detail popup ── */}
-      <Modal open={!!selectedFinding} onClose={() => { setIsEditing(false); onSelectFinding(null); }} title={selectedFinding ? findingRef(selectedFinding) : "Finding Detail"}>
+      <Modal
+        open={!!selectedFinding}
+        onClose={() => { setIsEditing(false); onSelectFinding(null); }}
+        title={selectedFinding ? findingRef(selectedFinding) : "Finding Detail"}
+        footer={selectedFinding ? (
+          <div className="flex justify-end gap-2">
+            {isEditing ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); setEditReason(""); setSaveError(""); form.reset(); }}>Cancel</Button>
+                <Button variant="primary" size="sm" icon={Save} onClick={form.handleSubmit(onSave)}>Save</Button>
+              </>
+            ) : (
+              <>
+                {canEdit && <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setIsEditing(true)}>Edit</Button>}
+                <Button variant="primary" size="sm" onClick={() => { setIsEditing(false); onSelectFinding(null); }}>Close</Button>
+              </>
+            )}
+          </div>
+        ) : undefined}
+      >
         {selectedFinding && (
           <div className="space-y-4">
-            {/* Header: badges + edit/save buttons */}
-            <div className="flex items-center justify-between">
-              <div className="flex gap-2 flex-wrap">{severityBadge(selectedFinding.severity)}{statusBadge(selectedFinding.status)}</div>
-              <div className="flex items-center gap-2">
-                {canEdit && !isEditing && (
-                  <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setIsEditing(true)}>Edit</Button>
-                )}
-                {isEditing && (
-                  <>
-                    <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); setEditReason(""); setSaveError(""); form.reset(); }}>Cancel</Button>
-                    <Button variant="primary" size="sm" icon={Save} onClick={form.handleSubmit(onSave)}>Save</Button>
-                  </>
-                )}
-              </div>
-            </div>
+            {/* Header: severity + status badges (actions live in the sticky footer). */}
+            <div className="flex gap-2 flex-wrap">{severityBadge(selectedFinding.severity)}{statusBadge(selectedFinding.status)}</div>
 
             {/* ── Requirement ── */}
             {isEditing ? (
@@ -449,7 +457,7 @@ export function GapRegisterTab({
                       <Dropdown
                         value={field.value}
                         onChange={field.onChange}
-                        options={users.filter((u) => u.status === "Active").map((u) => ({ value: u.id, label: u.name }))}
+                        options={users.filter((u) => u.status === "Active" && u.role !== "super_admin" && u.role !== "viewer").map((u) => ({ value: u.id, label: `${u.name} — ${roleLabel(u.role)}` }))}
                         placeholder="Select owner..."
                         width="w-full"
                       />
@@ -465,13 +473,16 @@ export function GapRegisterTab({
                 <h3 className={LABEL}>Target date</h3>
                 {isEditing ? (
                   <>
-                    <input
-                      type="date"
-                      {...form.register("targetDate", { required: "Target date required" })}
-                      className="w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-all duration-150 bg-(--bg-elevated) border border-(--bg-border) text-(--text-primary) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
+                    <Controller
+                      name="targetDate"
+                      control={form.control}
+                      rules={{ required: "Target date required" }}
+                      render={({ field }) => (
+                        <DatePicker id="edit-target" value={field.value ?? ""} onChange={field.onChange}
+                          error={form.formState.errors.targetDate?.message} />
+                      )}
                     />
-                    {isOverdue && <p className="text-[11px] text-[#f59e0b] mt-1">Current date is overdue — consider a future date</p>}
-                    {form.formState.errors.targetDate && <p role="alert" className="text-[11px] text-[#ef4444] mt-1">{form.formState.errors.targetDate.message}</p>}
+                    {isOverdue && <p className="text-[11px] mt-1" style={{ color: "var(--status-waiting)" }}>Current date is overdue — consider a future date</p>}
                   </>
                 ) : (
                   <p className="text-[12px]" style={{ color: isOverdue ? "#ef4444" : "var(--text-primary)" }}>
@@ -546,8 +557,8 @@ export function GapRegisterTab({
                 <div>
                   <h3 className={LABEL}>Linked CAPA</h3>
                   <div className="flex items-center gap-2 mt-1">
-                    <button type="button" onClick={() => onNavigateCapa(linkedCapaId)} className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0">
-                      <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{linkedCapaId}
+                    <button type="button" onClick={() => onNavigateCapa(linkedCapaId)} className="flex items-center gap-1.5 text-[12px] hover:underline bg-transparent border-none cursor-pointer p-0" style={{ color: "var(--brand)" }}>
+                      <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{linkedCapa?.reference ?? linkedCapaId}
                     </button>
                     {linkedCapa && capaStatusBadge(linkedCapa.status)}
                   </div>

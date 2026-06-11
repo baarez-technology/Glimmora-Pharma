@@ -9,7 +9,9 @@ import type { UserConfig, SiteConfig } from "@/store/settings.slice";
 import type { GxPSystem } from "@/types/csv-csa";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { Modal } from "@/components/ui/Modal";
+import { roleLabel } from "@/lib/labels/roles";
 
 const AREAS = ["Manufacturing", "QC Lab", "Warehouse", "Utilities", "QMS", "CSV/IT"];
 
@@ -110,7 +112,14 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
   }
 
   return (
-    <Modal open={isOpen} onClose={handleClose} title="Report Compliance Gap">
+    <Modal open={isOpen} onClose={handleClose} title="Report Compliance Gap"
+      footer={
+        <div className="flex justify-end gap-3">
+          <Button variant="ghost" type="button" onClick={handleClose}>Cancel</Button>
+          <Button variant="primary" icon={Plus} loading={isSubmitting} onClick={handleSubmit(onSubmit)}>Report Gap</Button>
+        </div>
+      }
+    >
       <form onSubmit={handleSubmit(onSubmit)} aria-label="Add new finding" className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           {/* Site — hidden for non-admin (auto-assigned from login), visible dropdown for admin */}
@@ -155,13 +164,14 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
           <div>
             <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Owner <span className="text-(--danger)">*</span></p>
             <Dropdown placeholder="Select owner..." value={watch("owner") ?? ""} onChange={(v) => setValue("owner", v, { shouldValidate: true })} width="w-full"
-              options={users.filter((u) => u.status === "Active").map((u) => ({ value: u.id, label: u.name }))} />
+              options={users.filter((u) => u.status === "Active" && u.role !== "super_admin" && u.role !== "viewer").map((u) => ({ value: u.id, label: `${u.name} — ${roleLabel(u.role)}` }))} />
             {errors.owner && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.owner.message}</p>}
           </div>
           <div>
-            <label htmlFor="f-target" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Target date <span className="text-(--danger)">*</span></label>
-            <input id="f-target" type="date" className="input text-[12px]" {...reg("targetDate")} />
-            {errors.targetDate && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.targetDate.message}</p>}
+            <DatePicker id="f-target" label="Target date" required
+              value={watch("targetDate") ?? ""}
+              onChange={(v) => setValue("targetDate", v, { shouldValidate: true })}
+              error={errors.targetDate?.message} />
           </div>
           <div className="col-span-2">
             <label htmlFor="f-evidence" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Evidence link (optional)</label>
@@ -239,10 +249,6 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
               A linked CAPA will be created automatically and appear in the CAPA Tracker.
             </p>
           </div>
-        </div>
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="ghost" type="button" onClick={handleClose}>Cancel</Button>
-          <Button variant="primary" type="submit" icon={Plus} loading={isSubmitting}>Report Gap</Button>
         </div>
       </form>
     </Modal>
