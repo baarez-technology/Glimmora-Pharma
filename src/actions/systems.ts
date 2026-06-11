@@ -12,7 +12,7 @@ import {
 } from "@/lib/permissions/roleSets";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
-import { assertTenantOwnsParent } from "@/lib/tenantScope";
+import { assertTenantOwnsParent, scopedWhere } from "@/lib/tenantScope";
 import { createCAPA } from "@/actions/capas/lifecycle";
 import { deriveSiteCode, isReferenceConflict } from "@/lib/reference";
 import {
@@ -1461,7 +1461,7 @@ export async function resetToAutoDerivedStatus(systemId: string): Promise<Action
     // if the value changes).
     await syncValidationStatus(systemId, session);
     revalidatePath("/csv-csa");
-    const system = await prisma.gxPSystem.findUnique({ where: { id: systemId } });
+    const system = await prisma.gxPSystem.findFirst({ where: scopedWhere(session, systemId) });
     return { success: true, data: system };
   } catch (err) {
     console.error("[action] resetToAutoDerivedStatus failed:", err);
@@ -1513,7 +1513,7 @@ export async function linkFindingToSystem(systemId: string, findingId: string): 
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
   try {
-    await prisma.finding.update({ where: { id: findingId }, data: { systemId } });
+    await prisma.finding.update({ where: scopedWhere(session, findingId), data: { systemId } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -1548,7 +1548,7 @@ export async function unlinkFindingFromSystem(systemId: string, findingId: strin
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
   try {
-    await prisma.finding.update({ where: { id: findingId }, data: { systemId: null } });
+    await prisma.finding.update({ where: scopedWhere(session, findingId), data: { systemId: null } });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,

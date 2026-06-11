@@ -8,6 +8,7 @@ import { requireAuth, resolveUserFk } from "@/lib/auth";
 import { BCRYPT_COST } from "@/lib/passwords";
 import { sanitizeServerError } from "@/lib/errors";
 import { assertCanAddUser, assertCanAddSite, type CapBlockCode } from "@/lib/planCaps";
+import { scopedWhere } from "@/lib/tenantScope";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -122,7 +123,7 @@ export async function updateSite(
   }
   if (session.user.role !== "super_admin") {
     const owned = await prisma.site.findFirst({
-      where: { id, tenantId: session.user.tenantId },
+      where: scopedWhere(session, id),
       select: { id: true },
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
@@ -130,7 +131,9 @@ export async function updateSite(
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     const site = await prisma.site.update({
-      where: { id },
+      // Tenant-atomic write (closes the check-then-write TOCTOU); super_admin
+      // bypass preserved via the flag, matching the pre-check above.
+      where: scopedWhere(session, id, { allowPlatformAdmin: true }),
       data: parsed.data,
     });
     await prisma.auditLog.create({
@@ -164,14 +167,14 @@ export async function deleteSite(id: string): Promise<ActionResult> {
   // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.site.findFirst({
-      where: { id, tenantId: session.user.tenantId },
+      where: scopedWhere(session, id),
       select: { id: true },
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
-    await prisma.site.delete({ where: { id } });
+    await prisma.site.delete({ where: scopedWhere(session, id, { allowPlatformAdmin: true }) });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -314,7 +317,7 @@ export async function updateUser(
   // High-value: blocks customer_admin of tenant A from mutating users in tenant B.
   if (session.user.role !== "super_admin") {
     const owned = await prisma.user.findFirst({
-      where: { id, tenantId: session.user.tenantId },
+      where: scopedWhere(session, id),
       select: { id: true },
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
@@ -326,7 +329,8 @@ export async function updateUser(
     if (password) data.passwordHash = await bcrypt.hash(password, BCRYPT_COST);
 
     const user = await prisma.user.update({
-      where: { id },
+      // Tenant-atomic write (closes TOCTOU); super_admin bypass via the flag.
+      where: scopedWhere(session, id, { allowPlatformAdmin: true }),
       data,
     });
     await prisma.auditLog.create({
@@ -356,14 +360,14 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   // Tenant scope check â€” prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.user.findFirst({
-      where: { id, tenantId: session.user.tenantId },
+      where: scopedWhere(session, id),
       select: { id: true },
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
-    await prisma.user.delete({ where: { id } });
+    await prisma.user.delete({ where: scopedWhere(session, id, { allowPlatformAdmin: true }) });
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,

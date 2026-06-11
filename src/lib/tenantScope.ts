@@ -64,6 +64,37 @@ export type TenantOwnedParent =
  * Caller is responsible for translating null → `FORBIDDEN` or
  * `parent-not-found` semantics in their ActionResult error string.
  */
+/**
+ * Phase 1.5 (C-1) — tenant-scoped WHERE fragment for find/update/delete by id
+ * on a DIRECT-tenantId model (Site, User, CAPA, Deviation, Finding, Document,
+ * GxPSystem, ChangeControl, FDA483Event, Inspection, RAIDItem, …).
+ *
+ * Prisma 6 accepts a unique locator (`id`) PLUS an extra `tenantId` filter in
+ * update/delete `where`, so spreading this into the WRITE itself makes the
+ * mutation tenant-atomic — closing the check-then-write (TOCTOU) gap that the
+ * hand-rolled "pre-fetch findFirst{id,tenantId} then update{id}" pattern left
+ * open.
+ *
+ * super_admin scope-widening is OPT-IN ONLY: pass `{ allowPlatformAdmin: true }`
+ * at the ~10 sites that already intentionally bypass tenant scope for the
+ * platform admin. It NEVER widens silently — omit the flag and the fragment is
+ * always tenant-scoped (the safe default).
+ *
+ * Relation-scoped child models (FDA483Observation→event, CAPAComment→capa, …)
+ * do NOT use this — they scope via a parent relation; use the relation-aware
+ * path (assertTenantOwnsParent / an explicit relation filter) for those.
+ */
+export function scopedWhere(
+  session: SessionLike,
+  id: string,
+  opts: { allowPlatformAdmin?: boolean } = {},
+): { id: string; tenantId?: string } {
+  if (opts.allowPlatformAdmin && session.user.role === "super_admin") {
+    return { id };
+  }
+  return { id, tenantId: session.user.tenantId };
+}
+
 export async function assertTenantOwnsParent<T>(
   session: SessionLike,
   model: TenantOwnedParent,

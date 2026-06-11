@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
+import { scopedWhere } from "@/lib/tenantScope";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import { getCAPAEffectivenessCriteria } from "@/lib/queries/capa-criteria";
 import { sanitizeServerError } from "@/lib/errors";
@@ -186,7 +187,7 @@ export async function updateCriterion(
       monitoringPeriod: existing.monitoringPeriod,
     };
     const criterion = await prisma.cAPAEffectivenessCriterion.update({
-      where: { id: criterionId },
+      where: scopedWhere(session, criterionId),
       data: {
         ...parsed.data,
         updatedBy: session.user.name,
@@ -261,7 +262,7 @@ export async function deleteCriterion(
     // Soft-delete (Part 11 retention) — row retained; criteria list/count
     // queries filter deletedAt so the readiness gate ignores it.
     await prisma.cAPAEffectivenessCriterion.update({
-      where: { id: criterionId },
+      where: scopedWhere(session, criterionId),
       data: {
         deletedAt: new Date(),
         deletedById: actor.userId,
@@ -314,7 +315,7 @@ export async function restoreCriterion(criterionId: string): Promise<ActionResul
   }
   try {
     await prisma.cAPAEffectivenessCriterion.update({
-      where: { id: criterionId },
+      where: scopedWhere(session, criterionId),
       data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
     });
     await prisma.auditLog.create({
