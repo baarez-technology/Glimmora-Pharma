@@ -955,7 +955,7 @@ export function FDA483Page({
                     router.refresh();
                   }}
                   onGenerateAGIDraft={async () => {
-                    if (!liveEvent) return;
+                    if (!liveEvent) return null;
                     // WIRE C — build the draft from real event data via the AI
                     // gateway (mocked). The 1.5s latency lives inside
                     // getResponseDraft; persistence + the Use/Edit/confirm flow
@@ -988,9 +988,14 @@ export function FDA483Page({
                     const result = await saveAGIDraftServer(liveEvent.id, draft);
                     if (!result.success) {
                       toast.error(`Could not complete action: ${result.error || "Failed to generate AGI draft. Please try again."}`);
-                      return;
+                      return null;
                     }
                     router.refresh();
+                    // Return the freshly generated draft so the modal can clear
+                    // its spinner deterministically — the mock yields byte-
+                    // identical output on regeneration, so the tab can NOT rely
+                    // on liveEvent.agiDraft changing value to detect completion.
+                    return draft;
                   }}
                   onSignSubmit={() => setSignOpen(true)}
                 />

@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/Badge";
 import { StatCard, CardSection, SetupChecklist } from "@/components/shared";
 import { isOverdue } from "@/types/capa";
 import { displayUserName } from "@/lib/identity-display";
+import { regulatoryAlertSummary, driftAlertSummary } from "@/lib/ai";
 import { planLabel } from "@/lib/plans";
 import { ActionPlanTable } from "./ActionPlanTable";
 
@@ -203,6 +204,28 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
   const pending = filteredCAPAs.filter((c) => c.status === "pending_qa_review").length;
 
   const insights: { id: string; type: "warning" | "info" | "success"; text: string; action?: string; link?: string }[] = [];
+  if (agiSettings.mode !== "manual") {
+    // Regulatory Intelligence agent \u2014 FDA/EMA guidance change alerts. This is
+    // EXTERNAL guidance, independent of tenant findings, so it surfaces even on
+    // a fresh dashboard where the findings/CAPA Redux slices aren't yet
+    // hydrated (those only load after visiting Gap/CAPA). Pushed first so it
+    // stays within the insights.slice(0, 5) the rail renders. Deterministic
+    // sync summary (no await) \u2014 the module page runs the full async scan.
+    if (agiSettings.agents.regulatory) {
+      const reg = regulatoryAlertSummary();
+      if (reg.newRequirements > 0) insights.push({ id: "regulatory-new-requirements", type: "warning", text: `${reg.newRequirements} new FDA/EMA regulatory requirement${reg.newRequirements > 1 ? "s" : ""} flagged \u2014 review compliance alignment.`, action: "Review guidance", link: "/regulatory-intelligence" });
+      else if (reg.total > 0) insights.push({ id: "regulatory-updates", type: "info", text: `${reg.total} FDA/EMA guidance update${reg.total > 1 ? "s" : ""} monitored this period.`, action: "Review guidance", link: "/regulatory-intelligence" });
+    }
+    // Drift Detection agent \u2014 config/access/audit-trail drift on validated
+    // systems. Also external to tenant findings, so it surfaces on a fresh
+    // dashboard. Links to CSV/CSA where the detail panel lives.
+    if (agiSettings.agents.drift) {
+      const drift = driftAlertSummary();
+      if (drift.critical > 0) insights.push({ id: "drift-critical", type: "warning", text: `${drift.critical} critical system drift alert${drift.critical > 1 ? "s" : ""} detected${drift.auditTrail > 0 ? " (audit-trail coverage drop)" : ""}.`, action: "Review drift", link: "/csv-csa" });
+      else if (drift.total > 0) insights.push({ id: "drift-open", type: "info", text: `${drift.total} system drift alert${drift.total > 1 ? "s" : ""} open \u2014 configuration / access changes.`, action: "Review drift", link: "/csv-csa" });
+    }
+  }
+  // Finding/CAPA-derived insights require the Redux slices to be loaded.
   if (agiSettings.mode !== "manual" && (filteredFindings.length > 0 || filteredCAPAs.length > 0)) {
     if (criticalCount > 0) insights.push({ id: "critical-findings", type: "warning", text: `${criticalCount} critical finding${criticalCount > 1 ? "s" : ""} open \u2014 immediate attention required.`, action: "View findings", link: "/gap-assessment" });
     if (overdueCAPAs.length > 0) insights.push({ id: "overdue-capas", type: "warning", text: `${overdueCAPAs.length} CAPA${overdueCAPAs.length > 1 ? "s" : ""} past due. Risk of inspection finding.`, action: "View CAPAs", link: "/capa" });
@@ -334,8 +357,8 @@ export function DashboardPage({ readinessScore: readinessScoreProp }: DashboardP
             <div className="card-body space-y-2">
               {agiSettings.mode === "manual" ? (
                 <><p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>AGI is in manual mode. Enable agents in Settings &rarr; AGI Policy.</p><Button variant="ghost" size="sm" className="mt-2" onClick={() => router.push("/settings")}>Configure &rarr;</Button></>
-              ) : filteredFindings.length === 0 && filteredCAPAs.length === 0 ? (
-                <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No findings match current filters. Adjust filters to see insights.</p>
+              ) : insights.length === 0 ? (
+                <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No insights to show. Adjust filters or enable AGI agents in Settings.</p>
               ) : insights.slice(0, 5).map((ins) => (
                 <div key={ins.id} className={clsx("flex items-start gap-2 p-2.5 rounded-lg", ins.type === "warning" ? isDark ? "bg-(--warning-bg) border border-(--warning)" : "bg-[#fffbeb] border border-[#fde68a]" : ins.type === "success" ? isDark ? "bg-(--success-bg) border border-(--success)" : "bg-[#f0fdf4] border border-[#a7f3d0]" : "bg-(--bg-surface) border border-(--bg-border)")}>
                   {ins.type === "warning" ? <AlertTriangle className="w-3.5 h-3.5 text-[#f59e0b] flex-shrink-0 mt-0.5" aria-hidden="true" /> : ins.type === "success" ? <CheckCircle2 className="w-3.5 h-3.5 text-[#10b981] flex-shrink-0 mt-0.5" aria-hidden="true" /> : <Info className="w-3.5 h-3.5 text-[#0ea5e9] flex-shrink-0 mt-0.5" aria-hidden="true" />}

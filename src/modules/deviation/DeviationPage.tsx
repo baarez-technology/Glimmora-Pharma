@@ -43,6 +43,8 @@ import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/severity"
 import { addSchema, type AddForm } from "./DeviationPage.schemas";
 import { adaptDeviation, type PrismaDeviationWithCapa } from "./DeviationPage.adapter";
 import { InvestigationSection, CapaDecisionSection } from "./DeviationInvestigation";
+import { DeviationIntelligencePanel } from "./DeviationIntelligencePanel";
+import type { DeviationClusterInput } from "@/lib/ai";
 import type { Deviation as PrismaDeviation } from "@prisma/client";
 
 /* ══════════════════════════════════════ */
@@ -81,6 +83,24 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   const dateFormat = org.dateFormat;
 
   const tenantDevs = deviations.filter((d) => d.tenantId === tenantId);
+
+  // Projection fed to the Deviation Intelligence agent (clusters by area).
+  // Recomputed each render with tenantDevs; the panel guards re-analysis on a
+  // stable content signature so this doesn't loop.
+  const deviationIntelInput: DeviationClusterInput[] = useMemo(
+    () =>
+      tenantDevs.map((d) => ({
+        id: d.id,
+        reference: d.reference ?? d.id.slice(0, 8),
+        title: d.title,
+        category: d.category,
+        area: d.area,
+        severity: d.severity,
+        status: d.status,
+      })),
+    [tenantDevs],
+  );
+
   const openCount = tenantDevs.filter((d) => d.status === "open").length;
   const investigatingCount = tenantDevs.filter((d) => d.status === "under_investigation").length;
   const overdueCount = tenantDevs.filter((d) => d.status !== "closed" && d.status !== "rejected" && dayjs.utc(d.dueDate).isBefore(dayjs())).length;
@@ -315,6 +335,14 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
         <StatCard icon={Search} color="#6366f1" label="Under investigation" value={String(investigatingCount)} sub="In progress" />
         <StatCard icon={Clock} color={overdueCount > 0 ? "#ef4444" : "#10b981"} label="Overdue" value={String(overdueCount)} sub={overdueCount > 0 ? "Needs attention" : "On track"} />
       </div>
+
+      {/* Deviation Intelligence — AGI pattern clustering (read-only analysis).
+          Renders only when the `deviation` agent is on and there are
+          deviations to analyse. */}
+      <DeviationIntelligencePanel
+        deviations={deviationIntelInput}
+        onOpenDeviation={setSelectedId}
+      />
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">

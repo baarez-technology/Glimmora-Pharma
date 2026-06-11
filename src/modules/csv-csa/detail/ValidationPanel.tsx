@@ -5,7 +5,7 @@
 // delete server-side; the UI mirrors that lock with a chip + hidden buttons.
 import { useState, useRef } from "react";
 import clsx from "clsx";
-import { ClipboardList, Download, Lock, Pencil, X, Save, FileText, Trash2, Upload, CheckCircle2, AlertCircle, SkipForward, Info, ShieldCheck } from "lucide-react";
+import { ClipboardList, Download, Lock, Pencil, X, Save, FileText, Trash2, Upload, CheckCircle2, AlertCircle, SkipForward, Info, ShieldCheck, Sparkles, ChevronDown, ChevronRight, RefreshCw, Loader2 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAppSelector } from "@/hooks/useAppSelector";
@@ -36,6 +36,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
 import { displayUserName } from "@/lib/identity-display";
+import { getDocumentReview, type DocumentReviewResult, type DocumentReviewSeverity } from "@/lib/ai";
+import { selectAiToken } from "@/lib/aiBackend";
+import { friendlyAiError } from "@/lib/friendlyError";
 
 /* ── Helpers ── */
 
@@ -92,6 +95,181 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* ── AI Document Review (Feature D) — inline soft-gate sub-panel ── */
+
+function severityColor(sev: DocumentReviewSeverity): string {
+  return sev === "high" ? "#ef4444" : sev === "medium" ? "#f59e0b" : "#0ea5e9";
+}
+function severityLabel(sev: DocumentReviewSeverity): string {
+  return sev === "high" ? "High" : sev === "medium" ? "Medium" : "Low";
+}
+
+function SeverityDot({ sev }: { sev: DocumentReviewSeverity }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block w-2 h-2 rounded-full shrink-0 mt-1"
+      style={{ background: severityColor(sev) }}
+    />
+  );
+}
+
+interface DocReviewBlockProps {
+  result?: DocumentReviewResult;
+  busy: boolean;
+  error?: string;
+  expanded: boolean;
+  acknowledgedReason?: string;
+  canAct: boolean;
+  isDark: boolean;
+  onRun: () => void;
+  onToggle: () => void;
+  onOverride: () => void;
+}
+
+/**
+ * Renders the "Document Review" agent output for a single uploaded document.
+ * Soft gate: findings are advisory and never block submission. Mirrors the
+ * spec mock — header line, severity-dotted findings, "Review findings" +
+ * "Submit anyway (with reason)".
+ */
+function DocReviewBlock({
+  result, busy, error, expanded, acknowledgedReason, canAct, isDark,
+  onRun, onToggle, onOverride,
+}: DocReviewBlockProps) {
+  if (busy) {
+    return (
+      <div className="mt-1.5 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--brand)" }}>
+        <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+        <span>Document Review — scanning…</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mt-1.5 flex items-center gap-2 text-[11px]" style={{ color: "var(--danger)" }} role="alert">
+        <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+        <span>{error}</span>
+        {canAct && (
+          <button type="button" onClick={onRun} className="underline border-none bg-transparent cursor-pointer p-0" style={{ color: "var(--danger)" }}>
+            Retry
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (!result) {
+    if (!canAct) return null;
+    return (
+      <button
+        type="button"
+        onClick={onRun}
+        className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium border-none bg-transparent cursor-pointer p-0"
+        style={{ color: "var(--brand)" }}
+      >
+        <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+        Run AI document review
+      </button>
+    );
+  }
+
+  const count = result.findings.length;
+
+  // Clean pass — no findings.
+  if (count === 0) {
+    return (
+      <div
+        className="mt-1.5 rounded-lg p-2.5 flex items-center gap-2 text-[11px]"
+        style={{
+          background: isDark ? "rgba(16,185,129,0.06)" : "#f0fdf4",
+          border: `1px solid ${isDark ? "rgba(16,185,129,0.2)" : "#a7f3d0"}`,
+          color: "#10b981",
+        }}
+      >
+        <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+        <span className="font-semibold">Document Review</span>
+        <span style={{ color: "var(--text-muted)" }}>· Scanned in {result.scanDurationSeconds}s · No issues flagged — looks complete</span>
+        {canAct && (
+          <button type="button" onClick={onRun} aria-label="Re-run review" className="ml-auto p-0.5 rounded border-none bg-transparent cursor-pointer" style={{ color: "var(--text-muted)" }}>
+            <RefreshCw className="w-3 h-3" aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-1.5 rounded-lg p-2.5 space-y-2"
+      style={{ background: "var(--brand-muted)", border: "1px solid var(--brand-border)" }}
+    >
+      <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+        <Sparkles className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--brand)" }} aria-hidden="true" />
+        <span className="font-semibold" style={{ color: "var(--brand)" }}>Document Review</span>
+        <span style={{ color: "var(--text-muted)" }}>
+          · Scanned in {result.scanDurationSeconds}s · {count} issue{count === 1 ? "" : "s"} flagged
+        </span>
+        {canAct && (
+          <button type="button" onClick={onRun} aria-label="Re-run review" className="ml-auto p-0.5 rounded border-none bg-transparent cursor-pointer" style={{ color: "var(--text-muted)" }}>
+            <RefreshCw className="w-3 h-3" aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
+      {/* Findings — titles always visible (severity-dotted); details on expand. */}
+      <ul role="list" className="space-y-1.5 list-none p-0 m-0">
+        {result.findings.map((f) => (
+          <li key={f.id} className="flex items-start gap-2 text-[11px]">
+            <SeverityDot sev={f.severity} />
+            <div className="flex-1">
+              <span style={{ color: "var(--text-primary)" }}>{f.title}</span>
+              {expanded && (
+                <div className="mt-1 space-y-0.5">
+                  <p style={{ color: "var(--text-secondary)" }}>{f.detail}</p>
+                  <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    <span className="font-semibold" style={{ color: severityColor(f.severity) }}>{severityLabel(f.severity)}</span>
+                    {f.sectionRef ? ` · ${f.sectionRef}` : ""} · Rubric: {f.rubricItem}
+                  </p>
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {acknowledgedReason && (
+        <p className="text-[10px] italic" style={{ color: "var(--text-muted)" }}>
+          Findings acknowledged — proceeding anyway. Reason: {acknowledgedReason}
+        </p>
+      )}
+
+      <div className="flex items-center gap-2 flex-wrap pt-0.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-1 text-[11px] font-medium border-none bg-transparent cursor-pointer p-0"
+          style={{ color: "var(--brand)" }}
+        >
+          {expanded ? <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />}
+          {expanded ? "Hide findings" : "Review findings"}
+        </button>
+        {canAct && !acknowledgedReason && (
+          <button
+            type="button"
+            onClick={onOverride}
+            className="text-[11px] font-medium border-none bg-transparent cursor-pointer p-0"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Submit anyway
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /* ── Props ── */
@@ -175,6 +353,52 @@ export function ValidationPanel({
   const [deleteReason, setDeleteReason] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // AI Document Review (Feature D) — soft gate. Pre-checks an uploaded
+  // validation document against the rubric so the Val Lead can fix gaps
+  // before QA sees it. State is keyed by document id; several docs can be
+  // scanning at once (reviewingDocs is a set). reviewAcks records the
+  // recorded reason when the lead chooses "Submit anyway".
+  const token = useAppSelector(selectAiToken);
+  const [reviews, setReviews] = useState<Record<string, DocumentReviewResult>>({});
+  const [reviewingDocs, setReviewingDocs] = useState<Set<string>>(new Set());
+  const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({});
+  const [expandedReview, setExpandedReview] = useState<string | null>(null);
+  const [reviewAcks, setReviewAcks] = useState<Record<string, string>>({});
+  const [overrideDoc, setOverrideDoc] = useState<{ id: string; fileName: string } | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+
+  async function runReview(docId: string, stageKey: ValidationStageKey, fileName: string, file: File | null) {
+    setReviewErrors((p) => { const n = { ...p }; delete n[docId]; return n; });
+    setReviewingDocs((p) => { const n = new Set(p); n.add(docId); return n; });
+    try {
+      const res = await getDocumentReview({
+        stageKey,
+        stageLabel: VALIDATION_STAGE_LABELS[stageKey],
+        systemName: system.name,
+        fileName,
+        fileType: file?.type,
+        fileSize: file?.size,
+        file,
+        token,
+      });
+      setReviews((p) => ({ ...p, [docId]: res }));
+    } catch (e) {
+      console.error("[csv-csa] document review failed:", e);
+      setReviewErrors((p) => ({ ...p, [docId]: friendlyAiError(e, "Document review failed. Try again.") }));
+    } finally {
+      setReviewingDocs((p) => { const n = new Set(p); n.delete(docId); return n; });
+    }
+  }
+
+  function handleOverrideSubmit() {
+    if (!overrideDoc || overrideReason.trim().length < 3) return;
+    setReviewAcks((p) => ({ ...p, [overrideDoc.id]: overrideReason.trim() }));
+    setOverrideDoc(null);
+    setOverrideReason("");
+    setSuccessMsg("Review findings acknowledged — you can submit for QA review.");
+    setSuccessPopup(true);
+  }
 
   const [prevId, setPrevId] = useState(system.id);
   if (system.id !== prevId) { setPrevId(system.id); setActionsText(system.plannedActions ?? ""); setEditingActions(false); setEditingNextReview(false); setEditingNotes(null); }
@@ -295,6 +519,10 @@ export function ValidationPanel({
     }
     setSuccessMsg(`Document uploaded to ${stageKey}`);
     setSuccessPopup(true);
+    // Document Review agent auto-triggers on upload (spec: "Triggered on CSV
+    // stage document upload"). Fire-and-forget — the inline panel shows the
+    // scanning state and findings once it resolves.
+    void runReview(result.data.id, stageKey, file.name, file);
     router.refresh();
   }
 
@@ -452,7 +680,8 @@ export function ValidationPanel({
                 ) : (
                   <ul role="list" className="space-y-1.5 list-none p-0 m-0">
                     {docs.map((d) => (
-                      <li key={d.id} className="flex items-center gap-2 text-[11px] flex-wrap">
+                      <li key={d.id} className="text-[11px]">
+                        <div className="flex items-center gap-2 flex-wrap">
                         <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--brand)" }} aria-hidden="true" />
                         <a
                           href={`/api/stage-documents/${d.id}`}
@@ -502,6 +731,19 @@ export function ValidationPanel({
                             <Trash2 className="w-3 h-3" aria-hidden="true" />
                           </button>
                         )}
+                        </div>
+                        <DocReviewBlock
+                          result={reviews[d.id]}
+                          busy={reviewingDocs.has(d.id)}
+                          error={reviewErrors[d.id]}
+                          expanded={expandedReview === d.id}
+                          acknowledgedReason={reviewAcks[d.id]}
+                          canAct={canSubmitStages && s.status !== "approved"}
+                          isDark={isDark}
+                          onRun={() => void runReview(d.id, s.key, d.originalFileName, null)}
+                          onToggle={() => setExpandedReview((prev) => (prev === d.id ? null : d.id))}
+                          onOverride={() => { setOverrideDoc({ id: d.id, fileName: d.originalFileName }); setOverrideReason(""); }}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -838,6 +1080,34 @@ export function ValidationPanel({
                 onClick={() => void handleDeleteDoc()}
               >
                 Remove
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* "Submit anyway" override — soft-gate acknowledgement. The Document
+          Review never blocks submission; this records the Val Lead's reason
+          for proceeding with open findings, shown inline next to the doc. */}
+      <Modal open={!!overrideDoc} onClose={() => setOverrideDoc(null)} title="Submit anyway — acknowledge review findings">
+        {overrideDoc && (
+          <div className="space-y-3">
+            <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+              The Document Review flagged issues on <strong>{overrideDoc.fileName}</strong>. This does not block
+              submission — record why you are proceeding so QA has the context. Minimum 3 characters.
+            </p>
+            <textarea
+              className="input text-[12px] min-h-[80px] w-full resize-none"
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="e.g. SOP reference is a false positive — v1.0 still effective per change control CC-2026-014"
+              maxLength={2000}
+              aria-label="Override reason"
+            />
+            <div className="flex justify-end gap-2 pt-2" style={{ borderTop: "1px solid var(--bg-border)" }}>
+              <Button variant="secondary" size="sm" onClick={() => setOverrideDoc(null)}>Cancel</Button>
+              <Button variant="primary" size="sm" icon={CheckCircle2} disabled={overrideReason.trim().length < 3} onClick={handleOverrideSubmit}>
+                Acknowledge &amp; proceed
               </Button>
             </div>
           </div>

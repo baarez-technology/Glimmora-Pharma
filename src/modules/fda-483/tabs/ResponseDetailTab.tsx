@@ -23,7 +23,7 @@
  * `onSignSubmit()`.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePermissions } from "@/hooks/usePermissions";
 import clsx from "clsx";
@@ -96,8 +96,11 @@ export interface ResponseDetailTabProps {
   /** Persist liveEvent.agiDraft as the response draft (one click). */
   onUseAGIDraft: () => void;
   /** Generate (and persist) a new AGI draft from the current
-   *  observations + CAPAs. */
-  onGenerateAGIDraft: () => void;
+   *  observations + CAPAs. Resolves to the generated draft text, or
+   *  null if generation failed — the modal uses this to clear its
+   *  loading spinner (the deterministic mock yields identical text on
+   *  regeneration, so a value-diff can't detect completion). */
+  onGenerateAGIDraft: () => Promise<string | null>;
   /** Open the SignSubmitModal at the page level. */
   onSignSubmit: () => void;
   /** Cross-tab nav from the readiness mini-section (spec #27). */
@@ -188,10 +191,6 @@ export function ResponseDetailTab({
   // open-cycle so we don't fire the server action twice if React
   // re-renders the tab while the modal is open.
   const [aiLoading, setAiLoading] = useState(false);
-  // Snapshot of liveEvent.agiDraft at the moment the modal opened — used
-  // to detect "the parent persisted a fresh draft" vs "the existing
-  // draft was already there before we opened" so the spinner can clear.
-  const aiBaselineRef = useRef<string>("");
   // True when the read-only submitted-package preview modal is open.
   const [packagePreviewOpen, setPackagePreviewOpen] = useState(false);
 
@@ -260,29 +259,21 @@ export function ResponseDetailTab({
       ? "ready"
       : "locked";
 
-  /* ── AI draft modal effect ──
-   * When the modal is opened with no existing AI draft, kick off the
-   * generation immediately. When the parent has just persisted a new
-   * draft (liveEvent.agiDraft changes from the snapshot we took at open
-   * time), clear the loading spinner. */
-  useEffect(() => {
-    if (!aiModalOpen) return;
-    if (aiLoading && liveEvent.agiDraft && liveEvent.agiDraft !== aiBaselineRef.current) {
-      // Pre-fill the editable textarea (the shared response-draft buffer) with
-      // the freshly generated draft, then clear the spinner.
-      onResponseTextChange(liveEvent.agiDraft);
-      setAiLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiModalOpen, aiLoading, liveEvent.agiDraft]);
-
-  function openAiModal() {
-    aiBaselineRef.current = liveEvent.agiDraft ?? "";
+  async function openAiModal() {
     setAiModalOpen(true);
     // Always regenerate when the user clicks "AI Draft" — the observations +
     // CAPAs may have changed since the last cached draft.
     setAiLoading(true);
-    onGenerateAGIDraft();
+    // Await the generated draft and clear the spinner deterministically.
+    // We can't infer completion from liveEvent.agiDraft changing, because the
+    // mock returns byte-identical text on regeneration (no Date/random), so a
+    // second generation would otherwise spin forever.
+    const draft = await onGenerateAGIDraft();
+    if (draft != null) {
+      // Pre-fill the editable textarea (the shared response-draft buffer).
+      onResponseTextChange(draft);
+    }
+    setAiLoading(false);
   }
 
   function closeAiModal() {

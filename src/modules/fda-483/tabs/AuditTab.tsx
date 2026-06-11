@@ -10,8 +10,8 @@
  *
  * Spec (R2 item #23):
  *   - Header: "Audit trail" left + [Export] right.
- *     Export is a UI placeholder for a future server action; click
- *     surfaces a toast.info ("Export coming soon.").
+ *     Export opens a CSV / Excel / PDF menu (ExportMenu) that serialises
+ *     the visible audit rows client-side.
  *   - Day-grouped list, MOST RECENT FIRST.
  *   - Each row: [time HH:mm] [user name] [humanised action + recordTitle
  *     + optional short newValue].
@@ -19,11 +19,10 @@
  */
 
 import { useMemo } from "react";
-import { Download, History } from "lucide-react";
+import { History } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import type { FDA483Event } from "@/types/fda483";
-import { Button } from "@/components/ui/Button";
-import { useToast } from "@/components/ui/Toast";
+import { ExportMenu } from "@/components/ui/ExportMenu";
 
 /**
  * Audit row shape — mirrors the columns the table renders. Parent
@@ -133,12 +132,11 @@ interface DayGroup {
 /* ── Component ────────────────────────────────────────────────────── */
 
 export function AuditTab({
-  liveEvent: _liveEvent,
+  liveEvent,
   auditRows,
   timezone,
   dateFormat,
 }: AuditTabProps) {
-  const toast = useToast();
 
   // Group rows by the day component of their tenant-local timestamp.
   // The parent guarantees DESC order, so iterating preserves
@@ -165,8 +163,16 @@ export function AuditTab({
     return Array.from(buckets.values());
   }, [auditRows, timezone, dateFormat]);
 
-  function onExportClick() {
-    toast.info("Export coming soon.");
+  const EXPORT_HEADERS = ["Date / time", "User", "Role", "Action", "Record", "Detail"];
+  function buildExportRows() {
+    return auditRows.map((row) => [
+      dayjs.utc(row.createdAt).tz(timezone).format(`${dateFormat} HH:mm`),
+      row.userName,
+      row.userRole ?? "",
+      humaniseAction(row.action),
+      row.recordTitle ?? "",
+      isShortReadableValue(row.newValue) ? row.newValue : "",
+    ]);
   }
 
   return (
@@ -189,14 +195,14 @@ export function AuditTab({
             Audit trail
           </h2>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={Download}
-          onClick={onExportClick}
-        >
-          Export
-        </Button>
+        <ExportMenu
+          filename={`audit-trail-${liveEvent.referenceNumber}-${dayjs().format("YYYY-MM-DD")}`}
+          title={`Audit trail · ${liveEvent.referenceNumber}`}
+          subtitle={`${auditRows.length} entries`}
+          headers={EXPORT_HEADERS}
+          rows={buildExportRows}
+          disabled={auditRows.length === 0}
+        />
       </header>
 
       {/* ── Body ───────────────────────────────────────────────── */}

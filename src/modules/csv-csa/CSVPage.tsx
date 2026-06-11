@@ -31,6 +31,7 @@ import { displayUserName } from "@/lib/identity-display";
 import { AddSystemModal, type SystemForm } from "./modals/AddSystemModal";
 import { EditSystemModal, type SystemForm as EditSystemForm } from "./modals/EditSystemModal";
 import { AddActivityModal, type ActivityForm } from "./modals/AddActivityModal";
+import { DriftDetectionPanel } from "./DriftDetectionPanel";
 
 /* ── Constants ── */
 
@@ -396,6 +397,10 @@ export function CSVPage(props: CSVPageProps = { systems: [], deletedSystems: [],
           <Button variant="ghost" size="sm" onClick={() => router.push("/settings")}>Go to Settings</Button>
         </div>
       )}
+
+      {/* Drift Detection — AGI continuous-monitoring panel (read-only alerts).
+          Renders only when the `drift` agent is on. */}
+      <DriftDetectionPanel />
 
       {/* Tabs */}
       <TabBar tabs={TABS} activeTab={activeTab} onChange={(id) => setActiveTab(id as TabId)} ariaLabel="CSV/CSA sections" />

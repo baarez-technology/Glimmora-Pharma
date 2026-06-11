@@ -20,6 +20,8 @@ import {
   FlaskConical,
   SlidersHorizontal,
   GraduationCap,
+  Radar,
+  Boxes,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -55,7 +57,9 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
       { path: "worklist", label: "Worklist", icon: ListChecks },
       { path: "csv-csa", label: "CSV/CSA Validation", icon: Monitor },
+      { path: "batch-records", label: "Batch Records", icon: Boxes },
       { path: "fda-483", label: "FDA 483 & Regulatory", icon: Building2 },
+      { path: "regulatory-intelligence", label: "Regulatory Intelligence", icon: Radar },
       { path: "evidence", label: "Evidence & Documents", icon: FileText },
     ],
   },
@@ -133,7 +137,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           // the Worklist. super_admin already returned [] above. Imported from
           // roleSets so nav + routes share one source of truth (no drift).
           if (item.path === "capa") return CAPA_MODULE_VIEW_ROLES.includes(role);
-          if (item.path === "readiness" || item.path === "deviation") return true;
+          // Deviation + Regulatory Intelligence modules (and Batch Records) are
+          // visible to all non-super_admin roles.
+          if (
+            item.path === "readiness" ||
+            item.path === "deviation" ||
+            item.path === "regulatory-intelligence" ||
+            item.path === "batch-records"
+          )
+            return true;
           if (item.path === "audit-trail")
             // super_admin already returned [] above, so it's excluded here.
             return role === "qa_head" || role === "customer_admin";
