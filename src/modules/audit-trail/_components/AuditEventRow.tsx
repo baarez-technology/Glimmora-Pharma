@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { UserCircle, Hash, Copy, ChevronRight, ChevronDown, Check } from "lucide-react";
 import type { AuditLog } from "@prisma/client";
+import { roleLabel } from "@/lib/labels/roles";
 
 export type Severity = "critical" | "status_change" | "create" | "other";
 
@@ -20,10 +21,10 @@ interface Props {
 }
 
 const SEVERITY_DOT: Record<Severity, string> = {
-  critical:      "bg-[#dc2626]",
-  status_change: "bg-[#f59e0b]",
-  create:        "bg-[#10b981]",
-  other:         "bg-[#6b7280]",
+  critical:      "bg-(--status-blocked)",
+  status_change: "bg-(--status-waiting)",
+  create:        "bg-(--status-done)",
+  other:         "bg-(--status-pending)",
 };
 
 const SEVERITY_LABEL: Record<Severity, string> = {
@@ -36,14 +37,6 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 /** "qa_head" → "QA Head", "regulatory_affairs" → "Regulatory Affairs".
  *  Short tokens (≤3 chars) get fully-uppercased because they're acronyms
  *  more often than not in this product (QA, QC, IT, CDO, RA). */
-function prettyRole(role: string | null): string {
-  if (!role) return "—";
-  return role
-    .split("_")
-    .map((w) => (w.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)))
-    .join(" ");
-}
-
 function truncateMiddle(s: string, head: number, tail: number): string {
   if (s.length <= head + tail + 1) return s;
   return s.slice(0, head) + "…" + s.slice(-tail);
@@ -67,14 +60,14 @@ export function AuditEventRow({ event, severity, actionLabel, timestampLabel, ti
   };
 
   return (
-    <li className="px-6 py-3 hover:bg-[#fafaf7] group transition-colors">
+    <li className="px-6 py-3 hover:bg-(--bg-hover) group transition-colors">
       <div className="flex items-start gap-3">
         {/* Severity dot — visual + screen-reader accessible. The dot alone is
             colour-only, so the visually-hidden span carries the same signal
             for SR users. */}
         <div className="mt-1.5 flex flex-col items-center">
           <span
-            className={`h-2.5 w-2.5 rounded-full ring-2 ring-white shadow-sm shrink-0 ${SEVERITY_DOT[severity]}`}
+            className={`h-2.5 w-2.5 rounded-full ring-2 ring-(--card) shadow-sm shrink-0 ${SEVERITY_DOT[severity]}`}
             aria-hidden="true"
           />
           <span className="sr-only">{SEVERITY_LABEL[severity]}</span>
@@ -84,14 +77,14 @@ export function AuditEventRow({ event, severity, actionLabel, timestampLabel, ti
         <div className="flex-1 min-w-0">
           {/* Top row: module · action  +  timestamp on the right */}
           <div className="flex items-baseline justify-between gap-3">
-            <div className="font-medium text-[13px] text-[#1a1a1a] leading-tight">
-              <span className="font-mono text-[12px] text-[#0f6663]">{event.module}</span>
-              <span className="mx-1.5 text-[#ccc]" aria-hidden="true">·</span>
+            <div className="font-medium text-[13px] text-(--text-primary) leading-tight">
+              <span className="font-mono text-[12px] text-(--brand)">{event.module}</span>
+              <span className="mx-1.5 text-(--text-muted)" aria-hidden="true">·</span>
               <span>{actionLabel}</span>
             </div>
             <time
               dateTime={timestampIso}
-              className="text-[11px] font-mono text-[#7a7269] shrink-0 leading-tight"
+              className="text-[11px] font-mono text-(--text-muted) shrink-0 leading-tight"
               title={timestampIso}
             >
               {timestampLabel}
@@ -99,24 +92,24 @@ export function AuditEventRow({ event, severity, actionLabel, timestampLabel, ti
           </div>
 
           {/* Bottom row: who · record · expand toggle */}
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#6b6b6b] leading-tight">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-(--text-secondary) leading-tight">
             <span className="inline-flex items-center gap-1.5">
-              <UserCircle className="h-3.5 w-3.5 text-[#999]" aria-hidden="true" />
-              <span className="font-medium text-[#3a3530]">{event.userName}</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-[#f0ece5] text-[#6b6b6b]">
-                {prettyRole(event.userRole)}
+              <UserCircle className="h-3.5 w-3.5 text-(--text-muted)" aria-hidden="true" />
+              <span className="font-medium text-(--text-primary)">{event.userName}</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-(--bg-elevated) text-(--text-secondary)">
+                {event.userRole ? roleLabel(event.userRole) : "—"}
               </span>
             </span>
 
             {event.recordId && (
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-[#999]" title={event.recordId}>
+              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-(--text-muted)" title={event.recordId}>
                 <Hash className="h-3 w-3" aria-hidden="true" />
                 <span>{truncateMiddle(event.recordId, 8, 4)}</span>
                 <button
                   type="button"
                   onClick={copyRecordId}
                   aria-label={copied ? "Record ID copied" : "Copy record ID to clipboard"}
-                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity border-none bg-transparent cursor-pointer p-0.5 -my-0.5 text-[#999] hover:text-[#0f6663]"
+                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity border-none bg-transparent cursor-pointer p-0.5 -my-0.5 text-(--text-muted) hover:text-(--brand)"
                 >
                   {copied ? <Check className="h-3 w-3" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
                 </button>
@@ -124,7 +117,7 @@ export function AuditEventRow({ event, severity, actionLabel, timestampLabel, ti
             )}
 
             {event.recordTitle && (
-              <span className="truncate max-w-[280px] text-[#7a7269]" title={event.recordTitle}>
+              <span className="truncate max-w-[280px] text-(--text-muted)" title={event.recordTitle}>
                 {event.recordTitle}
               </span>
             )}
@@ -135,7 +128,7 @@ export function AuditEventRow({ event, severity, actionLabel, timestampLabel, ti
                 onClick={() => setExpanded((v) => !v)}
                 aria-expanded={expanded}
                 aria-controls={`audit-diff-${event.id}`}
-                className="inline-flex items-center gap-1 text-[#0f6663] hover:underline border-none bg-transparent cursor-pointer p-0 font-medium"
+                className="inline-flex items-center gap-1 text-(--brand) hover:underline border-none bg-transparent cursor-pointer p-0 font-medium"
               >
                 {expanded ? (
                   <ChevronDown className="h-3 w-3" aria-hidden="true" />
@@ -154,17 +147,17 @@ export function AuditEventRow({ event, severity, actionLabel, timestampLabel, ti
           {expanded && hasDiff && (
             <div
               id={`audit-diff-${event.id}`}
-              className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 p-2.5 rounded-md bg-[#f8f6f3] border border-[#e8e4dd] text-[11px]"
+              className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 p-2.5 rounded-md bg-(--bg-elevated) border border-(--card-border) text-[11px]"
             >
               <div>
-                <div className="text-[10px] uppercase tracking-wide text-[#7a7269] mb-1 font-semibold">Before</div>
-                <pre className="font-mono text-[#991b1b] whitespace-pre-wrap break-all m-0">
+                <div className="text-[10px] uppercase tracking-wide text-(--text-muted) mb-1 font-semibold">Before</div>
+                <pre className="font-mono text-(--danger) whitespace-pre-wrap break-all m-0">
                   {event.oldValue ?? "—"}
                 </pre>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-wide text-[#7a7269] mb-1 font-semibold">After</div>
-                <pre className="font-mono text-[#065f46] whitespace-pre-wrap break-all m-0">
+                <div className="text-[10px] uppercase tracking-wide text-(--text-muted) mb-1 font-semibold">After</div>
+                <pre className="font-mono text-(--success) whitespace-pre-wrap break-all m-0">
                   {event.newValue ?? "—"}
                 </pre>
               </div>

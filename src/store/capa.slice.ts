@@ -1,8 +1,10 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { CAPAStatus } from "@/types/capa";
+// Phase 1.5 — RCA method values unified into one shared constant.
+import type { CapaRCAMethod } from "@/constants/rcaMethods";
 
 export type CAPARisk = "Critical" | "High" | "Medium" | "Low";
-export type RCAMethod = "5 Why" | "Fishbone" | "Fault Tree" | "Other";
+export type RCAMethod = CapaRCAMethod;
 export type CAPASource = "483" | "Internal Audit" | "Deviation" | "Complaint" | "OOS" | "Change Control" | "Gap Assessment";
 
 export interface CAPA {
@@ -20,9 +22,13 @@ export interface CAPA {
   owner: string;
   dueDate: string;
   status: CAPAStatus;
+  title: string;
   description: string;
   rca?: string;
   rcaMethod?: RCAMethod;
+  /** Batch 2 — method-specific structured RCA as a JSON string (5-Why array /
+   *  Fishbone buckets / Fault-Tree fields). `rca` stays the readable mirror. */
+  rcaDetail?: string;
   correctiveActions?: string;
   effectivenessCheck: boolean;
   effectivenessDate?: string;
@@ -77,6 +83,10 @@ export interface CAPA {
   ccBlockOverrideAt?: string;
   closedAt?: string;
   closedBy?: string;
+  // Phase 4 — targeted reject metadata (CAPA bounced back to in_progress).
+  rejectionReason?: string;
+  rejectedById?: string;
+  rejectedAt?: string;
   // Display name of the creator. Used client-side to mirror the server-side
   // SoD guard (a user cannot approve a CAPA they created). Name-equality
   // only — schema lacks createdById today.
@@ -89,6 +99,7 @@ export interface CAPA {
   // separate fetch round-trip needed.
   deviation?: {
     id: string;
+    reference?: string | null;
     title: string;
     severity: string;
     status: string;
@@ -111,7 +122,7 @@ export interface CAPA {
   effectivenessSignatureId?: string;
 }
 
-export type CAPAActionItemStatus = "pending" | "in_progress" | "complete" | "skipped";
+export type CAPAActionItemStatus = "pending" | "in_progress" | "complete" | "skipped" | "rework";
 
 export interface CAPAActionItem {
   id: string;
@@ -126,6 +137,11 @@ export interface CAPAActionItem {
   completedById?: string | null;
   completedAt?: string | null;
   completionNotes?: string | null;
+  // Phase 4 — targeted-reject rework metadata (kept as history even after the
+  // item is re-completed).
+  reworkReason?: string | null;
+  reworkRequestedById?: string | null;
+  reworkRequestedAt?: string | null;
   createdAt: string;
   createdBy: string;
   createdById?: string | null;

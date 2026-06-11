@@ -36,6 +36,7 @@ import clsx from "clsx";
 import { Search, Save, CheckCircle2, Pencil, Plus, AlertTriangle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Deviation, DeviationRCAMethod } from "@/store/deviation.slice";
 import {
   saveInvestigationProgress as saveInvestigationProgressAction,
@@ -47,10 +48,10 @@ import {
 /* ── Method metadata ──────────────────────────────────────────────── */
 
 const METHODS: { value: DeviationRCAMethod; label: string }[] = [
-  { value: "5Why", label: "5 Why" },
+  { value: "5 Why", label: "5 Why" },
   { value: "Fishbone", label: "Fishbone" },
-  { value: "FaultTree", label: "Fault Tree" },
-  { value: "BarrierAnalysis", label: "Barrier Analysis" },
+  { value: "Fault Tree", label: "Fault Tree" },
+  { value: "Barrier Analysis", label: "Barrier Analysis" },
 ];
 
 const FISHBONE_CATEGORIES = [
@@ -98,7 +99,7 @@ function parseBuffers(rcaData?: string): RcaBuffers {
 /** Build the { rcaData, rootCause } payload for a given method + buffers.
  *  rootCause uses the same serialized format the FDA 483 module produces. */
 function buildPayload(method: DeviationRCAMethod, b: RcaBuffers): { rcaData: string; rootCause: string } {
-  if (method === "5Why") {
+  if (method === "5 Why") {
     const rootCause = b.whys
       .filter((w) => w.trim())
       .map((w, i) => `Why ${i + 1}: ${w}`)
@@ -118,7 +119,7 @@ function buildPayload(method: DeviationRCAMethod, b: RcaBuffers): { rcaData: str
 }
 
 function canComplete(method: DeviationRCAMethod, b: RcaBuffers): boolean {
-  if (method === "5Why") return !!b.whys[0]?.trim() && !!b.whys[4]?.trim();
+  if (method === "5 Why") return !!b.whys[0]?.trim() && !!b.whys[4]?.trim();
   if (method === "Fishbone") return !!b.fishRoot.trim();
   return !!b.freeform.trim();
 }
@@ -149,7 +150,7 @@ function RcaBlock({ label, answer, root = false }: { label: string; answer: stri
 function SavedDeviationRcaDisplay({ method, rootCause }: { method?: DeviationRCAMethod; rootCause: string }) {
   const text = rootCause ?? "";
 
-  if (method === "5Why") {
+  if (method === "5 Why") {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) return null;
     const structured = lines.some((l) => /^Why\s*\d+\s*:/i.test(l));
@@ -235,10 +236,12 @@ export function InvestigationSection({
   onChanged,
   onError,
 }: WorkflowProps) {
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const devCan = usePermissions("deviation");
   const completed = !!deviation.investigationCompletedAt;
   const isReporter = !!deviation.createdById && deviation.createdById === currentUserId;
   // The reporter may never perform the investigation (SoD).
-  const canInvestigate = writable && !isReporter;
+  const canInvestigate = writable && !isReporter && devCan.canEdit;
 
   const [method, setMethod] = useState<DeviationRCAMethod | null>(deviation.rcaMethod ?? null);
   const [buffers, setBuffers] = useState<RcaBuffers>(() => parseBuffers(deviation.rcaData));
@@ -402,7 +405,7 @@ export function InvestigationSection({
 
         {/* 5 Why — Why 5 is emphasized as the root cause (tinted background +
             brand border-left + bolder label), matching FDA 483's editing view. */}
-        {method === "5Why" && (
+        {method === "5 Why" && (
           <div className="space-y-2">
             {[0, 1, 2, 3, 4].map((i) => {
               const isRoot = i === 4;
@@ -464,7 +467,7 @@ export function InvestigationSection({
 
         {/* Fault Tree / Barrier Analysis — the single freeform block IS the
             root cause, so it always carries the emphasized treatment. */}
-        {(method === "FaultTree" || method === "BarrierAnalysis") && (
+        {(method === "Fault Tree" || method === "Barrier Analysis") && (
           <div>
             <label className="text-[11px] font-bold uppercase tracking-wider block mb-0.5" style={{ color: "var(--text-primary)" }}>
               {methodLabel(method)} analysis — Root cause *
@@ -554,10 +557,13 @@ export function CapaDecisionSection({
   const completed = !!deviation.investigationCompletedAt;
   const decided = !!deviation.capaDecisionMade;
 
+  // Capability mirrors of the server (exclude super_admin from authoring).
+  const devCan = usePermissions("deviation");
+  const capaCan = usePermissions("capa");
   const isReporter = !!deviation.createdById && deviation.createdById === currentUserId;
   const isInvestigator = !!deviation.investigationCompletedById && deviation.investigationCompletedById === currentUserId;
   // QA-role, not the reporter, not the investigator.
-  const canDecide = writable && isQA && !isReporter && !isInvestigator;
+  const canDecide = writable && isQA && !isReporter && !isInvestigator && devCan.canReview;
 
   const [required, setRequired] = useState<boolean | null>(deviation.capaDecisionRequired ?? null);
   const [reason, setReason] = useState(deviation.capaDecisionReason ?? "");
@@ -703,7 +709,7 @@ export function CapaDecisionSection({
       <SectionHeader title="CAPA Decision" status="CAPA required" />
       <div className="space-y-2">
         {justification}
-        {writable && (
+        {writable && capaCan.canCreate && (
           <Button variant="primary" size="sm" icon={Plus} onClick={onRaiseCAPA}>Raise CAPA</Button>
         )}
       </div>

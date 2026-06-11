@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
-  Clock,
   FileText,
   Link2,
   Pencil,
@@ -14,19 +13,8 @@ import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
-import { STATUS_VARIANT as DEVIATION_STATUS_VARIANT, STATUS_LABEL as DEVIATION_STATUS_LABEL } from "@/modules/deviation/DeviationPage.constants";
 import type { CAPA } from "@/store/capa.slice";
-import type { DeviationStatus } from "@/store/deviation.slice";
 import type { UserConfig } from "@/store/settings.slice";
-import { SubmissionChecklist } from "../components/SubmissionChecklist";
-// CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
-// code/schema retained. To re-enable: uncomment the import below and
-// the <LinkedChangeControlsSection /> render further down.
-// LinkedChangeControlsSection internally renders <CCDependencyBanner>,
-// so commenting this single line transitively disconnects both surfaces.
-// import { LinkedChangeControlsSection } from "./LinkedChangeControlsSection";
-import type { DetailSubTab } from "../helpers/getNextStep";
-import { displayUserName } from "@/lib/identity-display";
 
 const SOURCE_LABEL: Record<string, string> = {
   "483": "FDA 483 Observation",
@@ -38,6 +26,14 @@ const SOURCE_LABEL: Record<string, string> = {
   "Change Control": "Change Control",
 };
 const sourceLabel = (s: string) => SOURCE_LABEL[s] ?? s;
+// Phase B — the Overview "Before submitting" checklist box was removed; the
+// banner's expandable checklist is now the only checklist on the page.
+// CHANGE CONTROL HIDDEN — user-facing surface disconnected. Module
+// code/schema retained. To re-enable: uncomment the import below and
+// the <LinkedChangeControlsSection /> render further down.
+// LinkedChangeControlsSection internally renders <CCDependencyBanner>,
+// so commenting this single line transitively disconnects both surfaces.
+// import { LinkedChangeControlsSection } from "./LinkedChangeControlsSection";
 
 interface OverviewBodyProps {
   capa: CAPA;
@@ -48,68 +44,33 @@ interface OverviewBodyProps {
   showMigrationNotice: boolean;
   onDismissNotice: () => void;
   onNavigateGap: (findingId: string) => void;
-  onChangeTab: (tab: DetailSubTab) => void;
   onEditOpen: () => void;
   editAllowed: boolean;
-  hasMeaningfulDescription: boolean;
-  hasRca: boolean;
-  hasActions: boolean;
-  hasCriteria: boolean;
-  hasAlignment: boolean;
 }
 
 export function OverviewBody({
   capa,
   isDark,
-  users,
-  timezone,
-  dateFormat,
+  // Phase F — users/timezone/dateFormat no longer consumed here (Owner/Due
+  // removed; Created uses fromNow). Kept on the interface so callers are
+  // unchanged.
   showMigrationNotice,
   onDismissNotice,
   onNavigateGap,
-  onChangeTab,
   onEditOpen,
   editAllowed,
-  hasMeaningfulDescription,
-  hasRca,
-  hasActions,
-  hasCriteria,
-  hasAlignment,
 }: OverviewBodyProps) {
   const router = useRouter();
-  const ownerName = displayUserName(capa.owner, users);
   const baseVariant = getSeverityVariant(capa.risk, "generic");
 
-  // SME Section 1, Stage 2 (FULL) — "Linked deviation" reads from the
-  // bidirectional CAPA.deviation relation hydrated via getCAPA /
-  // getCAPAs. Previously this section fetched separately via
-  // loadLinkedDeviationForCAPA (reverse-query workaround); now the data
-  // arrives with the CAPA prop, so no extra round-trip.
-  const linkedDeviation = capa.deviation ?? null;
   // Display the stored risk verbatim. Previously Medium collapsed to the
   // text "Low" while baseVariant stayed amber via RISK_VARIANT.Medium —
   // the badge label and colour disagreed for any Medium CAPA. The DI-gate
   // override on the Regulatory-exposure row still pins that row to "High".
   const riskLevel = capa.risk;
 
-  // Submission checklist visible only while the CAPA is editable. Once
-  // submitted (pending_qa_review / closed / rejected) the panel is
-  // hidden entirely — the next-step banner takes over for those states.
-  const showChecklist = capa.status === "open" || capa.status === "in_progress";
-
   return (
-    <div role="tabpanel" id="subpanel-overview" aria-labelledby="subtab-overview" tabIndex={0} className="space-y-4">
-      {showChecklist && (
-        <SubmissionChecklist
-          hasDescription={hasMeaningfulDescription}
-          hasRca={hasRca}
-          hasActions={hasActions}
-          hasCriteria={hasCriteria}
-          hasAlignment={hasAlignment}
-          onChangeTab={onChangeTab}
-        />
-      )}
-
+    <div role="tabpanel" id="subpanel-overview" aria-labelledby="subtab-overview" tabIndex={0} className="capa-stack">
       {showMigrationNotice && (
         <aside
           className="flex items-start gap-2.5 p-3 rounded-lg border"
@@ -137,9 +98,9 @@ export function OverviewBody({
           The header pencil icon is preserved (Fix 6) but is too small
           to find on first contact; this surfaces the same edit modal
           via a button in the body where users actually look. */}
-      <div>
+      <div className="capa-card">
         <div className="flex items-start justify-between gap-3 mb-1">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-(--text-muted)">Description</h3>
+          <h3 className="capa-section-title">Description</h3>
           {editAllowed && (
             <button
               type="button"
@@ -165,63 +126,57 @@ export function OverviewBody({
         )}
       </div>
 
-      <section aria-labelledby="rbc-heading">
-        <h3 id="rbc-heading" className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Risk-based classification</h3>
-        {[
-          { label: "Patient safety risk", variant: baseVariant, text: riskLevel },
-          { label: "Product quality impact", variant: baseVariant, text: riskLevel },
-          { label: "Regulatory exposure", variant: (capa.diGate ? "red" : baseVariant) as "red" | "amber" | "green", text: capa.diGate ? "High" : riskLevel },
-        ].map((row) => (
-          <div key={row.label} className="flex justify-between items-center py-2 border-b" style={{ borderColor: isDark ? "#0f2039" : "#f1f5f9" }}>
-            <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{row.label}</span>
-            <Badge variant={row.variant}>{row.text}</Badge>
-          </div>
-        ))}
+      <section aria-labelledby="rbc-heading" className="capa-card">
+        <h3 id="rbc-heading" className="capa-section-title block mb-3">Risk-based classification</h3>
+        {/* Phase F — 3-up grid (stacks to 1 col on mobile); each cell = label
+            + colored risk pill from the existing severity taxonomy. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            { label: "Patient safety risk", variant: baseVariant, text: riskLevel },
+            { label: "Product quality impact", variant: baseVariant, text: riskLevel },
+            { label: "Regulatory exposure", variant: (capa.diGate ? "red" : baseVariant) as "red" | "amber" | "green", text: capa.diGate ? "High" : riskLevel },
+          ].map((row) => (
+            <div key={row.label} className="rounded-lg border p-2.5" style={{ borderColor: "var(--card-border, var(--bg-border))", background: "var(--bg-elevated)" }}>
+              <p className="text-[11px] mb-1.5" style={{ color: "var(--text-muted)" }}>{row.label}</p>
+              <Badge variant={row.variant}>{row.text}</Badge>
+            </div>
+          ))}
+        </div>
       </section>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Source</p>
-          <Badge variant="gray">{sourceLabel(capa.source)}</Badge>
-        </div>
+      {/* Batch 3a #1 — Source / linked record / Created / risk as ONE tidy row.
+          The "View" link only renders when the source has a linkable record;
+          external/manual sources show no link (valid). */}
+      <div className="capa-card flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12px]">
+        <span style={{ color: "var(--text-muted)" }}>Source</span>
+        <Badge variant="gray">{sourceLabel(capa.source)}</Badge>
         {capa.findingId && (
-          <div>
-            <p className="text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Linked finding</p>
-            <button type="button" onClick={() => onNavigateGap(capa.findingId!)} className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0">
-              <Link2 className="w-3.5 h-3.5" aria-hidden="true" />{capa.findingId}
+          <>
+            <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>·</span>
+            <span className="font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>{capa.findingId}</span>
+            <button type="button" onClick={() => onNavigateGap(capa.findingId!)} className="inline-flex items-center gap-0.5 hover:underline bg-transparent border-none cursor-pointer p-0" style={{ color: "#0ea5e9" }}>
+              <Link2 className="w-3.5 h-3.5" aria-hidden="true" />View →
             </button>
-          </div>
+          </>
         )}
-        {/* SME Section 1, Stage 2 (partial) — reverse-query "Linked deviation".
-            Mirrors the linked-finding block above. Click navigates to the
-            Deviation list page (no deep-link param available today, matching
-            the inverse direction at DeviationPage.tsx:410 which also
-            router.push("/capa") without an id query). */}
-        {linkedDeviation && (
-          <div>
-            <p className="text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Linked deviation</p>
-            <button
-              type="button"
-              onClick={() => router.push("/deviation")}
-              className="flex items-center gap-1.5 text-[12px] text-[#0ea5e9] hover:underline bg-transparent border-none cursor-pointer p-0 text-left"
-              aria-label={`Open linked deviation ${linkedDeviation.id.slice(0, 8)}`}
-            >
-              <Link2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span className="font-mono">{linkedDeviation.id.slice(0, 8)}</span>
-              <span className="truncate" style={{ color: "var(--text-secondary)" }}>
-                {linkedDeviation.title}
-              </span>
+        {!capa.findingId && capa.deviation && (
+          <>
+            <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>·</span>
+            <span className="font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>{capa.deviation.reference ?? "Deviation"}</span>
+            <Badge variant={getSeverityVariant(capa.deviation.severity, "fda")}>{normalizeSeverityForDisplay(capa.deviation.severity, "fda") ?? capa.deviation.severity}</Badge>
+            <button type="button" onClick={() => router.push("/deviation")} className="inline-flex items-center gap-0.5 hover:underline bg-transparent border-none cursor-pointer p-0" style={{ color: "#0ea5e9" }}>
+              <Link2 className="w-3.5 h-3.5" aria-hidden="true" />View →
             </button>
-            <div className="flex items-center gap-1.5 mt-1">
-              <Badge variant={getSeverityVariant(linkedDeviation.severity, "fda")}>
-                {normalizeSeverityForDisplay(linkedDeviation.severity, "fda") ?? linkedDeviation.severity}
-              </Badge>
-              <Badge variant={DEVIATION_STATUS_VARIANT[linkedDeviation.status as DeviationStatus] ?? "gray"}>
-                {DEVIATION_STATUS_LABEL[linkedDeviation.status as DeviationStatus] ?? linkedDeviation.status}
-              </Badge>
-            </div>
-          </div>
+          </>
         )}
+        {capa.createdAt && (
+          <>
+            <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>·</span>
+            <span style={{ color: "var(--text-muted)" }}>Created {dayjs.utc(capa.createdAt).fromNow()}</span>
+          </>
+        )}
+        <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>·</span>
+        <Badge variant={baseVariant}>{normalizeSeverityForDisplay(capa.risk, "generic") ?? capa.risk}</Badge>
       </div>
 
       {capa.diGate && (() => {
@@ -241,22 +196,8 @@ export function OverviewBody({
         );
       })()}
 
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Owner</p>
-          <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{ownerName}</p>
-        </div>
-        <div>
-          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Due</p>
-          <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{dayjs.utc(capa.dueDate).tz(timezone).format(dateFormat)}</p>
-        </div>
-        {capa.createdAt && (
-          <div>
-            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Created</p>
-            <p className="text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{dayjs.utc(capa.createdAt).fromNow()}</p>
-          </div>
-        )}
-      </div>
+      {/* Phase F — Owner/Due/Created grid removed: Owner + Due duplicated the
+          header; Created moved into the Meta card above. */}
 
       {/* CHANGE CONTROL HIDDEN — Linked Change Controls section
        *  suppressed. CCDependencyBanner (rendered inside the section) is
@@ -264,21 +205,9 @@ export function OverviewBody({
        *  above + the render below.
        *  <LinkedChangeControlsSection capa={capa} />
        */}
-
-      {/* Audit trail — collapsed placeholder. Per-record audit log loading
-       *  is deferred; today the full tenant audit log lives at Governance >
-       *  Audit log. This <details> is rendered closed by default and serves
-       *  as a discoverable pointer until the per-record query exists. */}
-      <details className="rounded-lg border" style={{ borderColor: "var(--bg-border)" }}>
-        <summary className="cursor-pointer px-3 py-2 flex items-center gap-2 text-[12px] font-medium select-none list-none" style={{ color: "var(--text-secondary)" }}>
-          <Clock className="w-3.5 h-3.5" aria-hidden="true" />
-          Audit trail
-          <span className="ml-auto text-[10px] text-(--text-muted)">click to expand</span>
-        </summary>
-        <div className="px-3 pb-3 pt-1 text-[11px]" style={{ color: "var(--text-muted)" }}>
-          Per-record audit log loading is deferred — see the Governance &gt; Audit log page for the full tenant log filtered to this CAPA.
-        </div>
-      </details>
+      {/* Phase D 8b — the redundant mid-page audit placeholder was removed;
+          the single Zone-6 audit bar (CapaAuditTrailBar) lives at the page
+          bottom and now loads the per-CAPA log. */}
     </div>
   );
 }

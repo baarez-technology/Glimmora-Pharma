@@ -3,13 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk } from "@/lib/auth";
+import { AGI_MANAGE_ROLES } from "@/lib/permissions/roleSets";
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string };
 
+// Shared role-set so the client UI mirrors the same gate (one definition).
 function isAdmin(role: string): boolean {
-  return role === "customer_admin" || role === "super_admin";
+  return AGI_MANAGE_ROLES.includes(role);
 }
 
 export async function toggleAGIAgent(

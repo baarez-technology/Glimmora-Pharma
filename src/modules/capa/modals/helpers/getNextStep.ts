@@ -2,14 +2,16 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
+  FileText,
   GitBranch,
-  Pencil,
   Send,
   Wrench,
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import type { CAPA } from "@/store/capa.slice";
+import type { CAPAReadiness, ReadinessKey } from "@/lib/capa-readiness";
 
 /**
  * Pure-logic helper that picks the single most-actionable next step for
@@ -23,7 +25,7 @@ import type { CAPA } from "@/store/capa.slice";
  *      checked in submission-priority order.
  *   3. "All ready, submit for review" — happy path.
  *
- * Pure function, no side effects, no JSX. Lives outside CAPADetailModal
+ * Pure function, no side effects, no JSX. Lives outside the CAPA detail page
  * so the helper can be tested in isolation and reused without dragging
  * the modal's React tree along.
  */
@@ -48,13 +50,44 @@ export interface NextStepInfo {
   action: { label: string; onClick: () => void } | null;
 }
 
+/** Which detail tab each readiness condition lives on — shared by the banner
+ *  and the SubmissionChecklist so a "fix this" click always lands in the
+ *  right place. */
+export const READINESS_TAB: Record<ReadinessKey, DetailSubTab> = {
+  rca: "rca",
+  alignment: "actions",
+  diGate: "overview",
+  actions: "actions",
+  evidence: "evidence",
+  criteria: "criteria",
+};
+
+const READINESS_ICON: Record<ReadinessKey, typeof CheckCircle2> = {
+  rca: GitBranch,
+  alignment: AlertTriangle,
+  diGate: AlertTriangle,
+  actions: Wrench,
+  evidence: FileText,
+  criteria: ClipboardCheck,
+};
+
+const TAB_LABEL: Record<DetailSubTab, string> = {
+  overview: "Overview",
+  evidence: "Evidence",
+  rca: "RCA",
+  actions: "Action Plans",
+  criteria: "Criteria",
+};
+
+/**
+ * Phase 4 — getNextStep now derives the gating step from the SAME
+ * getCAPAReadiness result the server enforces and the SubmissionChecklist
+ * renders. No local boolean logic: the first unmet readiness condition (in
+ * a-f order) becomes the next step; if all are met the step is "submit".
+ */
 export function getNextStep(args: {
   capa: CAPA;
-  hasDescription: boolean;
-  hasRca: boolean;
-  hasActions: boolean;
-  hasCriteria: boolean;
-  hasAlignment: boolean;
+  readiness: CAPAReadiness;
   timezone: string;
   dateFormat: string;
   onChangeTab: (tab: DetailSubTab) => void;
@@ -62,11 +95,7 @@ export function getNextStep(args: {
 }): NextStepInfo {
   const {
     capa,
-    hasDescription,
-    hasRca,
-    hasActions,
-    hasCriteria,
-    hasAlignment,
+    readiness,
     timezone,
     dateFormat,
     onChangeTab,
@@ -84,6 +113,8 @@ export function getNextStep(args: {
       action: null,
     };
   }
+  // Legacy "rejected" rows only — Phase 4 reject now bounces to in_progress,
+  // so nothing new lands here. Kept for any pre-Phase-4 rejected row.
   if (capa.status === "rejected") {
     return {
       Icon: AlertCircle,
@@ -104,57 +135,28 @@ export function getNextStep(args: {
       action: { label: "Go to Action Plans tab", onClick: () => onChangeTab("actions") },
     };
   }
-  // Editable states: open / in_progress. Walk the priority list in spec order.
-  if (!hasDescription) {
+
+  // Editable states: open / in_progress. The first unmet readiness condition
+  // (in a-f order) is the next step. This is the SAME readiness used by the
+  // server gate and the checklist — they can't disagree.
+  const firstUnmet = readiness.conditions.find((c) => !c.met);
+  if (firstUnmet) {
+    const tab = READINESS_TAB[firstUnmet.key];
+    // Phase 4 — when QA has bounced this CAPA back (in_progress + a recorded
+    // rejection reason), lead with that context.
+    const bounced = capa.status === "in_progress" && Boolean(capa.rejectionReason);
     return {
-      Icon: Pencil,
-      title: "Add description",
-      description: "Click Edit to add a meaningful description so reviewers know what this CAPA is about.",
+      Icon: READINESS_ICON[firstUnmet.key],
+      title: bounced ? "Address QA rework" : firstUnmet.label,
+      description: bounced
+        ? `QA returned this CAPA: "${capa.rejectionReason}". ${firstUnmet.detail ?? firstUnmet.label}.`
+        : (firstUnmet.detail ?? firstUnmet.label) + ".",
       tone: "warning",
-      targetTab: "overview",
-      action: { label: "Go to Overview tab", onClick: () => onChangeTab("overview") },
+      targetTab: tab,
+      action: { label: `Go to ${TAB_LABEL[tab]} tab`, onClick: () => onChangeTab(tab) },
     };
   }
-  if (!hasRca) {
-    return {
-      Icon: GitBranch,
-      title: "Document root cause",
-      description: "Identify why this issue happened so the corrective action targets the actual cause.",
-      tone: "warning",
-      targetTab: "rca",
-      action: { label: "Go to RCA tab", onClick: () => onChangeTab("rca") },
-    };
-  }
-  if (!hasCriteria) {
-    return {
-      Icon: CheckCircle2,
-      title: "Add success criteria",
-      description: "Define how you'll measure that the corrective action actually worked.",
-      tone: "warning",
-      targetTab: "criteria",
-      action: { label: "Go to Criteria tab", onClick: () => onChangeTab("criteria") },
-    };
-  }
-  if (!hasActions) {
-    return {
-      Icon: Wrench,
-      title: "Add corrective actions",
-      description: "Document what will fix the issue and prevent recurrence.",
-      tone: "warning",
-      targetTab: "actions",
-      action: { label: "Go to Action Plans tab", onClick: () => onChangeTab("actions") },
-    };
-  }
-  if (!hasAlignment) {
-    return {
-      Icon: AlertTriangle,
-      title: "Complete alignment review",
-      description: "Verify the corrective actions match the documented root cause before submission.",
-      tone: "warning",
-      targetTab: "actions",
-      action: { label: "Go to Action Plans tab", onClick: () => onChangeTab("actions") },
-    };
-  }
+
   return {
     Icon: Send,
     title: "Submit for review",

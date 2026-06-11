@@ -392,7 +392,9 @@ export function FDA483Page({
   const user = useAppSelector((s) => s.auth.user);
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
   const { role, canSign } = useRole();
-  const { isCustomerAdmin, canCreateEvents } = usePermissions();
+  const { isCustomerAdmin } = usePermissions();
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const fda = usePermissions("fda483");
   const { hasSites } = useSetupStatus();
 
   function ownerName(id: string) {
@@ -610,7 +612,7 @@ export function FDA483Page({
                 : `${events.length} events · ${openCount} open · ${dueCount} response due`
             }
             actions={
-              canCreateEvents ? (
+              fda.canCreate ? (
                 <Button
                   variant="primary"
                   icon={Plus}
@@ -618,8 +620,6 @@ export function FDA483Page({
                 >
                   Register Event
                 </Button>
-              ) : isCustomerAdmin ? (
-                <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>FDA events require QA Head to log and submit</p>
               ) : undefined
             }
           />
@@ -913,7 +913,7 @@ export function FDA483Page({
                 <ResponseDetailTab
                   liveEvent={liveEvent}
                   capas={capas} role={role}
-                  canSign={isCustomerAdmin ? false : canSign}
+                  canSign={(isCustomerAdmin ? false : canSign) && fda.canSign}
                   canSubmit={canSubmitResponse}
                   agiMode={agiMode}
                   agiAgent={agiAgent}

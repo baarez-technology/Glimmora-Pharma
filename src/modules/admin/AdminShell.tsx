@@ -5,6 +5,8 @@ import { useRouter, usePathname } from "next/navigation";
 import {
   Shield,
   Users,
+  SlidersHorizontal,
+  ScrollText,
   LogOut,
   Menu,
   Bell,
@@ -15,10 +17,20 @@ import { logout, setCredentials, type UserRole } from "@/store/auth.slice";
 import { logout as nextAuthLogout, fetchCurrentUser } from "@/lib/authClient";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useToast } from "@/components/ui/Toast";
-import { AIChatbot } from "@/components/chatbot/AIChatbot";
 
-const NAV_ITEMS = [
+// `roles` gates link VISIBILITY only (hides dead-end links from users who'd be
+// denied). The real security guard is each page's requireRoleOrDeny — unchanged.
+// No `roles` = shown to everyone allowed in the shell.
+const NAV_ITEMS: Array<{
+  path: string;
+  label: string;
+  icon: typeof Users;
+  end: boolean;
+  roles?: string[];
+}> = [
   { path: "/admin", label: "Customer Accounts", icon: Users, end: true },
+  { path: "/admin/settings", label: "Platform Settings", icon: SlidersHorizontal, end: false, roles: ["super_admin"] },
+  { path: "/admin/audit", label: "Audit", icon: ScrollText, end: false, roles: ["super_admin"] },
 ];
 
 export function AdminShell({ children }: { children?: React.ReactNode }) {
@@ -36,7 +48,7 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
   const [retryNonce, setRetryNonce] = useState(0);
   // Flips true as soon as user is observed truthy. Used to distinguish
   // "session expired mid-flow" (toast + redirect) from "anon visitor hit
-  // /admin directly" (silent — middleware handles the redirect).
+  // /admin directly" (silent — the proxy handles the redirect).
   const hadSessionRef = useRef(false);
   // Set by handleLogout BEFORE dispatch(logout) so the fetchCurrentUser
   // null-branch can tell intentional sign-out apart from cookie expiry.
@@ -203,7 +215,9 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
           {/* Nav items */}
           <nav aria-label="Admin navigation" style={{ flex: 1, padding: "12px 0", overflowY: "auto" }}>
             <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              {NAV_ITEMS.map((item) => {
+              {NAV_ITEMS.filter(
+                (item) => !item.roles || (user?.role != null && item.roles.includes(user.role)),
+              ).map((item) => {
                 const isActive = item.end
                   ? pathname === item.path
                   : pathname?.startsWith(item.path) ?? false;
@@ -332,9 +346,9 @@ export function AdminShell({ children }: { children?: React.ReactNode }) {
           </main>
         </div>
       </div>
-
-      {/* Floating AI assistant on the platform admin shell too. */}
-      <AIChatbot />
+      {/* The AI assistant is intentionally NOT mounted in the platform admin
+          shell — the super_admin console manages tenant containers, not
+          compliance work, so the chatbot stays scoped to the app shell. */}
     </>
   );
 }

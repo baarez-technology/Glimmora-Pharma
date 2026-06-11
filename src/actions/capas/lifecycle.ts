@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES, ADMIN_DELETE_ROLES } from "@/lib/auth";
+import { CAPA_DI_GATE_ROLES, CAPA_REJECT_ROLES, CAPA_REOPEN_ROLES, isAssignedToTask } from "@/lib/permissions/roleSets";
+import { getCAPAReadiness } from "@/lib/capa-readiness";
 import {
   lockCAPAArtifacts,
   unlockCAPAArtifacts,
@@ -25,6 +27,8 @@ import { sanitizeServerError } from "@/lib/errors";
 // â”€â”€ Schemas â”€â”€
 
 const CreateCAPASchema = z.object({
+  // Phase A — short human title (flows into create via ...rest).
+  title: z.string().min(1, "Title is required").max(120, "Title must be 120 characters or fewer"),
   description: z.string().min(10, "Description must be at least 10 characters"),
   source: z.enum([
     "Gap Assessment",
@@ -51,9 +55,21 @@ const CreateCAPASchema = z.object({
   // them, and updateCAPA edits them); they flow into the create via `...rest`.
   rca: z.string().optional(),
   rcaMethod: z.string().optional(),
+  // Batch 2 — optional structured RCA at creation (flows in via ...rest).
+  rcaDetail: z.string().optional(),
+  // Batch 2b — DI detail accepted on create too (the New CAPA modal collects
+  // only the toggle today; create maps diGateRequired → diGate + status
+  // "pending". These flow via ...rest if a caller supplies them).
+  diGateStatus: z.enum(["open", "cleared", "pending"]).optional(),
+  diGateReviewedBy: z.string().optional(),
+  diGateNotes: z.string().optional(),
 });
 
 const UpdateCAPASchema = z.object({
+  // Phase A — editable short title (written via ...parsed.data spread).
+  // Required + trimmed: a blank/whitespace title is rejected server-side with
+  // a clear message (the Edit form marks it required; enforce it here too).
+  title: z.string().trim().min(1, "Title is required").max(120, "Title must be 120 characters or fewer"),
   description: z.string().min(10).optional(),
   source: z.string().optional(),
   risk: z.enum(["Critical", "High", "Medium", "Low"]).optional(),
@@ -61,8 +77,13 @@ const UpdateCAPASchema = z.object({
   dueDate: z.string().optional(),
   // RUNG 3D-CAPA — status intentionally removed (was the Part 11 lifecycle
   // bypass, Finding #1). Transitions go through dedicated guarded actions.
+  // Phase E-REVERT — rca / rcaMethod restored: the Edit modal is the RCA
+  // authoring surface for Gap-Assessment + manual CAPAs (the Worklist B4 task
+  // doesn't cover those). Method must be one of the four RCAMethod values.
   rca: z.string().optional(),
   rcaMethod: z.string().optional(),
+  // Batch 2 — structured RCA JSON (the readable mirror still lands in `rca`).
+  rcaDetail: z.string().optional(),
   // SME Section 1, Stage 4 (FULL) â€” correctiveActions is now managed
   // via the structured CAPAActionItem rows (addActionItem /
   // updateActionItem / deleteActionItem / reorderActionItems). The
@@ -71,6 +92,12 @@ const UpdateCAPASchema = z.object({
   // structured surface is the only path. updateCAPA refuses payloads
   // that include it; see the guard below.
   correctiveActions: z.string().optional(),
+  // Batch 2b — DI gate detail (persisted from the Edit modal). diGateReviewDate
+  // is NOT accepted from the client — the server stamps it (see write below).
+  diGate: z.boolean().optional(),
+  diGateStatus: z.enum(["open", "cleared", "pending"]).optional(),
+  diGateReviewedBy: z.string().optional(),
+  diGateNotes: z.string().optional(),
 });
 
 const ClearDIGateSchema = z.object({
@@ -79,6 +106,10 @@ const ClearDIGateSchema = z.object({
 
 const RejectSchema = z.object({
   reason: z.string().min(5, "Rejection reason must be at least 5 characters"),
+  // Phase 4 — targeted reject. Optional list of action-item ids to bounce back
+  // for rework; each gets status "rework" + the reason recorded. Omitting it
+  // bounces the whole CAPA to in_progress without flagging specific items.
+  reworkItems: z.array(z.string().min(1)).optional(),
 });
 
 // RUNG 3D-CAPA — reopening a closed/rejected CAPA is a senior corrective act;
@@ -97,6 +128,33 @@ const ReopenCAPASchema = z.object({
 // Rung 3A-bis — consolidated onto the canonical COMPLIANCE_AUTHOR_ROLES
 // (@/lib/auth); identical values, single source of truth.
 const CAPA_WRITE_ROLES = COMPLIANCE_AUTHOR_ROLES;
+
+/**
+ * Phase 3 — resolve the CAPA `owner` string to a real User.id (the
+ * authoritative driver FK). The owner dropdown stores a userId, so an exact
+ * id match wins; otherwise fall back to a same-tenant UNIQUE display-name match
+ * (legacy/AI/FDA paths that may pass a name). Returns null when owner is empty,
+ * is not a current User, or is an ambiguous name — the driver simply stays
+ * unresolved rather than pointing at the wrong person. Mirrors the migration
+ * backfill logic exactly.
+ */
+async function resolveOwnerUserId(
+  tenantId: string,
+  owner: string | undefined | null,
+): Promise<string | null> {
+  if (!owner) return null;
+  const byId = await prisma.user.findFirst({
+    where: { id: owner, tenantId },
+    select: { id: true },
+  });
+  if (byId) return byId.id;
+  const byName = await prisma.user.findMany({
+    where: { name: owner, tenantId },
+    select: { id: true },
+    take: 2,
+  });
+  return byName.length === 1 ? byName[0].id : null;
+}
 
 export async function createCAPA(
   input: z.input<typeof CreateCAPASchema>,
@@ -130,6 +188,10 @@ export async function createCAPA(
       dueDate,
       ...rest
     } = parsed.data;
+
+    // Phase 3 — capture the driver userId FK alongside the legacy owner string.
+    // Resolved once before the (retryable) transaction since it only reads User.
+    const ownerId = await resolveOwnerUserId(session.user.tenantId, rest.owner);
 
     // Race-safe sequence allocation. Two server actions creating CAPAs at
     // the same instant can both read count=N inside their respective
@@ -187,10 +249,16 @@ export async function createCAPA(
               // owner is now zod-optional; the Prisma column is still
               // non-null, so default an empty string when not supplied.
               owner: rest.owner ?? "",
+              // Phase 3 — authoritative driver FK (null when unresolvable).
+              ownerId,
               reference,
               tenantId: session.user.tenantId,
               status: "open",
               createdBy: session.user.name,
+              // Authoritative creator FK for SoD guards. Null for admin
+              // actors with no User row (resolveUserFk returns null); those
+              // fall back to name comparison in the review/approve/verify gates.
+              createdById: actor.userId,
               dueDate: new Date(dueDate),
               findingId: linkedFindingId ?? null,
               // SME Section 1, Stage 2 (FULL) â€” write the new bidirectional
@@ -342,19 +410,14 @@ export async function updateCAPA(
     });
     if (!before) return { success: false, error: "CAPA not found" };
 
-    // SME Section 1, Stage 3 (partial) â€” RCA field-lock.
+    // SME Section 1, Stage 3 (partial) — RCA field-lock.
     // Once a CAPA enters QA review (and through closure/rejection), the
-    // rca and rcaMethod fields become the regulatory record of "what
-    // we determined caused the deviation." Editing them while QA is
-    // mid-review undermines the integrity of that review. Reuses the
-    // existing LOCKED_CAPA_STATUSES set so the boundary is one
-    // codebase-wide constant (matches evidence + alignment + criteria
-    // locks). Strict: even re-posting the same value is treated as a
-    // write attempt and blocked â€” server cannot distinguish intent.
-    // `!== undefined` (not falsy) â€” clearing to empty string is itself
-    // a destructive edit and must be blocked.
+    // rca and rcaMethod fields become the regulatory record. Editing them
+    // mid-review undermines the review's integrity, so block edits once the
+    // status is locked. Strict: even re-posting the same value is a write
+    // attempt; `!== undefined` (not falsy) so clearing to "" is blocked too.
     if (
-      (parsed.data.rca !== undefined || parsed.data.rcaMethod !== undefined) &&
+      (parsed.data.rca !== undefined || parsed.data.rcaMethod !== undefined || parsed.data.rcaDetail !== undefined) &&
       LOCKED_CAPA_STATUSES.has(before.status)
     ) {
       const attemptedFields = [
@@ -387,14 +450,11 @@ export async function updateCAPA(
       };
     }
 
-    // SME Section 1, Stage 3 (FULL) â€” auto-invalidate the RCA review
-    // when the underlying rca / rcaMethod text changes after approval.
-    // The Stage-3 RCA field-lock blocks edits >= pending_qa_review, but
-    // during "in_progress" the RCA is editable AND can already be
-    // approved by QA. Editing the approved content silently would mean
-    // QA's "Approved" verdict applies to text the reviewer never saw.
-    // So: detect any change, and if rcaApproved is true, clear the
-    // verdict + audit it so the reviewer re-reviews.
+    // SME Section 1, Stage 3 (FULL) — auto-invalidate the RCA review when the
+    // underlying rca / rcaMethod changes after approval. During "in_progress"
+    // the RCA is editable AND may already be approved by QA; editing it would
+    // mean QA's verdict applies to text the reviewer never saw. So detect the
+    // change and, if approved, clear the verdict + audit so QA re-reviews.
     const rcaChanged =
       parsed.data.rca !== undefined && parsed.data.rca !== before.rca;
     const rcaMethodChanged =
@@ -415,12 +475,32 @@ export async function updateCAPA(
         }
       : {};
 
+    // Phase 3 — keep the driver FK in step with the owner string whenever
+    // owner is part of this update (resolved/cleared accordingly).
+    const ownerIdUpdate =
+      parsed.data.owner !== undefined
+        ? await resolveOwnerUserId(session.user.tenantId, parsed.data.owner)
+        : undefined;
+
+    // Batch 2b — DI gate persistence. The server stamps diGateReviewDate (never
+    // trusts a client value); turning the gate OFF clears the detail. Spread
+    // AFTER ...parsed.data so these overrides win. The readiness gate still
+    // reads capa.diGate as before — unchanged.
+    const diGateData =
+      parsed.data.diGate === undefined
+        ? {}
+        : parsed.data.diGate
+          ? { diGateReviewDate: new Date() }
+          : { diGateStatus: null, diGateReviewedBy: null, diGateNotes: null, diGateReviewDate: null };
+
     const capa = await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
       data: {
         ...parsed.data,
         ...(parsed.data.dueDate ? { dueDate: new Date(parsed.data.dueDate) } : {}),
+        ...(parsed.data.owner !== undefined ? { ownerId: ownerIdUpdate } : {}),
         ...rcaInvalidateData,
+        ...diGateData,
       },
     });
 
@@ -481,7 +561,7 @@ export async function clearDIGate(
 ): Promise<ActionResult> {
   const session = await requireAuth();
 
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!CAPA_DI_GATE_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can clear the Data Integrity gate" };
   }
 
@@ -540,10 +620,6 @@ export async function submitForReview(id: string): Promise<ActionResult> {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
 
-  if (!CAPA_WRITE_ROLES.includes(session.user.role)) {
-    return { success: false, error: "Your role does not permit this action." };
-  }
-
   try {
     const existing = await prisma.cAPA.findFirst({
       where: { id, tenantId: session.user.tenantId },
@@ -553,11 +629,52 @@ export async function submitForReview(id: string): Promise<ActionResult> {
       return { success: false, error: "CAPA not found" };
     }
 
-    // SME Section 1, Stage 3 (FULL) â€” RCA QA gate. The CAPA cannot leave
-    // in_progress without a QA reviewer (different from the creator)
-    // approving the root cause analysis. rcaApproved=true is the only
-    // acceptable state; null=unreviewed and false=rejected both block.
-    if (existing.rcaApproved !== true) {
+    // Phase 5 — authorization: author-role OR the CAPA's DRIVER (ownerId).
+    // Submitting is the readiness attestation/handoff to QA; that attestation
+    // belongs to the driver, so a driver may submit even without an author
+    // role. requireGxPAuthor (platform-admin block) and the viewer hard-stop
+    // baked into isAssignedToTask both precede this.
+    const isAuthorRole = CAPA_WRITE_ROLES.includes(session.user.role);
+    const isDriver = isAssignedToTask(session, { ownerId: existing.ownerId });
+    if (!isAuthorRole && !isDriver) {
+      return { success: false, error: "Your role does not permit this action." };
+    }
+    const submitBasis: "authorRole" | "capaDriver" = isAuthorRole ? "authorRole" : "capaDriver";
+
+    // FIX 2 â€” status invariant. Only a CAPA still under investigation
+    // (in_progress) may be submitted for QA review. Without this a direct
+    // API call could "submit" a CAPA already in review / verification /
+    // closed / rejected. Enforced again optimistically on the write below.
+    if (existing.status !== "in_progress") {
+      return {
+        success: false,
+        error: "Only a CAPA under investigation (in progress) can be submitted for QA review.",
+      };
+    }
+
+    // Phase 4 â€” ONE readiness gate, shared verbatim with the client checklist
+    // (src/lib/capa-readiness.ts). Loads the same inputs the UI shows: action
+    // items, the 7 evidence categories, and effectiveness criteria. a-c (RCA /
+    // alignment / DI) were the old server set; d-f (actions complete / evidence
+    // resolved / >=1 criterion) are now REAL conditions too â€” a deliberate
+    // tightening of submit so client and server can never disagree.
+    const [actionItems, evidenceItems, criteria] = await Promise.all([
+      prisma.cAPAActionItem.findMany({
+        where: { capaId: id, tenantId: session.user.tenantId, deletedAt: null },
+        select: { status: true },
+      }),
+      prisma.evidenceItem.findMany({
+        where: { capaId: id },
+        select: { status: true },
+      }),
+      prisma.cAPAEffectivenessCriterion.findMany({
+        where: { capaId: id, deletedAt: null },
+        select: { id: true },
+      }),
+    ]);
+
+    const readiness = getCAPAReadiness(existing, actionItems, evidenceItems, criteria);
+    if (!readiness.allMet) {
       try {
         await prisma.auditLog.create({
           data: {
@@ -566,48 +683,20 @@ export async function submitForReview(id: string): Promise<ActionResult> {
             userName: actor.displayName,
             userRole: actor.role,
             module: "CAPA",
-            action: "CAPA_SUBMIT_BLOCKED_RCA_NOT_APPROVED",
+            action: "CAPA_SUBMIT_BLOCKED_NOT_READY",
             recordId: id,
-            newValue: JSON.stringify({
-              rcaApproved: existing.rcaApproved,
-              reason:
-                existing.rcaApproved === false
-                  ? "rca_rejected"
-                  : "rca_not_yet_reviewed",
-            }),
+            newValue: JSON.stringify({ unmet: readiness.unmet.map((u) => u.key) }),
           },
         });
       } catch (err) {
-        console.error("[action] failed to write CAPA_SUBMIT_BLOCKED_RCA_NOT_APPROVED audit:", err);
+        console.error("[action] failed to write CAPA_SUBMIT_BLOCKED_NOT_READY audit:", err);
       }
       return {
         success: false,
         error:
-          existing.rcaApproved === false
-            ? "RCA was rejected by QA â€” revise the root cause analysis and request re-review before submitting for full QA review."
-            : "RCA must be approved by QA before this CAPA can enter full review. Open the RCA tab and request review.",
-      };
-    }
-
-    // Substage 4.7 gate â€” action plan must be reviewed for cosmetic-CAPA
-    // risk before submission. Either alignmentStatus === "aligned", or a
-    // separate-of-duties override on a "cosmetic" verdict has been recorded.
-    if (
-      existing.alignmentStatus !== "aligned" &&
-      !existing.alignmentOverrideReason
-    ) {
-      return {
-        success: false,
-        error:
-          "Action plan must be reviewed for cosmetic CAPA risk before submission. " +
-          "Open the Actions tab to complete the alignment review.",
-      };
-    }
-
-    if (existing.diGate && existing.diGateStatus !== "cleared") {
-      return {
-        success: false,
-        error: "Data Integrity gate must be cleared before submitting for review",
+          "CAPA is not ready for review. Outstanding: " +
+          readiness.unmet.map((u) => u.label).join("; ") +
+          ".",
       };
     }
 
@@ -620,9 +709,21 @@ export async function submitForReview(id: string): Promise<ActionResult> {
       role: actor.role,
     });
 
-    const capa = await prisma.cAPA.update({
-      where: { id, tenantId: session.user.tenantId },
+    // Optimistic lock â€” re-assert status="in_progress" in the WHERE so a
+    // concurrent transition can't double-fire. count===0 means the status
+    // moved between the read above and this write.
+    const updated = await prisma.cAPA.updateMany({
+      where: { id, tenantId: session.user.tenantId, status: "in_progress" },
       data: { status: "pending_qa_review" },
+    });
+    if (updated.count === 0) {
+      return {
+        success: false,
+        error: "Only a CAPA under investigation (in progress) can be submitted for QA review.",
+      };
+    }
+    const capa = await prisma.cAPA.findFirst({
+      where: { id, tenantId: session.user.tenantId },
     });
 
     await prisma.auditLog.create({
@@ -634,11 +735,13 @@ export async function submitForReview(id: string): Promise<ActionResult> {
         module: "CAPA",
         action: "CAPA_SUBMITTED_FOR_REVIEW",
         recordId: id,
+        newValue: JSON.stringify({ accessBasis: submitBasis }),
       },
     });
 
     revalidatePath("/capa");
     revalidatePath(`/capa/${id}`);
+    revalidatePath("/worklist");
     return { success: true, data: capa };
   } catch (err) {
     console.error("[action] submitForReview failed:", err);
@@ -652,7 +755,7 @@ export async function rejectCAPA(
 ): Promise<ActionResult> {
   const session = await requireAuth();
 
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!CAPA_REJECT_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can reject CAPAs" };
   }
 
@@ -674,21 +777,86 @@ export async function rejectCAPA(
   }
 
   try {
-    // Rejection ends investigation activity â€” lock both evidence and
-    // criteria the same way submitForReview/signAndCloseCAPA do so the
-    // trail is consistent.
-    await lockCAPAArtifacts(id, session.user.tenantId, {
+    // Status invariant — reject only from pending_qa_review (the QA reviewer's
+    // verdict stage). Post-approval inadequacy uses revokeCAPAApproval; legacy
+    // closed/rejected rows use reopenCAPA.
+    const existing = await prisma.cAPA.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+      select: { status: true },
+    });
+    if (!existing) {
+      return { success: false, error: "CAPA not found" };
+    }
+    if (existing.status !== "pending_qa_review") {
+      return {
+        success: false,
+        error: "Only a CAPA awaiting QA review (pending QA review) can be rejected.",
+      };
+    }
+
+    // Phase 4 — validate any targeted rework items belong to THIS CAPA before
+    // we touch anything (avoids a partial write on a bad id).
+    const reworkIds = parsed.data.reworkItems ?? [];
+    if (reworkIds.length > 0) {
+      const owned = await prisma.cAPAActionItem.findMany({
+        where: { id: { in: reworkIds }, capaId: id, tenantId: session.user.tenantId },
+        select: { id: true },
+      });
+      if (owned.length !== reworkIds.length) {
+        return { success: false, error: "One or more rework items do not belong to this CAPA." };
+      }
+    }
+
+    const now = new Date();
+    // Phase 4 — a TARGETED reject is a BOUNCE, not a dead end: the CAPA returns
+    // to in_progress (workable again) rather than the terminal "rejected".
+    // Rejection metadata goes to first-class columns (no longer crammed into
+    // diGateNotes), and each targeted item is flagged "rework" with the reason.
+    // Evidence/criteria are UNLOCKED (they were locked at submit) so the team
+    // can actually fix things. Optimistic-locked on pending_qa_review.
+    const result = await prisma.$transaction(async (tx) => {
+      const bounced = await tx.cAPA.updateMany({
+        where: { id, tenantId: session.user.tenantId, status: "pending_qa_review" },
+        data: {
+          status: "in_progress",
+          rejectionReason: parsed.data.reason,
+          rejectedById: actor.userId,
+          rejectedAt: now,
+        },
+      });
+      if (bounced.count === 0) return { bounced: 0 } as const;
+
+      if (reworkIds.length > 0) {
+        await tx.cAPAActionItem.updateMany({
+          where: { id: { in: reworkIds }, capaId: id, tenantId: session.user.tenantId },
+          data: {
+            status: "rework",
+            reworkReason: parsed.data.reason,
+            reworkRequestedById: actor.userId,
+            reworkRequestedAt: now,
+          },
+        });
+      }
+      return { bounced: 1 } as const;
+    });
+
+    if (result.bounced === 0) {
+      return {
+        success: false,
+        error: "Only a CAPA awaiting QA review (pending QA review) can be rejected.",
+      };
+    }
+
+    // Unlock evidence + criteria — in_progress means workable again. (No lock
+    // on reject, unlike the old dead-end flow.)
+    await unlockCAPAArtifacts(id, session.user.tenantId, {
       userId: actor.userId,
       name: actor.displayName,
       role: actor.role,
     });
 
-    const capa = await prisma.cAPA.update({
+    const capa = await prisma.cAPA.findFirst({
       where: { id, tenantId: session.user.tenantId },
-      data: {
-        status: "rejected",
-        diGateNotes: parsed.data.reason,
-      },
     });
 
     await prisma.auditLog.create({
@@ -700,7 +868,12 @@ export async function rejectCAPA(
         module: "CAPA",
         action: "CAPA_REJECTED",
         recordId: id,
-        newValue: parsed.data.reason.slice(0, 200),
+        oldValue: "pending_qa_review",
+        newValue: JSON.stringify({
+          to: "in_progress",
+          reason: parsed.data.reason.slice(0, 200),
+          reworkItems: reworkIds,
+        }),
       },
     });
 
@@ -767,11 +940,7 @@ export async function reopenCAPA(
   input: z.input<typeof ReopenCAPASchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
-  if (
-    session.user.role !== "qa_head" &&
-    session.user.role !== "customer_admin" &&
-    session.user.role !== "super_admin"
-  ) {
+  if (!CAPA_REOPEN_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only a QA Head or an admin can reopen a CAPA." };
   }
   const parsed = ReopenCAPASchema.safeParse(input);
@@ -826,7 +995,7 @@ export async function reopenCAPA(
   }
 }
 
-export async function deleteCAPA(id: string): Promise<ActionResult> {
+export async function deleteCAPA(id: string, reason?: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
@@ -844,14 +1013,23 @@ export async function deleteCAPA(id: string): Promise<ActionResult> {
 
   try {
     const existing = await prisma.cAPA.findFirst({
-      where: { id, tenantId: session.user.tenantId },
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true },
     });
     if (!existing) {
       return { success: false, error: "CAPA not found" };
     }
 
-    await prisma.cAPA.delete({
+    // Soft-delete (Part 11 retention) — the row is retained; list/count queries
+    // filter deletedAt IS NULL so it disappears from tracker/worklist/dashboards.
+    await prisma.cAPA.update({
       where: { id, tenantId: session.user.tenantId },
+      data: {
+        deletedAt: new Date(),
+        deletedById: actor.userId,
+        deletedByName: actor.displayName,
+        deletionReason: reason ? reason.slice(0, 200) : null,
+      },
     });
 
     await prisma.auditLog.create({
@@ -863,6 +1041,7 @@ export async function deleteCAPA(id: string): Promise<ActionResult> {
         module: "CAPA",
         action: "CAPA_DELETED",
         recordId: id,
+        newValue: reason ? reason.slice(0, 200) : null,
       },
     });
 
@@ -871,5 +1050,46 @@ export async function deleteCAPA(id: string): Promise<ActionResult> {
   } catch (err) {
     console.error("[action] deleteCAPA failed:", err);
     return { success: false, error: "Failed to delete CAPA" };
+  }
+}
+
+export async function restoreCAPA(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!ADMIN_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only an administrator can restore a CAPA." };
+  }
+  try {
+    const existing = await prisma.cAPA.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!existing) return { success: false, error: "CAPA not found" };
+    if (!existing.deletedAt) return { success: false, error: "CAPA is not deleted." };
+    await prisma.cAPA.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: "CAPA",
+        action: "CAPA_RESTORED",
+        recordId: id,
+      },
+    });
+    revalidatePath("/capa");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] restoreCAPA failed:", err);
+    return { success: false, error: "Failed to restore CAPA" };
   }
 }

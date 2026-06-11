@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { canReviewRCA } from "@/lib/permissions/roleSets";
 import {
   RCA_REVIEW_AUDIT_MODULE,
   RCA_REVIEW_INVALID_STATUS_MESSAGE,
@@ -59,9 +60,8 @@ const OverrideRCASchema = z.object({
 
 // Roles authorised to set / override / clear an RCA review. Same role
 // gate as alignment review â€” RCA quality is a QA procedural decision.
-function canReviewRCA(role: string): boolean {
-  return role === "qa_head" || role === "super_admin" || role === "customer_admin";
-}
+// canReviewRCA is imported from the shared role-set module (see import above)
+// so the server gate and the client usePermissions hook share ONE definition.
 
 // "in_progress" is the only valid status for an RCA review. "open" has
 // no RCA yet, anything >= "pending_qa_review" is past this gate.
@@ -110,6 +110,7 @@ export async function reviewRCA(
       rca: true,
       rcaApproved: true,
       createdBy: true,
+      createdById: true,
     },
   });
   if (!existing) return { success: false, error: "CAPA not found" };
@@ -123,11 +124,14 @@ export async function reviewRCA(
     };
   }
 
-  // SoD â€” creator cannot review their own RCA. Display-name comparison
-  // (CAPA.createdBy is a string, not a userId FK). Same brittleness
-  // caveat as approveCAPA's self-approval guard; promoted to a userId
-  // FK in the future createdBy â†’ createdById migration.
-  if (existing.createdBy && existing.createdBy === session.user.name) {
+  // SoD â€” creator cannot review their own RCA. Prefer the authoritative
+  // createdById userId FK; fall back to display-name comparison only for
+  // legacy rows whose createdById is null (predate the FK / unresolvable
+  // backfill). ID comparison is robust against duplicate names and renames.
+  const isSelfReview = existing.createdById
+    ? existing.createdById === session.user.id
+    : Boolean(existing.createdBy) && existing.createdBy === session.user.name;
+  if (isSelfReview) {
     try {
       await prisma.auditLog.create({
         data: {
@@ -142,7 +146,7 @@ export async function reviewRCA(
           newValue: JSON.stringify({
             attemptedBy: session.user.id,
             capaCreator: existing.createdBy,
-            comparedBy: "displayName",
+            comparedBy: existing.createdById ? "userId" : "displayName",
           }),
         },
       });

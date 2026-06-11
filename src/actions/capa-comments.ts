@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
+import { isAssignedToTask } from "@/lib/permissions/roleSets";
 import { sanitizeServerError } from "@/lib/errors";
 
 /**
@@ -47,6 +48,9 @@ const AddCommentSchema = z.object({
     .max(4000, "Comment must be 4000 characters or fewer"),
   isConcern: z.boolean().default(false),
   parentId: z.string().min(1).optional(),
+  // Phase 2 — optional action-level scope. Null/absent = CAPA-level comment
+  // (unchanged). No UI passes this yet.
+  actionItemId: z.string().min(1).optional(),
 });
 
 const ResolveSchema = z.object({
@@ -85,6 +89,10 @@ interface ParentCAPA {
   status: string;
   description: string;
   reference: string | null;
+  // Phase 3 — CAPA driver FK, for the "driver may comment CAPA-level" path.
+  // Optional: only loadCAPAScoped (addCAPAComment) selects it; the other
+  // comment actions construct ParentCAPA without it and only need the title.
+  ownerId?: string | null;
 }
 
 /**
@@ -107,6 +115,7 @@ async function loadCAPAScoped(
       status: true,
       description: true,
       reference: true,
+      ownerId: true,
     },
   });
   if (!capa) return null;
@@ -162,10 +171,11 @@ export async function addCAPAComment(
   // If a parent is given, verify it belongs to the same CAPA AND isn't
   // soft-deleted (replying to a deleted parent is disallowed; existing
   // replies stay visible but new ones can't pile on).
+  let effectiveParentId: string | null = null;
   if (parsed.data.parentId) {
     const parent = await prisma.cAPAComment.findFirst({
       where: { id: parsed.data.parentId, capaId },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, parentId: true },
     });
     if (!parent) {
       return { success: false, error: "Parent comment not found on this CAPA" };
@@ -176,6 +186,23 @@ export async function addCAPAComment(
         error: "Cannot reply to a deleted comment.",
       };
     }
+    // Batch 3b — max depth = 1 (root → replies). A reply to a reply attaches
+    // to the ROOT instead, so the thread never nests beyond one level.
+    effectiveParentId = parent.parentId ?? parent.id;
+  }
+
+  // If an action item is given, verify it belongs to the same CAPA, and note
+  // whether the session user owns it (drives the owner comment path below).
+  let ownerOfAction = false;
+  if (parsed.data.actionItemId) {
+    const ai = await prisma.cAPAActionItem.findFirst({
+      where: { id: parsed.data.actionItemId, capaId, tenantId: capa.tenantId },
+      select: { id: true, ownerId: true },
+    });
+    if (!ai) {
+      return { success: false, error: "Action item not found on this CAPA." };
+    }
+    ownerOfAction = isAssignedToTask(session, ai);
   }
 
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
@@ -190,12 +217,30 @@ export async function addCAPAComment(
     return { success: false, error: "Viewers cannot perform this action." };
   }
 
+  // Phase 3 — authorization: author-role OR an assigned-participant path —
+  // either the owner of the specific action item the comment targets, or the
+  // CAPA's driver (ownerId) commenting at CAPA level. requireGxPAuthor and the
+  // viewer hard-stop (above) precede this. NOTE: this REPLACES the prior
+  // "any non-viewer" comment gate with an explicit author-or-assignee rule.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  const isCapaDriver = isAssignedToTask(session, { ownerId: capa.ownerId });
+  if (!isAuthorRole && !ownerOfAction && !isCapaDriver) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
+  const accessBasis: "authorRole" | "assignedOwner" | "capaDriver" = isAuthorRole
+    ? "authorRole"
+    : ownerOfAction
+      ? "assignedOwner"
+      : "capaDriver";
+
   try {
     const created = await prisma.cAPAComment.create({
       data: {
         tenantId: capa.tenantId,
         capaId,
-        parentId: parsed.data.parentId ?? null,
+        parentId: effectiveParentId,
+        // Phase 2 — optional action-level scope (validated above).
+        actionItemId: parsed.data.actionItemId ?? null,
         body: parsed.data.body,
         isConcern: parsed.data.isConcern,
         authorId: session.user.id,
@@ -215,7 +260,9 @@ export async function addCAPAComment(
         recordTitle: recordTitleFor(capa),
         newValue: JSON.stringify({
           isConcern: parsed.data.isConcern,
-          parentId: parsed.data.parentId ?? null,
+          parentId: effectiveParentId,
+          actionItemId: parsed.data.actionItemId ?? null,
+          accessBasis,
           bodyPreview: parsed.data.body.slice(0, 120),
         }),
       },

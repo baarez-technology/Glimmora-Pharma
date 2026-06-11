@@ -8,6 +8,7 @@ type PrismaCAPA = {
   siteId: string | null;
   findingId: string | null;
   source: string;
+  title: string;
   description: string;
   risk: string;
   owner: string;
@@ -15,6 +16,7 @@ type PrismaCAPA = {
   status: string;
   rca: string | null;
   rcaMethod: string | null;
+  rcaDetail: string | null;
   correctiveActions: string | null;
   effectivenessCheck: boolean;
   effectivenessDate: Date | null;
@@ -68,6 +70,9 @@ type PrismaCAPA = {
     completedById: string | null;
     completedAt: Date | null;
     completionNotes: string | null;
+    reworkReason: string | null;
+    reworkRequestedById: string | null;
+    reworkRequestedAt: Date | null;
     createdAt: Date;
     createdBy: string;
     createdById: string | null;
@@ -79,6 +84,9 @@ type PrismaCAPA = {
   ccBlockOverrideAt: Date | null;
   closedBy: string | null;
   closedAt: Date | null;
+  rejectionReason: string | null;
+  rejectedById: string | null;
+  rejectedAt: Date | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -88,6 +96,7 @@ type PrismaCAPA = {
   // Redux store carries the same shape.
   deviation?: {
     id: string;
+    reference: string | null;
     title: string;
     severity: string;
     status: string;
@@ -123,9 +132,11 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
     owner: row.owner,
     dueDate: row.dueDate ? row.dueDate.toISOString() : "",
     status: STATUS_MAP[row.status] ?? "open",
+    title: row.title,
     description: row.description,
     rca: row.rca ?? undefined,
     rcaMethod: (row.rcaMethod as RCAMethod | null) ?? undefined,
+    rcaDetail: row.rcaDetail ?? undefined,
     correctiveActions: row.correctiveActions ?? undefined,
     effectivenessCheck: row.effectivenessCheck,
     effectivenessDate: row.effectivenessDate ? row.effectivenessDate.toISOString() : undefined,
@@ -195,11 +206,14 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
           owner: a.owner,
           ownerId: a.ownerId,
           dueDate: a.dueDate.toISOString(),
-          status: a.status as "pending" | "in_progress" | "complete" | "skipped",
+          status: a.status as "pending" | "in_progress" | "complete" | "skipped" | "rework",
           completedBy: a.completedBy,
           completedById: a.completedById,
           completedAt: a.completedAt ? a.completedAt.toISOString() : null,
           completionNotes: a.completionNotes,
+          reworkReason: a.reworkReason,
+          reworkRequestedById: a.reworkRequestedById,
+          reworkRequestedAt: a.reworkRequestedAt ? a.reworkRequestedAt.toISOString() : null,
           createdAt: a.createdAt.toISOString(),
           createdBy: a.createdBy,
           createdById: a.createdById,
@@ -214,6 +228,9 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
       : undefined,
     closedAt: row.closedAt ? row.closedAt.toISOString() : undefined,
     closedBy: row.closedBy ?? undefined,
+    rejectionReason: row.rejectionReason ?? undefined,
+    rejectedById: row.rejectedById ?? undefined,
+    rejectedAt: row.rejectedAt ? row.rejectedAt.toISOString() : undefined,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
     // null = relation included, no linked deviation; undefined = relation
@@ -221,6 +238,7 @@ export function mapCAPAFromPrisma(row: PrismaCAPA): CAPA {
     deviation: row.deviation
       ? {
           id: row.deviation.id,
+          reference: row.deviation.reference ?? null,
           title: row.deviation.title,
           severity: row.deviation.severity,
           status: row.deviation.status,

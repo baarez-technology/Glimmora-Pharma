@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   reviewRCA,
   overrideRCAReview,
@@ -46,8 +47,10 @@ export function RcaReviewSection({
 }) {
   const { role } = useRole();
   const currentUser = useAppSelector((s) => s.auth.user);
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const capaCan = usePermissions("capa");
   const canReview =
-    role === "qa_head" || role === "super_admin" || role === "customer_admin";
+    (role === "qa_head" || role === "super_admin" || role === "customer_admin") && capaCan.canReview;
 
   // Tighter status window than alignment review — only valid in_progress.
   // open: nothing to review yet. pending_qa_review onward: past this gate.
@@ -90,7 +93,7 @@ export function RcaReviewSection({
 
   const submitReview = async (verdict: boolean) => {
     if (notes.trim().length < 10) {
-      setError("Notes must be at least 10 characters.");
+      setError("Add review notes (at least 10 characters).");
       return;
     }
     setBusy(true);
@@ -111,7 +114,7 @@ export function RcaReviewSection({
   const submitOverride = async () => {
     if (overrideReason.trim().length < OVERRIDE_REASON_MIN_LENGTH) {
       setOverrideError(
-        `Reason must be at least ${OVERRIDE_REASON_MIN_LENGTH} characters.`,
+        `Add an override reason (at least ${OVERRIDE_REASON_MIN_LENGTH} characters).`,
       );
       return;
     }

@@ -85,7 +85,7 @@ export function AppShell({ children, initialTenant, initialUser }: AppShellProps
     credentialsSeeded.current = true;
   }, [dispatch, initialUser, reduxUser, reduxCurrentTenant]);
 
-  const { activePlan, tenantName, isExpired, isNearExpiry, daysRemaining } =
+  const { plan, tenantName, isExpired, isNearExpiry, daysRemaining } =
     useTenantConfig();
   const { isSuperAdmin, isViewOnly } = useRole();
 
@@ -126,18 +126,18 @@ export function AppShell({ children, initialTenant, initialUser }: AppShellProps
             className="text-[20px] font-bold mb-2"
             style={{ color: "var(--text-primary)" }}
           >
-            {activePlan
-              ? "Your subscription has ended"
-              : "No active subscription"}
+            {plan
+              ? "Your plan has expired"
+              : "No plan assigned"}
           </h1>
 
-          {activePlan && (
+          {plan && (
             <p
               className="text-[13px] mb-4"
               style={{ color: "var(--text-secondary)" }}
             >
               Your plan expired on{" "}
-              {dayjs.utc(activePlan.endDate).format("DD MMM YYYY")}
+              {dayjs.utc(plan.expiryDate).format("DD MMM YYYY")}
             </p>
           )}
 

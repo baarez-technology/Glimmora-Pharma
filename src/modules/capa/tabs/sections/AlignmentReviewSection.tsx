@@ -4,15 +4,19 @@ import { useState } from "react";
 import {
   CheckCircle2,
   Lock,
+  Pencil,
   RotateCcw,
+  Save,
   ShieldAlert,
 } from "lucide-react";
 import dayjs from "@/lib/dayjs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   setCAPAAlignmentStatus,
   overrideCAPAAlignmentFlag,
@@ -54,9 +58,12 @@ export function AlignmentReviewSection({
   onAlignmentChange?: () => void;
 }) {
   const { role } = useRole();
+  const toast = useToast();
   const currentUser = useAppSelector((s) => s.auth.user);
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const capaCan = usePermissions("capa");
   const canReview =
-    role === "qa_head" || role === "super_admin" || role === "customer_admin";
+    (role === "qa_head" || role === "super_admin" || role === "customer_admin") && capaCan.canReview;
 
   const isLocked = LOCKED_CAPA_STATUSES.has(capa.status);
   const status = capa.alignmentStatus;
@@ -76,11 +83,27 @@ export function AlignmentReviewSection({
     !overridden &&
     !flaggedSelf;
 
-  // Mutation form state (used for "Set Status: …" buttons + notes textarea).
-  const [pendingStatus, setPendingStatus] = useState<AlignmentStatus | null>(null);
-  const [notes, setNotes] = useState("");
+  // Batch 4 Part 3 — view/edit modes. EDIT shows the textarea + verdict picker
+  // + Save/Cancel; VIEW shows the saved verdict + reasoning + Edit affordance.
+  const [editing, setEditing] = useState(false);
+  // Mutation form state — pendingStatus is the picked verdict (committed by Save).
+  const [pendingStatus, setPendingStatus] = useState<AlignmentStatus | null>(status ?? null);
+  const [notes, setNotes] = useState(capa.alignmentNotes ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setNotes(capa.alignmentNotes ?? "");
+    setPendingStatus(status ?? null);
+    setError(null);
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    setNotes(capa.alignmentNotes ?? "");
+    setPendingStatus(status ?? null);
+    setError(null);
+    setEditing(false);
+  };
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideBusy, setOverrideBusy] = useState(false);
@@ -88,7 +111,7 @@ export function AlignmentReviewSection({
 
   const submitNewStatus = async (s: AlignmentStatus) => {
     if (notes.trim().length < 10) {
-      setError("Notes must be at least 10 characters.");
+      setError("Add a brief rationale (≥ 10 characters) — it's the audit record for this verdict.");
       return;
     }
     setBusy(true);
@@ -100,17 +123,18 @@ export function AlignmentReviewSection({
     setBusy(false);
     if (!result.success) {
       setError(result.error);
+      toast.error(result.error || "Could not save alignment verdict.");
       return;
     }
-    setPendingStatus(null);
-    setNotes("");
+    setEditing(false);
+    toast.success(`Alignment set to ${STATUS_LABEL[s]}.`);
     onAlignmentChange?.();
   };
 
   const submitOverride = async () => {
     if (overrideReason.trim().length < ALIGNMENT_OVERRIDE_REASON_MIN_LENGTH) {
       setOverrideError(
-        `Reason must be at least ${ALIGNMENT_OVERRIDE_REASON_MIN_LENGTH} characters.`,
+        `Add an override reason (at least ${ALIGNMENT_OVERRIDE_REASON_MIN_LENGTH} characters).`,
       );
       return;
     }
@@ -136,10 +160,13 @@ export function AlignmentReviewSection({
     setBusy(false);
     if (!result.success) {
       setError(result.error);
+      toast.error(result.error || "Could not clear alignment review.");
       return;
     }
+    setEditing(false);
     setPendingStatus(null);
     setNotes("");
+    toast.success("Alignment review cleared.");
     onAlignmentChange?.();
   };
 
@@ -179,7 +206,8 @@ export function AlignmentReviewSection({
         </div>
       )}
 
-      {reviewed ? (
+      {/* Batch 4 Part 3 — VIEW mode: clean display of the saved verdict. */}
+      {reviewed && !editing && (
         <div className="space-y-2 mb-3">
           <p
             className="text-[11px]"
@@ -202,7 +230,7 @@ export function AlignmentReviewSection({
                 className="font-semibold mr-1"
                 style={{ color: "var(--text-muted)" }}
               >
-                Notes:
+                Reasoning:
               </span>
               {capa.alignmentNotes}
             </p>
@@ -275,23 +303,30 @@ export function AlignmentReviewSection({
               override before submission.
             </p>
           )}
+          {canReview && !isLocked && (
+            <div className="flex gap-2 pt-1">
+              <Button variant="secondary" size="sm" icon={Pencil} onClick={startEdit}>Edit</Button>
+              <Button variant="ghost" size="sm" icon={RotateCcw} disabled={busy} onClick={() => void clearReview()}>Clear review</Button>
+            </div>
+          )}
         </div>
-      ) : (
-        <p
-          className="text-[12px] mb-3"
-          style={{ color: "var(--text-secondary)" }}
-        >
+      )}
+
+      {/* Read-only message when not reviewed and the viewer can't review. */}
+      {!reviewed && !(canReview && !isLocked) && (
+        <p className="text-[12px] mb-3" style={{ color: "var(--text-secondary)" }}>
           Not yet reviewed. Action plan must be reviewed before submission.
         </p>
       )}
 
-      {canReview && !isLocked && (
+      {/* Batch 4 Part 3 — EDIT mode: reasoning + verdict picker + Save/Cancel. */}
+      {(editing || !reviewed) && canReview && !isLocked && (
         <div className="space-y-2">
           <textarea
             className="input text-[12px] min-h-[60px]"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Reasoning (≥ 10 chars) — required for any verdict"
+            placeholder="Reasoning (≥ 10 chars) — the audit record for this verdict"
             maxLength={2000}
             disabled={busy}
             aria-label="Alignment review notes"
@@ -300,39 +335,35 @@ export function AlignmentReviewSection({
             {ALIGNMENT_STATUSES.map((s) => (
               <Button
                 key={s}
-                variant={status === s ? "primary" : "secondary"}
+                variant={pendingStatus === s ? "primary" : "secondary"}
                 size="sm"
-                disabled={busy || notes.trim().length < 10}
-                onClick={() => {
-                  setPendingStatus(s);
-                  void submitNewStatus(s);
-                }}
-                loading={busy && pendingStatus === s}
+                disabled={busy}
+                onClick={() => setPendingStatus(s)}
               >
-                Set status: {STATUS_LABEL[s]}
+                {STATUS_LABEL[s]}
               </Button>
             ))}
-            {reviewed && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={RotateCcw}
-                disabled={busy}
-                onClick={() => void clearReview()}
-              >
-                Clear review
-              </Button>
-            )}
           </div>
           {error && (
-            <p
-              role="alert"
-              className="text-[11px]"
-              style={{ color: "var(--danger)" }}
-            >
+            <p role="alert" className="text-[11px]" style={{ color: "var(--danger)" }}>
               {error}
             </p>
           )}
+          <div className="flex justify-end gap-2">
+            {reviewed && (
+              <Button variant="ghost" size="sm" disabled={busy} onClick={cancelEdit}>Cancel</Button>
+            )}
+            <Button
+              variant="primary"
+              size="sm"
+              icon={Save}
+              disabled={busy || !pendingStatus || notes.trim().length < 10}
+              loading={busy}
+              onClick={() => pendingStatus && void submitNewStatus(pendingStatus)}
+            >
+              Save verdict
+            </Button>
+          </div>
         </div>
       )}
 

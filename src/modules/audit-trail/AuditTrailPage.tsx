@@ -279,11 +279,11 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
     <main
       id="main-content"
       aria-label="Audit trail"
-      className="w-full bg-white text-[#1a1a1a] min-h-full flex flex-col"
+      className="w-full bg-(--card) text-(--text-primary) min-h-full flex flex-col"
     >
       {/* ── Compliance band — Part 11 trust signal ─────────────────── */}
       <div
-        className="border-b border-[#e8e4dd] bg-gradient-to-r from-[#0a4d4f] to-[#0f6663] px-6 py-3 text-white"
+        className="border-b border-(--card-border) bg-(--bg-elevated) px-6 py-3 text-(--text-secondary)"
         role="region"
         aria-label="Compliance certification"
       >
@@ -297,16 +297,16 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
       </div>
 
       {/* ── Page header ────────────────────────────────────────────── */}
-      <div className="px-6 py-5 border-b border-[#e8e4dd]">
+      <div className="px-6 py-5 border-b border-(--card-border)">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-semibold text-[#1a1a1a] leading-tight">Audit Trail</h1>
-            <p className="mt-1 text-[13px] text-[#6b6b6b]">
+            <h1 className="text-2xl font-semibold text-(--text-primary) leading-tight">Audit Trail</h1>
+            <p className="mt-1 text-[13px] text-(--text-secondary)">
               Record of every action across{" "}
-              <span className="font-semibold text-[#3a3530]">{totalCount.toLocaleString()}</span>{" "}
+              <span className="font-semibold text-(--text-primary)">{totalCount.toLocaleString()}</span>{" "}
               {entryWord(totalCount)}
               {truncated && (
-                <span className="text-[#7a7269]">
+                <span className="text-(--text-muted)">
                   {" "}· showing the {limit.toLocaleString()} most recent
                 </span>
               )}
@@ -337,12 +337,12 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
       </div>
 
       {/* ── Filter bar ─────────────────────────────────────────────── */}
-      <div className="px-6 py-3 border-b border-[#e8e4dd] bg-[#f8f6f3]">
+      <div className="px-6 py-3 border-b border-(--card-border) bg-(--bg-elevated)">
         <div className="flex flex-wrap items-center gap-2">
           {/* Search */}
           <div className="relative flex-1 min-w-[240px] max-w-md">
             <Search
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#999] pointer-events-none"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-(--text-muted) pointer-events-none"
               aria-hidden="true"
             />
             <input
@@ -351,7 +351,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
               aria-label="Search audit events"
               value={filters.search}
               onChange={(e) => setFilter("search", e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-[12px] bg-white border border-[#e8e4dd] rounded-md focus:outline-none focus:ring-1 focus:ring-[#0f6663] text-[#1a1a1a] placeholder:text-[#999]"
+              className="w-full pl-8 pr-3 py-1.5 text-[12px] bg-(--card) border border-(--card-border) rounded-md focus:outline-none focus:ring-1 focus:ring-(--brand) text-(--text-primary) placeholder:text-(--text-muted)"
             />
           </div>
 
@@ -363,8 +363,8 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
               aria-pressed={isDatePresetActive(0)}
               className={`px-2.5 py-1 rounded-full border transition-colors ${
                 isDatePresetActive(0)
-                  ? "bg-white border-[#0f6663] text-[#0f6663] font-medium"
-                  : "border-[#e8e4dd] bg-transparent text-[#6b6b6b] hover:bg-white"
+                  ? "bg-(--card) border-(--brand) text-(--brand) font-medium"
+                  : "border-(--card-border) bg-transparent text-(--text-secondary) hover:bg-(--card)"
               }`}
             >
               Today
@@ -375,8 +375,8 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
               aria-pressed={isDatePresetActive(7)}
               className={`px-2.5 py-1 rounded-full border transition-colors ${
                 isDatePresetActive(7)
-                  ? "bg-white border-[#0f6663] text-[#0f6663] font-medium"
-                  : "border-[#e8e4dd] bg-transparent text-[#6b6b6b] hover:bg-white"
+                  ? "bg-(--card) border-(--brand) text-(--brand) font-medium"
+                  : "border-(--card-border) bg-transparent text-(--text-secondary) hover:bg-(--card)"
               }`}
             >
               Last 7 days
@@ -387,8 +387,8 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
               aria-pressed={isDatePresetActive(30)}
               className={`px-2.5 py-1 rounded-full border transition-colors ${
                 isDatePresetActive(30)
-                  ? "bg-white border-[#0f6663] text-[#0f6663] font-medium"
-                  : "border-[#e8e4dd] bg-transparent text-[#6b6b6b] hover:bg-white"
+                  ? "bg-(--card) border-(--brand) text-(--brand) font-medium"
+                  : "border-(--card-border) bg-transparent text-(--text-secondary) hover:bg-(--card)"
               }`}
             >
               Last 30 days
@@ -399,8 +399,8 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
               aria-pressed={filters.criticalOnly}
               className={`px-2.5 py-1 rounded-full border transition-colors font-medium ${
                 filters.criticalOnly
-                  ? "border-[#dc2626] bg-[#dc2626] text-white"
-                  : "border-[#dc2626]/40 bg-[#fef2f2] text-[#991b1b] hover:bg-[#fee2e2]"
+                  ? "border-(--danger) bg-(--danger) text-white"
+                  : "border-(--danger)/40 bg-(--danger-bg) text-(--danger) hover:opacity-80"
               }`}
             >
               Critical only
@@ -432,7 +432,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
               aria-label="From date"
               value={filters.dateFrom}
               onChange={(e) => setFilter("dateFrom", e.target.value)}
-              className="px-2 py-1 text-[12px] bg-white border border-[#e8e4dd] rounded-md focus:outline-none focus:ring-1 focus:ring-[#0f6663] text-[#1a1a1a]"
+              className="px-2 py-1 text-[12px] bg-(--card) border border-(--card-border) rounded-md focus:outline-none focus:ring-1 focus:ring-(--brand) text-(--text-primary)"
               style={{ width: 130 }}
             />
             <input
@@ -440,14 +440,14 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
               aria-label="To date"
               value={filters.dateTo}
               onChange={(e) => setFilter("dateTo", e.target.value)}
-              className="px-2 py-1 text-[12px] bg-white border border-[#e8e4dd] rounded-md focus:outline-none focus:ring-1 focus:ring-[#0f6663] text-[#1a1a1a]"
+              className="px-2 py-1 text-[12px] bg-(--card) border border-(--card-border) rounded-md focus:outline-none focus:ring-1 focus:ring-(--brand) text-(--text-primary)"
               style={{ width: 130 }}
             />
             {anyFilter && (
               <button
                 type="button"
                 onClick={() => setFilters(EMPTY_FILTERS)}
-                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-[#7a7269] hover:text-[#1a1a1a] border-none bg-transparent cursor-pointer"
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-(--text-muted) hover:text-(--text-primary) border-none bg-transparent cursor-pointer"
                 aria-label="Clear all filters"
               >
                 <X className="h-3 w-3" aria-hidden="true" />
@@ -458,10 +458,10 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
         </div>
 
         {/* Counts + severity legend */}
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-[#7a7269]">
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-(--text-muted)">
           <Funnel className="h-3 w-3" aria-hidden="true" />
           <span>
-            <span className="font-medium text-[#3a3530]">{filtered.length.toLocaleString()}</span> of{" "}
+            <span className="font-medium text-(--text-primary)">{filtered.length.toLocaleString()}</span> of{" "}
             {logs.length.toLocaleString()} {entryWord(logs.length)}
             {truncated && (
               <span className="opacity-70"> loaded · {totalCount.toLocaleString()} total in DB</span>
@@ -469,19 +469,19 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
           </span>
           <span className="opacity-40" aria-hidden="true">·</span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-[#dc2626]" aria-hidden="true" />
+            <span className="h-2 w-2 rounded-full bg-(--status-blocked)" aria-hidden="true" />
             Critical
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-[#f59e0b]" aria-hidden="true" />
+            <span className="h-2 w-2 rounded-full bg-(--status-waiting)" aria-hidden="true" />
             Status changes
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-[#10b981]" aria-hidden="true" />
+            <span className="h-2 w-2 rounded-full bg-(--status-done)" aria-hidden="true" />
             Creates
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-[#6b7280]" aria-hidden="true" />
+            <span className="h-2 w-2 rounded-full bg-(--status-pending)" aria-hidden="true" />
             Other
           </span>
         </div>
@@ -495,13 +495,13 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
       <div className="flex-1">
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
-          <FileSearch className="h-10 w-10 text-[#d4cec5] mb-3" aria-hidden="true" />
-          <h3 className="text-[13px] font-medium text-[#3a3530]">
+          <FileSearch className="h-10 w-10 text-(--text-muted) mb-3" aria-hidden="true" />
+          <h3 className="text-[13px] font-medium text-(--text-primary)">
             {logs.length === 0
               ? "No audit events yet"
               : "No audit events match your filters"}
           </h3>
-          <p className="mt-1 text-[11px] text-[#7a7269] max-w-sm">
+          <p className="mt-1 text-[11px] text-(--text-muted) max-w-sm">
             {logs.length === 0
               ? "Once users start acting in the platform, every state change is captured here automatically."
               : "Try widening the date range or clearing module / user filters. The audit trail captures every state change across the platform."}
@@ -510,7 +510,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
             <button
               type="button"
               onClick={() => setFilters(EMPTY_FILTERS)}
-              className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium text-[#0f6663] border border-[#0f6663]/30 rounded-md hover:bg-[#f0f9f8] bg-white cursor-pointer"
+              className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium text-(--brand) border border-(--brand-border) rounded-md hover:bg-(--brand-muted) bg-(--card) cursor-pointer"
             >
               <X className="h-3 w-3" aria-hidden="true" />
               Clear filters
@@ -518,7 +518,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
           )}
         </div>
       ) : (
-        <ul className="divide-y divide-[#f0ece5]" aria-label="Audit trail entries">
+        <ul className="divide-y divide-(--bg-border)" aria-label="Audit trail entries">
           {filtered.map((event) => (
             <AuditEventRow
               key={event.id}
@@ -534,7 +534,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
       </div>
 
       {/* ── Footer compliance band ─────────────────────────────────── */}
-      <div className="px-6 py-3 border-t border-[#e8e4dd] bg-[#f8f6f3] text-[11px] text-[#7a7269] flex items-center justify-between gap-4 flex-wrap">
+      <div className="px-6 py-3 border-t border-(--card-border) bg-(--bg-elevated) text-[11px] text-(--text-muted) flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-1.5">
           <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span>

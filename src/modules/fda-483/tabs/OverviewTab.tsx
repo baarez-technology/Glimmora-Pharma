@@ -30,6 +30,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import clsx from "clsx";
+import { usePermissions } from "@/hooks/usePermissions";
 import dayjs from "@/lib/dayjs";
 import type { FDA483Event, Commitment } from "@/types/fda483";
 import type { CAPA } from "@/store/capa.slice";
@@ -375,7 +376,9 @@ function CommitmentsCard({
   onNavigate,
 }: CommitmentsCardProps) {
   const commitments = event.commitments;
-  const showAdd = !fullyLocked && !!onAddCommitment;
+  // Capability mirror of the server (excludes super_admin from authoring).
+  const fdaCan = usePermissions("fda483");
+  const showAdd = !fullyLocked && !!onAddCommitment && fdaCan.canEdit;
   const overdueCount = commitments.filter(isCommitmentOverdue).length;
 
   return (

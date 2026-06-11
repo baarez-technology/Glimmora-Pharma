@@ -9,7 +9,6 @@ export { StatCard } from "./StatCard";
 export { CardSection } from "./CardSection";
 export { SetupChecklist } from "./SetupChecklist";
 export { SubscriptionPlansPopup } from "./SubscriptionPlansPopup";
-export { AddSubscriptionPlanModal } from "./AddSubscriptionPlanModal";
 export { DocumentUpload, type LinkedDocument, type DocFileType, type DocStatus } from "./DocumentUpload";
 export { StatusBadge } from "./StatusBadge";
 export { StatusGuide } from "./StatusGuide";

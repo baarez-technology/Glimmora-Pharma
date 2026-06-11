@@ -1,5 +1,6 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { LinkedDocument } from "@/components/shared/DocumentUpload";
+import type { InvestigationRCAMethod } from "@/constants/rcaMethods";
 
 export type DeviationType = "planned" | "unplanned";
 export type DeviationCategory = "process" | "equipment" | "material" | "environmental" | "personnel" | "documentation" | "system" | "other";
@@ -11,7 +12,8 @@ export type DeviationCategory = "process" | "equipment" | "material" | "environm
 export type DeviationSeverity = "critical" | "major" | "minor" | "Critical" | "Major" | "Minor";
 export type DeviationStatus = "open" | "under_investigation" | "pending_qa_review" | "closed" | "rejected";
 export type ImpactLevel = "high" | "medium" | "low" | "none";
-export type DeviationRCAMethod = "5Why" | "Fishbone" | "FaultTree" | "BarrierAnalysis";
+// Phase 1.5 — unified to canonical spaced values via the shared constant.
+export type DeviationRCAMethod = InvestigationRCAMethod;
 
 export interface Deviation {
   id: string;

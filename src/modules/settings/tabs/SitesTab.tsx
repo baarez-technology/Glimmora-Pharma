@@ -23,6 +23,7 @@ import {
   type TenantSiteConfig,
 } from "@/store/auth.slice";
 import { createSite, updateSite, deleteSite } from "@/actions/settings";
+import { errorCodeLabel, ERROR_CODE_LABELS } from "@/lib/labels/errorCodes";
 import { Popup } from "@/components/ui/Popup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -180,7 +181,10 @@ export function SitesTab({ readOnly = false }: { readOnly?: boolean }) {
         error: result.error,
         fieldErrors: result.fieldErrors,
       });
-      setSyncError(result.error ?? "Failed to add site.");
+      // Cap / plan block codes (SITE_CAP_EXCEEDED, NO_PLAN_ASSIGNED, PLAN_EXPIRED)
+      // get the human label; other errors (e.g. duplicate name) pass through.
+      const code = result.error ?? "";
+      setSyncError(code in ERROR_CODE_LABELS ? errorCodeLabel(code) : (result.error ?? "Failed to add site."));
       return;
     }
     // Server-issued id + persisted state. Mirror into Redux so the existing
@@ -303,7 +307,7 @@ export function SitesTab({ readOnly = false }: { readOnly?: boolean }) {
         label="Sites"
         count={siteCount}
         limit={siteLimit}
-        plan={tenantPlan}
+        plan={tenantPlan ?? ""}
         atLimit={atLimit}
         nearLimit={nearLimit}
       />

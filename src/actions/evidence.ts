@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
+import { isAssignedToTask } from "@/lib/permissions/roleSets";
 import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import {
@@ -65,7 +66,7 @@ async function loadEvidenceItemScoped(evidenceItemId: string) {
   const session = await requireAuth();
   const item = await prisma.evidenceItem.findUnique({
     where: { id: evidenceItemId },
-    include: { capa: { select: { id: true, tenantId: true, description: true } } },
+    include: { capa: { select: { id: true, tenantId: true, description: true, ownerId: true } } },
   });
   if (!item) return { session, item: null as null };
   if (
@@ -95,10 +96,23 @@ export async function initializeEvidenceForCAPA(
       session.user.role === "super_admin"
         ? { id: capaId }
         : { id: capaId, tenantId: session.user.tenantId },
-    select: { id: true },
+    select: { id: true, ownerId: true },
   });
   if (!capa) return { success: false, error: "CAPA not found" };
 
+  // Audit follow-up FIX 1 — was requireAuth-only (any authenticated non-viewer
+  // could seed evidence rows). Gate it like the other driver grants: an author
+  // role OR the CAPA's driver (ownerId). The driver path is what the Worklist
+  // "Set up evidence categories" affordance needs for a non-author driver.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  const isDriver = isAssignedToTask(session, { ownerId: capa.ownerId });
+  if (!isAuthorRole && !isDriver) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
+  const accessBasis: "authorRole" | "capaDriver" = isAuthorRole ? "authorRole" : "capaDriver";
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  let created = 0;
   try {
     // Idempotent â€” skipDuplicates means re-running is a no-op once rows exist.
     const result = await prisma.evidenceItem.createMany({
@@ -113,11 +127,10 @@ export async function initializeEvidenceForCAPA(
       // constraints. The (capaId, category) unique index is what makes this
       // idempotent.
     });
-    return { success: true, data: { created: result.count } };
+    created = result.count;
   } catch (err) {
     // If skipDuplicates isn't honoured (older Prisma) we fall back to per-row
     // upsert. Either way, end-state is the same: 7 rows exist.
-    let created = 0;
     for (const category of EVIDENCE_CATEGORIES) {
       try {
         await prisma.evidenceItem.create({
@@ -138,8 +151,24 @@ export async function initializeEvidenceForCAPA(
       console.error("[action] initializeEvidenceForCAPA failed:", err);
       return { success: false, error: "Failed to initialize evidence categories" };
     }
-    return { success: true, data: { created } };
   }
+
+  // Audit only a real initialization (created > 0); re-runs are silent no-ops.
+  if (created > 0) {
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: AUDIT_MODULE,
+        action: "EVIDENCE_INITIALIZED",
+        recordId: capaId,
+        newValue: JSON.stringify({ created, accessBasis }),
+      },
+    });
+  }
+  return { success: true, data: { created } };
 }
 
 // â”€â”€ ACTION 2: update status / notes (with note-version snapshot) â”€â”€
@@ -194,9 +223,18 @@ export async function updateEvidenceStatus(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
-  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+  // Phase 5 — authorization: author-role OR the CAPA's DRIVER (ownerId), and the
+  // driver path is allowed ONLY to mark a category NOT_APPLICABLE (with reason).
+  // Everything else (uploading evidence, marking COMPLETE/IN_PROGRESS, undoing
+  // N/A) stays author-only. This is the ONE new category-level grant in Phase 5.
+  // requireGxPAuthor + the viewer hard-stop in isAssignedToTask precede this.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  const isDriver = isAssignedToTask(session, { ownerId: item.capa.ownerId });
+  const driverMarkingNA = isDriver && transitioningToNA;
+  if (!isAuthorRole && !driverMarkingNA) {
     return { success: false, error: "Your role does not permit this action." };
   }
+  const accessBasis: "authorRole" | "capaDriver" = isAuthorRole ? "authorRole" : "capaDriver";
   try {
     await prisma.$transaction(async (tx) => {
       // Snapshot prior notes value when notes changed (existing behaviour;
@@ -228,7 +266,18 @@ export async function updateEvidenceStatus(
       }
       await tx.evidenceItem.update({
         where: { id: evidenceItemId },
-        data: { status: newStatus, notes: newNotes },
+        data: {
+          status: newStatus,
+          notes: newNotes,
+          // Phase 2 — dual-write the N/A rationale to the first-class column
+          // (in addition to the note-row above). Set on entry to NOT_APPLICABLE,
+          // cleared on exit. Reads still use the note-row path for now.
+          ...(transitioningToNA
+            ? { naReason: parsed.data.naReason!.trim() }
+            : transitioningFromNA
+              ? { naReason: null }
+              : {}),
+        },
       });
       // Differentiate audit action so the trail distinguishes status changes
       // from notes-only edits (REQ-2 / REQ-4).
@@ -250,6 +299,7 @@ export async function updateEvidenceStatus(
             status: newStatus,
             ...(notesChanged ? { notesChanged: true } : {}),
             ...(parsed.data.naReason ? { naReason: parsed.data.naReason.trim() } : {}),
+            accessBasis,
           }),
         },
       });
@@ -269,6 +319,10 @@ export async function updateEvidenceStatus(
 export async function addEvidenceFile(
   evidenceItemId: string,
   formData: FormData,
+  // Phase 2 — optional per-action attachment link. When provided, the file is
+  // additionally scoped to a specific action item of the same CAPA (it still
+  // belongs to its EvidenceItem/category). No UI passes this yet.
+  actionItemId?: string,
 ): Promise<ActionResult<{ id: string; fileName: string }>> {
   const file = formData.get("file");
   if (!(file instanceof File)) {
@@ -304,9 +358,28 @@ export async function addEvidenceFile(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
-  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+  // Phase 3 — authorization: author-role OR the assigned-owner path. The owner
+  // path is allowed ONLY for an action-scoped upload (actionItemId provided AND
+  // the session user owns that action item) — "their proof, on their action".
+  // Category-level uploads (no actionItemId) stay author-only. requireGxPAuthor
+  // (above) and the viewer hard-stop in isAssignedToTask precede this.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  let ownerOfAction = false;
+  if (actionItemId) {
+    // Action item must belong to the same CAPA + tenant.
+    const ai = await prisma.cAPAActionItem.findFirst({
+      where: { id: actionItemId, capaId: item.capa.id, tenantId: item.capa.tenantId },
+      select: { id: true, ownerId: true },
+    });
+    if (!ai) {
+      return { success: false, error: "Action item not found on this CAPA." };
+    }
+    ownerOfAction = isAssignedToTask(session, ai);
+  }
+  if (!isAuthorRole && !(actionItemId && ownerOfAction)) {
     return { success: false, error: "Your role does not permit this action." };
   }
+  const accessBasis: "authorRole" | "assignedOwner" = isAuthorRole ? "authorRole" : "assignedOwner";
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentHashSha256 = createHash("sha256").update(buffer).digest("hex");
@@ -333,6 +406,11 @@ export async function addEvidenceFile(
         contentHashSha256,
         retainUntil: nowPlusYears(RETENTION_YEARS),
         uploadedBy: session.user.name,
+        // Phase 2 — authoritative uploader FK (null for admin actors with no
+        // User row); the uploadedBy name string stays for display/legacy.
+        uploadedById: actor.userId,
+        // Phase 2 — optional per-action scope (validated above).
+        actionItemId: actionItemId ?? null,
       },
     });
 
@@ -350,6 +428,8 @@ export async function addEvidenceFile(
           fileName: sanitized,
           fileSize: file.size,
           contentHashSha256,
+          ...(actionItemId ? { actionItemId } : {}),
+          accessBasis,
         }),
       },
     });
@@ -383,7 +463,7 @@ export async function removeEvidenceFile(
     where: { id: fileId },
     include: {
       evidenceItem: {
-        include: { capa: { select: { id: true, tenantId: true, description: true } } },
+        include: { capa: { select: { id: true, tenantId: true, description: true, ownerId: true } } },
       },
     },
   });

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { FDA483_SIGN_ROLES, FDA483_DELETE_ROLES } from "@/lib/permissions/roleSets";
 import {
   canonicalizeFDA483ResponseContent,
   computeContentHash,
@@ -429,8 +430,10 @@ export async function deleteFDA483Event(id: string): Promise<ActionResult> {
     } catch (e) {
       return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
     }
-    if (session.user.role === "viewer") {
-      return { success: false, error: "Viewers cannot perform this action." };
+    // Phase 6 cleanup FIX 4 — delete restricted to qa_head + customer_admin
+    // (was any non-viewer via requireGxPAuthor).
+    if (!FDA483_DELETE_ROLES.includes(session.user.role)) {
+      return { success: false, error: "Only a QA Head or an administrator can delete FDA 483 records." };
     }
     await prisma.fDA483Event.delete({
       where: { id, tenantId: session.user.tenantId },
@@ -563,7 +566,7 @@ export async function signSubmitFDA483Response(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!FDA483_SIGN_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can sign and submit FDA 483 response" };
   }
 
@@ -1013,6 +1016,10 @@ export async function deleteObservation(id: string): Promise<ActionResult> {
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
   }
+  // Phase 6 cleanup FIX 4 — delete restricted to qa_head + customer_admin.
+  if (!FDA483_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only a QA Head or an administrator can delete FDA 483 records." };
+  }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
     requireGxPAuthor(actor);
@@ -1119,6 +1126,10 @@ export async function deleteCommitment(id: string): Promise<ActionResult> {
       select: { id: true },
     });
     if (!owned) return { success: false, error: "FORBIDDEN" };
+  }
+  // Phase 6 cleanup FIX 4 — delete restricted to qa_head + customer_admin.
+  if (!FDA483_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only a QA Head or an administrator can delete FDA 483 records." };
   }
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
@@ -1507,6 +1518,8 @@ export async function raiseCAPAFromObservation(
     //    (auto-required for IT / CSV Lead origins).
     const created = await createCAPA({
       source: "FDA 483",
+      // Phase A — title required; derive from the observation description.
+      title: description.slice(0, 120),
       description,
       risk,
       owner: d.owner,

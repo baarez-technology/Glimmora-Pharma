@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 const DEVIATION_INCLUDE = {
   select: {
     id: true,
+    reference: true,
     title: true,
     severity: true,
     status: true,
@@ -21,12 +22,14 @@ const DEVIATION_INCLUDE = {
 // always renders action items in the right order without per-render
 // sorting. Includes every column the new ActionItemsSection table needs.
 const ACTION_ITEMS_INCLUDE = {
+  // Soft-deleted action items are retained but hidden from detail/readiness.
+  where: { deletedAt: null },
   orderBy: { sequence: "asc" },
 } as const;
 
 export const getCAPAs = cache(async (tenantId: string) => {
   return prisma.cAPA.findMany({
-    where: { tenantId },
+    where: { tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     include: { documents: true, deviation: DEVIATION_INCLUDE, actionItems: ACTION_ITEMS_INCLUDE },
   });
@@ -71,7 +74,7 @@ export const getCAPAComments = cache(
 
 export const getCAPA = cache(async (id: string, tenantId: string) => {
   return prisma.cAPA.findFirst({
-    where: { id, tenantId },
+    where: { id, tenantId, deletedAt: null },
     include: {
       documents: true,
       finding: true,
@@ -112,6 +115,7 @@ export const getSuggestedRecurrenceMatches = cache(
       where: {
         tenantId: params.tenantId,
         status: "closed",
+        deletedAt: null,
         closedAt: { gte: earliest },
         ...(params.siteId ? { siteId: params.siteId } : {}),
         NOT: { effectivenessVerdict: "ineffective" },
@@ -142,3 +146,142 @@ export const getCAPAStats = cache(async (tenantId: string) => {
     closed: capas.filter((c) => c.status === "closed").length,
   };
 });
+
+/**
+ * Phase 2 — effectiveness due-surfacing FOUNDATION (no UI yet; the tracker
+ * queue is Phase 6). Returns closed CAPAs whose committed 90-day effectiveness
+ * check has come due (effectivenessDate <= now) and has not yet been reviewed
+ * (effectivenessVerdict is null). Oldest-due first. Backed by the new
+ * CAPA.effectivenessDate index. Tenant-scoped; read-only.
+ */
+export const getEffectivenessChecksDue = cache(async (tenantId: string) => {
+  const now = new Date();
+  return prisma.cAPA.findMany({
+    where: {
+      tenantId,
+      status: "closed",
+      deletedAt: null,
+      effectivenessDate: { lte: now },
+      effectivenessVerdict: null,
+    },
+    orderBy: { effectivenessDate: "asc" },
+    select: {
+      id: true,
+      reference: true,
+      description: true,
+      risk: true,
+      closedAt: true,
+      effectivenessDate: true,
+      owner: true,
+      siteId: true,
+    },
+  });
+});
+
+/**
+ * Phase 2 — Worklist FOUNDATION (no UI yet; Phase 3 owns access, Phase 6 the
+ * screen). Returns the action items assigned to one user (ownerId = userId),
+ * tenant-scoped, joined with their parent CAPA's reference / title / status /
+ * dueDate, ordered by the ACTION ITEM's own dueDate (soonest first). Backed by
+ * the new CAPAActionItem.ownerId index. Read-only; applies NO permission
+ * filtering — callers/Phase 3 decide who may invoke it.
+ */
+export const getMyActionItems = cache(
+  async (userId: string, tenantId: string) => {
+    return prisma.cAPAActionItem.findMany({
+      // Exclude soft-deleted items AND items whose parent CAPA was soft-deleted
+      // (so a deleted CAPA never lingers in anyone's worklist via its children).
+      where: { ownerId: userId, tenantId, deletedAt: null, capa: { deletedAt: null } },
+      orderBy: { dueDate: "asc" },
+      // No `select` on the item itself → every scalar (incl. the Phase-2 rework
+      // fields reworkReason / reworkRequestedById / reworkRequestedAt) is
+      // returned. The parent CAPA carries risk + ownerId so the Worklist can
+      // colour the group header and detect when the viewer is the driver.
+      include: {
+        capa: {
+          select: {
+            id: true,
+            reference: true,
+            description: true,
+            status: true,
+            dueDate: true,
+            risk: true,
+            ownerId: true,
+          },
+        },
+      },
+    });
+  },
+);
+
+/**
+ * Phase B (Zone 6) — the audit trail for a single CAPA. AuditLog rows are
+ * keyed by recordId = the CAPA id across the CAPA family (lifecycle, action
+ * items, approvals, etc.). Newest first; serialised for the client bar.
+ */
+export interface CapaAuditEntry {
+  id: string;
+  action: string;
+  userName: string;
+  userRole: string | null;
+  recordTitle: string | null;
+  createdAt: string;
+}
+
+export const getCapaAuditTrail = cache(
+  async (capaId: string, tenantId: string): Promise<CapaAuditEntry[]> => {
+    const rows = await prisma.auditLog.findMany({
+      where: { tenantId, recordId: capaId },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: { id: true, action: true, userName: true, userRole: true, recordTitle: true, createdAt: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      action: r.action,
+      userName: r.userName,
+      userRole: r.userRole,
+      recordTitle: r.recordTitle,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  },
+);
+
+/**
+ * Batch 2b (#3) — light linkable-record lists for the New CAPA source picker.
+ * OPEN records only, tenant-scoped; the modal further filters by the selected
+ * site client-side (the chosen site is client state). `text` feeds the
+ * Description prefill (#4). NOTE: there is no separate Internal-Audit-finding
+ * model — only Finding (gap) + Deviation exist; getOpenAuditFindings is N/A.
+ */
+export interface LinkableRecord {
+  id: string;
+  reference: string | null;
+  title: string;
+  text: string;
+  siteId: string | null;
+}
+
+export const getOpenGapFindings = cache(
+  async (tenantId: string): Promise<LinkableRecord[]> => {
+    const rows = await prisma.finding.findMany({
+      where: { tenantId, status: { in: ["Open", "open"] }, deletedAt: null },
+      select: { id: true, reference: true, requirement: true, siteId: true },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    return rows.map((r) => ({ id: r.id, reference: r.reference, title: r.requirement.slice(0, 120), text: r.requirement, siteId: r.siteId }));
+  },
+);
+
+export const getOpenDeviations = cache(
+  async (tenantId: string): Promise<LinkableRecord[]> => {
+    const rows = await prisma.deviation.findMany({
+      where: { tenantId, status: { in: ["open", "Open"] }, deletedAt: null },
+      select: { id: true, reference: true, title: true, description: true, siteId: true },
+      orderBy: { detectedDate: "desc" },
+      take: 200,
+    });
+    return rows.map((r) => ({ id: r.id, reference: r.reference, title: r.title, text: r.description, siteId: r.siteId }));
+  },
+);

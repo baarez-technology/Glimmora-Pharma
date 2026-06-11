@@ -13,7 +13,7 @@ import { friendlyAiError } from "@/lib/friendlyError";
 
 const aiCapaSchema = z.object({
   customer_id: z.string().min(1, "Customer ID is required"),
-  problem_statement: z.string().min(10, "Problem statement must be at least 10 characters"),
+  problem_statement: z.string().min(10, "Add a problem statement (at least 10 characters)"),
   source: z.string().min(1, "Source is required"),
   area_affected: z.string().min(1, "Area affected is required"),
   equipment_product: z.string().min(1, "Equipment / product is required"),

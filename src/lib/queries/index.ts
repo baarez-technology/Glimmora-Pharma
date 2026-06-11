@@ -7,7 +7,7 @@
  */
 
 export { getFindings, getFinding, getFindingStats, getFindingEvidenceDocIds } from "./findings";
-export { getCAPAs, getCAPA, getCAPAStats, getCAPAApprovals, getCAPAComments } from "./capas";
+export { getCAPAs, getCAPA, getCAPAStats, getCAPAApprovals, getCAPAComments, getEffectivenessChecksDue, getMyActionItems } from "./capas";
 export { getCAPAEffectivenessCriteria } from "./capa-criteria";
 export {
   getChangeControls,

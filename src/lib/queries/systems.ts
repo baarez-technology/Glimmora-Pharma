@@ -68,7 +68,7 @@ export const getSystemByRef = cache(async (refOrId: string, tenantId: string) =>
  *  "Link finding" picker on the system detail page. */
 export const getLinkableFindings = cache(async (tenantId: string) => {
   return prisma.finding.findMany({
-    where: { tenantId, systemId: null },
+    where: { tenantId, systemId: null, deletedAt: null },
     select: { id: true, reference: true, requirement: true, status: true },
     orderBy: { createdAt: "desc" },
     take: 100,

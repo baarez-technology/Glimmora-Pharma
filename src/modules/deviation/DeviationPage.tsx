@@ -70,7 +70,10 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   const user = useAppSelector((s) => s.auth.user);
   const isDark = useAppSelector((s) => s.theme.mode) === "dark";
   const { role: currentRole } = useRole(); // ensure permissions matrix is loaded
-  const { isCustomerAdmin, isViewer, isQAHead } = usePermissions();
+  const { isViewer, isQAHead } = usePermissions();
+  // Capability mirrors of the server (exclude super_admin from authoring).
+  const devCan = usePermissions("deviation");
+  const capaCan = usePermissions("capa");
   // QA-decider gate for the Tier 2 CAPA decision — mirrors the server check
   // in saveCAPADecision (qa_head OR super_admin).
   const isQADecider = currentRole === "qa_head" || currentRole === "super_admin";
@@ -105,7 +108,6 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   function ownerName(id: string) { return displayUserName(id, users); }
   function siteName(id: string) { return displaySiteName(id, allSites); }
 
-  const canReport = !isCustomerAdmin && !isViewer;
 
   // State
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -223,6 +225,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
   async function handleRaiseCAPAFromDetail() {
     if (!selected || !user) return;
     const result = await createCAPAAction({
+      title: selected.title.slice(0, 120),
       description: `${selected.title} (from ${selected.id})`,
       source: "Deviation",
       risk: severityToRisk(selected.severity),
@@ -312,7 +315,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
         actions={
           <div className="flex items-center gap-3">
             <StatusGuide module="Deviation Management" statuses={DEVIATION_STATUSES} />
-            {canReport ? <Button variant="primary" icon={Plus} onClick={() => setAddOpen(true)}>Report Deviation</Button> : <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>Contact QA Head to report deviations</p>}
+            {devCan.canCreate ? <Button variant="primary" icon={Plus} onClick={() => setAddOpen(true)}>Report Deviation</Button> : <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>Contact QA Head to report deviations</p>}
           </div>
         }
       />
@@ -404,7 +407,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
 
       </div>
 
-      {/* Detail modal — frame matches CAPADetailModal (max-w-2xl,
+      {/* Detail modal — shared detail-modal frame (max-w-2xl,
           centered, dimmed backdrop, Escape + outside-click close via
           the shared Modal primitive). Content body is the same single-
           scroll composition the side panel used; only the container
@@ -494,7 +497,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
               <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Linked CAPA</p>
               {selected.linkedCAPAId ? (
                 <button type="button" onClick={() => router.push(`/capa/${selected.linkedCAPAId}`)} className="text-[12px] font-mono text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer p-0">{selected.linkedCAPARef ?? selected.linkedCAPAId.slice(0, 8)}</button>
-              ) : selected.status !== "closed" && selected.status !== "rejected" && canReport ? (
+              ) : selected.status !== "closed" && selected.status !== "rejected" && capaCan.canCreate ? (
                 <Button variant="secondary" size="sm" icon={Plus} onClick={handleRaiseCAPAFromDetail}>Raise CAPA</Button>
               ) : (
                 <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No CAPA raised</p>
@@ -544,7 +547,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
                   <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
                     Critical deviation requires a linked CAPA before it can be closed. Raise a CAPA from this deviation to continue.
                   </p>
-                  {canReport && (
+                  {capaCan.canCreate && (
                     <div className="mt-2">
                       <Button variant="secondary" size="sm" icon={Plus} onClick={handleRaiseCAPAFromDetail}>
                         Raise CAPA
@@ -558,7 +561,7 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
             {/* Action buttons */}
             {selected.status !== "closed" && selected.status !== "rejected" && (
               <div className="space-y-2 pt-2 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>
-                {selected.status === "open" && canReport && (
+                {selected.status === "open" && devCan.canEdit && (
                   <Button variant="primary" size="sm" fullWidth icon={Search} onClick={handleStartInvestigation}>Start Investigation</Button>
                 )}
                 {selected.status === "under_investigation" && (user?.id === selected.owner || isQAHead) && (

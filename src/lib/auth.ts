@@ -97,22 +97,17 @@ export async function requireAuth(): Promise<AuthSession> {
  * (SYSTEM_WRITE_ROLES) or broader ("not viewer") conventions — see Rung
  * 3A-bis Q-1F. Excludes: viewer, qc_lab_director, it_cdo, operations_head.
  */
-export const COMPLIANCE_AUTHOR_ROLES: readonly string[] = [
-  "csv_val_lead",
-  "qa_head",
-  "regulatory_affairs",
-  "customer_admin",
-  "super_admin",
-];
-
-/**
- * Admin-tier set for destructive record deletes (deleteCAPA / deleteFinding /
- * deleteDeviation). Mirrors SYSTEM_DELETE_ROLES (systems.ts) — deleting a GxP
- * record is an admin act, narrower than authoring it. super_admin is listed
- * for symmetry but is independently blocked from authorship by requireGxPAuthor
- * (Rung 3E.2), so the effective deleter is customer_admin. Rung 3J.1.
- */
-export const ADMIN_DELETE_ROLES: readonly string[] = ["customer_admin", "super_admin"];
+// Canonical definitions now live in the shared, framework-agnostic role-set
+// module (src/lib/permissions/roleSets.ts) so the client UI (usePermissions)
+// and the server import the SAME values and can never drift. Re-exported here
+// unchanged so every existing `@/lib/auth` importer keeps working.
+//   COMPLIANCE_AUTHOR_ROLES — csv_val_lead, qa_head, regulatory_affairs,
+//     customer_admin, super_admin (super_admin blocked at author-time by
+//     requireGxPAuthor below). Excludes viewer, qc_lab_director, it_cdo,
+//     operations_head.
+//   ADMIN_DELETE_ROLES — customer_admin, super_admin (effective deleter is
+//     customer_admin; super_admin blocked by requireGxPAuthor). Rung 3J.1.
+export { COMPLIANCE_AUTHOR_ROLES, ADMIN_DELETE_ROLES } from "@/lib/permissions/roleSets";
 
 export type UserFkResolution = {
   /** Real User.id, or null for non-User actors (platform/customer admin). */

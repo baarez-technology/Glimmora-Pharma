@@ -25,8 +25,9 @@ export const getRAIDItems = cache(async (tenantId: string) => {
 });
 
 export const getDocuments = cache(async (tenantId: string) => {
+  // Soft-deleted documents are retained but hidden from the library view.
   return prisma.document.findMany({
-    where: { tenantId },
+    where: { tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
   });
 });

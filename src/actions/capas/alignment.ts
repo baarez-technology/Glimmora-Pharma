@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { canReviewAlignment } from "@/lib/permissions/roleSets";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import {
   ALIGNMENT_OVERRIDE_REASON_MIN_LENGTH,
@@ -49,9 +50,8 @@ const AlignmentOverrideSchema = z.object({
 // Roles authorised to set / override / clear alignment review. Matches the
 // existing canCloseCapa role gate but does NOT require gxpSignatory â€”
 // alignment review is a procedural decision, not an e-signed event.
-function canReviewAlignment(role: string): boolean {
-  return role === "qa_head" || role === "super_admin" || role === "customer_admin";
-}
+// canReviewAlignment is imported from the shared role-set module (see import
+// above) so the server gate and client usePermissions share ONE definition.
 
 /**
  * Record (or update) the reviewer's action-to-cause alignment verdict on

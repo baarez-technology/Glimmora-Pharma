@@ -1069,12 +1069,12 @@ function FieldRow({ label, required, children }: { label: string; required?: boo
 /* — RCA — */
 
 function RcaModal({ open, onClose, onSubmitted, capaId, customerId, token }: BaseModalProps) {
-  const [method, setMethod] = useState("5-Why");
+  const [method, setMethod] = useState("5 Why");
   const [evidence, setEvidence] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setMethod("5-Why"); setEvidence(""); setError(null); } }, [open]);
+  useEffect(() => { if (open) { setMethod("5 Why"); setEvidence(""); setError(null); } }, [open]);
 
   async function submit() {
     setBusy(true); setError(null);
@@ -1093,7 +1093,7 @@ function RcaModal({ open, onClose, onSubmitted, capaId, customerId, token }: Bas
     <ModalShell title="Submit RCA" open={open} onClose={onClose} busy={busy} error={error} onSubmit={submit} submitLabel="Submit">
       <FieldRow label="RCA method" required>
         <select className="select text-[12px]" value={method} onChange={(e) => setMethod(e.target.value)}>
-          <option>5-Why</option><option>Fishbone</option><option>Fault Tree</option><option>Other</option>
+          <option>5 Why</option><option>Fishbone</option><option>Fault Tree</option><option>Other</option>
         </select>
       </FieldRow>
       <FieldRow label="Evidence (optional)">

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { CAPA_CLOSE_ROLES } from "@/lib/permissions/roleSets";
 import { lockCAPAArtifacts } from "@/lib/evidence-lock";
 import {
   evaluateApprovalProgress,
@@ -66,7 +67,7 @@ export async function signAndCloseCAPA(
   }
   const ccBlockOverride = parsed.data.ccBlockOverride;
 
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!CAPA_CLOSE_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can sign and close CAPAs" };
   }
 
@@ -155,7 +156,7 @@ export async function signAndCloseCAPA(
       select: { isConcern: true, resolvedAt: true, deletedAt: true },
     }),
     prisma.cAPAActionItem.findMany({
-      where: { capaId: id, tenantId: session.user.tenantId },
+      where: { capaId: id, tenantId: session.user.tenantId, deletedAt: null },
       orderBy: { sequence: "asc" },
       select: {
         id: true,

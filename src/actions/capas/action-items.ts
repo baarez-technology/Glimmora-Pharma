@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES } from "@/lib/auth";
+import { isAssignedToTask } from "@/lib/permissions/roleSets";
 import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import {
   ACTION_ITEMS_AUDIT_MODULE,
@@ -87,7 +88,7 @@ async function syncCorrectiveActions(
   tenantId: string,
 ): Promise<void> {
   const items = await tx.cAPAActionItem.findMany({
-    where: { capaId, tenantId },
+    where: { capaId, tenantId, deletedAt: null },
     orderBy: { sequence: "asc" },
     select: { description: true, status: true },
   });
@@ -274,10 +275,6 @@ export async function updateActionItem(
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
 
-  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
-    return { success: false, error: "Your role does not permit this action." };
-  }
-
   // Determine what kind of update is being requested.
   const isStatusOnlyUpdate =
     parsed.data.status !== undefined &&
@@ -287,6 +284,33 @@ export async function updateActionItem(
     parsed.data.dueDate === undefined;
   const targetIsCompleteOrSkipped =
     parsed.data.status === "complete" || parsed.data.status === "skipped";
+
+  // Phase 3 — authorization: author-role OR assigned-owner path. The owner
+  // path permits ONLY a status-only update to pending|in_progress|complete
+  // (+ completionNotes). Structural edits (description/owner/dueDate/reorder/
+  // delete) and the skipped/rework statuses stay author-only. requireGxPAuthor
+  // (platform-admin block, above) and the viewer hard-stop baked into
+  // isAssignedToTask both precede this check.
+  const isAuthorRole = COMPLIANCE_AUTHOR_ROLES.includes(session.user.role);
+  const isAssignedOwner = isAssignedToTask(session, existing);
+  const OWNER_ALLOWED_STATUSES: readonly string[] = ["pending", "in_progress", "complete"];
+  const ownerStatusOnly =
+    isStatusOnlyUpdate &&
+    parsed.data.status !== undefined &&
+    OWNER_ALLOWED_STATUSES.includes(parsed.data.status);
+  if (!isAuthorRole) {
+    if (!isAssignedOwner) {
+      return { success: false, error: "Your role does not permit this action." };
+    }
+    if (!ownerStatusOnly) {
+      return {
+        success: false,
+        error:
+          "As the assigned owner you can only update this task's status (in progress / complete) and add completion notes — not edit its details.",
+      };
+    }
+  }
+  const accessBasis: "authorRole" | "assignedOwner" = isAuthorRole ? "authorRole" : "assignedOwner";
 
   // Lock checks.
   if (isTerminalStatus(existing.capa.status)) {
@@ -402,7 +426,7 @@ export async function updateActionItem(
           dueDate: existing.dueDate.toISOString(),
           status: existing.status,
         }),
-        newValue: JSON.stringify({ changedFields }),
+        newValue: JSON.stringify({ changedFields, accessBasis }),
       },
     });
 
@@ -424,6 +448,7 @@ export async function updateActionItem(
             to: parsed.data.status,
             completedBy: targetIsCompleteOrSkipped ? session.user.name : null,
             notes: parsed.data.completionNotes ?? null,
+            accessBasis,
           }),
         },
       });
@@ -476,7 +501,7 @@ export async function deleteActionItem(
   }
 
   const existing = await prisma.cAPAActionItem.findFirst({
-    where: { id: itemId, tenantId: session.user.tenantId },
+    where: { id: itemId, tenantId: session.user.tenantId, deletedAt: null },
     include: {
       capa: { select: { id: true, status: true, reference: true, description: true } },
     },
@@ -503,7 +528,17 @@ export async function deleteActionItem(
   }
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.cAPAActionItem.delete({ where: { id: itemId } });
+      // Soft-delete (Part 11 retention) — row retained; syncCorrectiveActions
+      // (now filtering deletedAt) rebuilds the cache from live items only.
+      await tx.cAPAActionItem.update({
+        where: { id: itemId },
+        data: {
+          deletedAt: new Date(),
+          deletedById: actor.userId,
+          deletedByName: actor.displayName,
+          deletionReason: parsed.data.reason ? parsed.data.reason.slice(0, 200) : null,
+        },
+      });
       await syncCorrectiveActions(tx, existing.capaId, session.user.tenantId);
     });
     await prisma.auditLog.create({
@@ -531,6 +566,55 @@ export async function deleteActionItem(
   } catch (err) {
     console.error("[action] deleteActionItem failed:", err);
     return { success: false, error: sanitizeServerError(err, "Failed to delete action item") };
+  }
+}
+
+export async function restoreActionItem(itemId: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const existing = await prisma.cAPAActionItem.findFirst({
+    where: { id: itemId, tenantId: session.user.tenantId },
+    include: { capa: { select: { id: true, status: true } } },
+  });
+  if (!existing) return { success: false, error: "Action item not found" };
+  if (!existing.deletedAt) return { success: false, error: "Action item is not deleted." };
+  if (LOCKED_CAPA_STATUSES.has(existing.capa.status)) {
+    return { success: false, error: ACTION_ITEMS_LOCKED_MESSAGE };
+  }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!COMPLIANCE_AUTHOR_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Your role does not permit this action." };
+  }
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.cAPAActionItem.update({
+        where: { id: itemId },
+        data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
+      });
+      await syncCorrectiveActions(tx, existing.capaId, session.user.tenantId);
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: ACTION_ITEMS_AUDIT_MODULE,
+        action: "CAPA_ACTION_ITEM_RESTORED",
+        recordId: existing.capa.id,
+        oldValue: JSON.stringify({ itemId }),
+      },
+    });
+    revalidatePath("/capa");
+    revalidatePath(`/capa/${existing.capa.id}`);
+    return { success: true, data: { id: itemId } };
+  } catch (err) {
+    console.error("[action] restoreActionItem failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to restore action item") };
   }
 }
 
@@ -580,7 +664,7 @@ export async function reorderActionItems(
     await prisma.$transaction(async (tx) => {
       // Verify all ids belong to this CAPA + tenant before mutating.
       const items = await tx.cAPAActionItem.findMany({
-        where: { capaId, tenantId: session.user.tenantId },
+        where: { capaId, tenantId: session.user.tenantId, deletedAt: null },
         select: { id: true },
       });
       const tenantItemIds = new Set(items.map((i) => i.id));
@@ -646,7 +730,7 @@ export async function loadActionItemsForCAPA(
   });
   if (!capa) return { success: false, error: "CAPA not found" };
   const items = await prisma.cAPAActionItem.findMany({
-    where: { capaId, tenantId: session.user.tenantId },
+    where: { capaId, tenantId: session.user.tenantId, deletedAt: null },
     orderBy: { sequence: "asc" },
   });
   return { success: true, data: items };

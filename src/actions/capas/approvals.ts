@@ -109,6 +109,7 @@ export async function approveCAPA(
       description: true,
       reference: true,
       createdBy: true,
+      createdById: true,
     },
   });
   if (!existing) return { success: false, error: "CAPA not found" };
@@ -132,17 +133,18 @@ export async function approveCAPA(
     };
   }
   // Stage 5 (partial) â€” Part 11 Â§11.10(d) separation of duties.
-  // Creator and approver MUST be distinct identities. CAPA.createdBy is a
-  // display-name string today (not a userId FK), so this comparison is by
-  // name and is brittle if two users share a display name or if a user
-  // renames. Tightening this is blocked on a CAPA.createdBy â†’ createdById
-  // schema migration (parked on Postgres alongside the broader Stage 5
-  // verification work). Until then, name-equality is the strongest signal
-  // available here. No system/sentinel creator exists in this codebase
-  // (verified via grep), so no bypass branch is needed for automated
-  // flows â€” AI-driven CAPA creation still records the invoking user's
-  // name in createdBy.
-  if (existing.createdBy && existing.createdBy === session.user.name) {
+  // Creator and approver MUST be distinct identities. Prefer the
+  // authoritative createdById userId FK; fall back to display-name
+  // comparison only for legacy rows whose createdById is null (predate the
+  // FK / unresolvable backfill). ID comparison is robust against duplicate
+  // display names and renames. No system/sentinel creator exists in this
+  // codebase (verified via grep), so no bypass branch is needed for
+  // automated flows â€” AI-driven CAPA creation still records the invoking
+  // user as creator.
+  const isSelfApproval = existing.createdById
+    ? existing.createdById === session.user.id
+    : Boolean(existing.createdBy) && existing.createdBy === session.user.name;
+  if (isSelfApproval) {
     try {
       await prisma.auditLog.create({
         data: {
@@ -157,7 +159,7 @@ export async function approveCAPA(
           newValue: JSON.stringify({
             attemptedBy: session.user.id,
             capaCreator: existing.createdBy,
-            comparedBy: "displayName",
+            comparedBy: existing.createdById ? "userId" : "displayName",
           }),
         },
       });

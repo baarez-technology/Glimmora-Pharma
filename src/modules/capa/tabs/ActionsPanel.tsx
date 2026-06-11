@@ -64,6 +64,11 @@ interface ActionsPanelProps {
   /** Called after a successful alignment-mutation server action so the
    *  parent modal can router.refresh() the underlying CAPA row. */
   onAlignmentChange?: () => void;
+  /** Phase 6 — on the detail PAGE the morphing banner is the single home of
+   *  Submit + Sign&Close, so suppress this panel's duplicate copies. */
+  hideLifecycleButtons?: boolean;
+  /** Phase 6 — person filter for the action-items table. */
+  ownerFilter?: string | null;
 }
 
 export function ActionsPanel({
@@ -87,6 +92,8 @@ export function ActionsPanel({
   onSubmitForReview,
   onSignOpen,
   onAlignmentChange,
+  hideLifecycleButtons = false,
+  ownerFilter = null,
 }: ActionsPanelProps) {
   // Bumps whenever the discussion thread mutates so ApprovalsSection can
   // re-evaluate the close-gate against fresh comment state.
@@ -159,7 +166,7 @@ export function ActionsPanel({
           syncCorrectiveActions on every action-item write); the
           actionLines prop is retained on this component's interface but
           intentionally unused below. */}
-      <ActionItemsSection capa={capa} />
+      <ActionItemsSection capa={capa} ownerFilter={ownerFilter} />
 
       {capa.effectivenessCheck &&
         capa.status === "closed" &&
@@ -203,7 +210,7 @@ export function ActionsPanel({
       {/* ── SME Section 1, Stage 6 (FULL) — 90-day Effectiveness Review ── */}
       <EffectivenessSection capa={capa} />
 
-      {canSubmit && hasRca && (
+      {!hideLifecycleButtons && canSubmit && hasRca && (
         <Button
           variant="secondary"
           icon={Send}
@@ -219,7 +226,7 @@ export function ActionsPanel({
           tab strip already carry that signal. The button simply doesn't
           appear until the prerequisites are met. */}
 
-      {canSign && canCloseCapa && capa.status === "pending_qa_review" && (
+      {!hideLifecycleButtons && canSign && canCloseCapa && capa.status === "pending_qa_review" && (
         <Button
           variant="primary"
           icon={ShieldCheck}

@@ -301,7 +301,7 @@ export async function updateFinding(id: string, input: z.input<typeof UpdateFind
   }
 }
 
-export async function deleteFinding(id: string): Promise<ActionResult> {
+export async function deleteFinding(id: string, reason?: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
 
@@ -318,8 +318,20 @@ export async function deleteFinding(id: string): Promise<ActionResult> {
   }
 
   try {
-    await prisma.finding.delete({
+    const existing = await prisma.finding.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) return { success: false, error: "Finding not found" };
+    // Soft-delete (Part 11 retention) — row retained; list queries filter deletedAt.
+    await prisma.finding.update({
       where: { id, tenantId: session.user.tenantId },
+      data: {
+        deletedAt: new Date(),
+        deletedById: actor.userId,
+        deletedByName: actor.displayName,
+        deletionReason: reason ? reason.slice(0, 200) : null,
+      },
     });
 
     await prisma.auditLog.create({
@@ -331,6 +343,7 @@ export async function deleteFinding(id: string): Promise<ActionResult> {
         module: "Gap Assessment",
         action: "FINDING_DELETED",
         recordId: id,
+        newValue: reason ? reason.slice(0, 200) : null,
       },
     });
 
@@ -339,6 +352,48 @@ export async function deleteFinding(id: string): Promise<ActionResult> {
   } catch (err) {
     console.error("[action] deleteFinding failed:", err);
     return { success: false, error: "Failed to delete finding" };
+  }
+}
+
+export async function restoreFinding(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!ADMIN_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only an administrator can restore a finding." };
+  }
+  try {
+    const existing = await prisma.finding.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!existing) return { success: false, error: "Finding not found" };
+    if (!existing.deletedAt) return { success: false, error: "Finding is not deleted." };
+    await prisma.finding.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: "Gap Assessment",
+        action: "FINDING_RESTORED",
+        recordId: id,
+      },
+    });
+    revalidatePath("/gap-assessment");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] restoreFinding failed:", err);
+    return { success: false, error: "Failed to restore finding" };
   }
 }
 

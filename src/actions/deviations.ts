@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor, ADMIN_DELETE_ROLES } from "@/lib/auth";
+import { DEVIATION_QA_ROLES } from "@/lib/permissions/roleSets";
 import {
   canonicalizeDeviationClosureContent,
   computeContentHash,
@@ -13,6 +14,7 @@ import { readSigningProvenance } from "@/actions/capas/_shared";
 import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { FDA_SEVERITY, coerceSeverityCasing, normalizeSeverityForDisplay } from "@/lib/severity";
+import { INVESTIGATION_RCA_METHODS } from "@/constants/rcaMethods";
 import { sanitizeServerError } from "@/lib/errors";
 
 // NOTE — actor identity (AUDIT Finding #2 / Rung 3E): never write
@@ -301,7 +303,7 @@ export async function closeDeviation(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can close deviations" };
   }
 
@@ -525,7 +527,7 @@ export async function rejectDeviation(
   input: z.input<typeof RejectSchema>,
 ): Promise<ActionResult> {
   const session = await requireAuth();
-  if (session.user.role !== "qa_head" && session.user.role !== "super_admin") {
+  if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can reject deviations" };
   }
   const parsed = RejectSchema.safeParse(input);
@@ -578,10 +580,9 @@ export async function rejectDeviation(
  * that row (documented gap — legacy rows pre-date the createdById FK).
  * ────────────────────────────────────────────────────────────────────── */
 
-const DEVIATION_RCA_METHODS = ["5Why", "Fishbone", "FaultTree", "BarrierAnalysis"] as const;
-
+// Phase 1.5 — canonical values from the shared constant (was no-space drift).
 const SaveInvestigationSchema = z.object({
-  rcaMethod: z.enum(DEVIATION_RCA_METHODS),
+  rcaMethod: z.enum(INVESTIGATION_RCA_METHODS),
   // Structured form buffer as JSON text (codebase convention — see the
   // rcaData column note in schema.prisma). Optional on save-progress.
   rcaData: z.string().max(20000).optional(),
@@ -601,7 +602,7 @@ const CapaDecisionSchema = z.object({
 });
 
 function isQARole(role: string): boolean {
-  return role === "qa_head" || role === "super_admin";
+  return DEVIATION_QA_ROLES.includes(role);
 }
 
 export async function saveInvestigationProgress(
@@ -767,6 +768,15 @@ export async function startInvestigation(id: string): Promise<ActionResult> {
  * transition (was the UI "Submit for QA review" button). Optimistic-locked;
  * viewers blocked. QA's segregation of duties (decider/closer != reporter !=
  * investigator) is enforced downstream at guardCapaDecision / closeDeviation.
+ *
+ * ACCOUNTABILITY HANDOFF — submitting is an attestation that the investigation
+ * is complete, so it is restricted to the investigation OWNER (or a qa_head
+ * submitting on QA's behalf). This mirrors the DeviationPage UI gate
+ * (`user.id === selected.owner || isQAHead`) so there is no UI/server drift,
+ * and is enforced SERVER-SIDE because an accountability control must not be
+ * UI-deep — a direct API call must not let one author submit another's
+ * investigation. `deviation.owner` stores a userId; for site users the session
+ * id IS their User.id, the same identity the UI compares.
  */
 export async function submitDeviationForReview(id: string): Promise<ActionResult> {
   const session = await requireAuth();
@@ -778,6 +788,20 @@ export async function submitDeviationForReview(id: string): Promise<ActionResult
     requireGxPAuthor(actor);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  // Owner-or-qa_head gate — enforced here, not just in the UI. The investigation
+  // owner attests completion; a qa_head may submit on QA's behalf.
+  const deviation = await prisma.deviation.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+    select: { owner: true },
+  });
+  if (!deviation) {
+    return { success: false, error: "Deviation not found." };
+  }
+  const isOwner = session.user.id === deviation.owner;
+  const isQAHead = session.user.role === "qa_head";
+  if (!isOwner && !isQAHead) {
+    return { success: false, error: "Only the investigation owner can submit for review." };
   }
   const updated = await prisma.deviation.updateMany({
     where: { id, tenantId: session.user.tenantId, status: "under_investigation" },
@@ -943,7 +967,7 @@ export async function editCAPADecision(
   }
 }
 
-export async function deleteDeviation(id: string): Promise<ActionResult> {
+export async function deleteDeviation(id: string, reason?: string): Promise<ActionResult> {
   const session = await requireAuth();
   const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
@@ -957,8 +981,20 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
     return { success: false, error: "Only an administrator can delete a deviation." };
   }
   try {
-    await prisma.deviation.delete({
+    const existing = await prisma.deviation.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) return { success: false, error: "Deviation not found" };
+    // Soft-delete (Part 11 retention) — row retained; list queries filter deletedAt.
+    await prisma.deviation.update({
       where: { id, tenantId: session.user.tenantId },
+      data: {
+        deletedAt: new Date(),
+        deletedById: actor.userId,
+        deletedByName: actor.displayName,
+        deletionReason: reason ? reason.slice(0, 200) : null,
+      },
     });
     await prisma.auditLog.create({
       data: {
@@ -969,6 +1005,7 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
         module: "Deviation Management",
         action: "DEVIATION_DELETED",
         recordId: id,
+        newValue: reason ? reason.slice(0, 200) : null,
       },
     });
     revalidatePath("/deviation");
@@ -976,6 +1013,47 @@ export async function deleteDeviation(id: string): Promise<ActionResult> {
   } catch (err) {
     console.error("[action] deleteDeviation failed:", err);
     return { success: false, error: "Failed to delete deviation" };
+  }
+}
+
+export async function restoreDeviation(id: string): Promise<ActionResult> {
+  const session = await requireAuth();
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  if (!ADMIN_DELETE_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only an administrator can restore a deviation." };
+  }
+  try {
+    const existing = await prisma.deviation.findFirst({
+      where: { id, tenantId: session.user.tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!existing) return { success: false, error: "Deviation not found" };
+    if (!existing.deletedAt) return { success: false, error: "Deviation is not deleted." };
+    await prisma.deviation.update({
+      where: { id, tenantId: session.user.tenantId },
+      data: { deletedAt: null, deletedById: null, deletedByName: null, deletionReason: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        userId: actor.userId,
+        userName: actor.displayName,
+        userRole: actor.role,
+        module: "Deviation Management",
+        action: "DEVIATION_RESTORED",
+        recordId: id,
+      },
+    });
+    revalidatePath("/deviation");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] restoreDeviation failed:", err);
+    return { success: false, error: "Failed to restore deviation" };
   }
 }
 

@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
  */
 export const getFindings = cache(async (tenantId: string) => {
   return prisma.finding.findMany({
-    where: { tenantId },
+    where: { tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     include: { edits: { orderBy: { editedAt: "asc" } } },
   });
@@ -18,7 +18,7 @@ export const getFindings = cache(async (tenantId: string) => {
  */
 export const getFinding = cache(async (id: string, tenantId: string) => {
   return prisma.finding.findFirst({
-    where: { id, tenantId },
+    where: { id, tenantId, deletedAt: null },
     include: { edits: { orderBy: { editedAt: "asc" } } },
   });
 });
