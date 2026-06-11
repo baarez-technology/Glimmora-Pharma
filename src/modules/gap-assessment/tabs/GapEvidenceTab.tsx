@@ -1,11 +1,10 @@
 import { useState } from "react";
 import {
   FolderOpen, ChevronDown, FileCheck, ExternalLink, Paperclip,
-  FileText, FileSpreadsheet,
 } from "lucide-react";
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
-import { downloadCSV, downloadExcel } from "@/lib/exportTable";
+import { ExportMenu } from "@/components/ui/ExportMenu";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
@@ -80,7 +79,7 @@ export function GapEvidenceTab({
     "Area", "Gap ID", "Doc type", "Requirement", "Severity",
     "Evidence link", "Status", "Owner", "Linked CAPA",
   ];
-  function handleExport(format: "csv" | "excel") {
+  function buildExportRows(): (string | number)[][] {
     const rows: (string | number)[][] = [];
     for (const a of evidenceAreas) {
       for (const row of a.rows) {
@@ -92,10 +91,7 @@ export function GapEvidenceTab({
         ]);
       }
     }
-    if (rows.length === 0) return;
-    const stamp = dayjs().format("YYYY-MM-DD");
-    if (format === "csv") downloadCSV(`evidence-index-${stamp}`, EXPORT_HEADERS, rows);
-    else downloadExcel(`evidence-index-${stamp}`, EXPORT_HEADERS, rows);
+    return rows;
   }
 
   return (
@@ -107,10 +103,14 @@ export function GapEvidenceTab({
             {selectedKeys.size > 0 && (
               <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{selectedKeys.size} selected</span>
             )}
-            <Button variant="secondary" size="sm" icon={FileText} onClick={() => handleExport("csv")}>
-              {selectedKeys.size > 0 ? "Export CSV" : "Export all (CSV)"}
-            </Button>
-            <Button variant="secondary" size="sm" icon={FileSpreadsheet} onClick={() => handleExport("excel")}>Excel</Button>
+            <ExportMenu
+              filename={`evidence-index-${dayjs().format("YYYY-MM-DD")}`}
+              title="Evidence index"
+              subtitle={`Generated ${dayjs().format("DD MMM YYYY HH:mm")}`}
+              headers={EXPORT_HEADERS}
+              rows={buildExportRows}
+              label={selectedKeys.size > 0 ? `Export (${selectedKeys.size})` : "Export all"}
+            />
           </div>
         )}
       </div>

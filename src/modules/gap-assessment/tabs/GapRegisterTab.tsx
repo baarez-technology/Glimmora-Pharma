@@ -3,7 +3,6 @@ import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import {
   ClipboardList, Plus, Search, ChevronRight, Link2, Bot, Pencil, Save, History,
-  FileText, FileSpreadsheet,
 } from "lucide-react";
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
@@ -11,7 +10,7 @@ import { useAppSelector } from "@/hooks/useAppSelector";
 import { useRole } from "@/hooks/useRole";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { formatReference } from "@/lib/reference";
-import { downloadCSV, downloadExcel } from "@/lib/exportTable";
+import { ExportMenu } from "@/components/ui/ExportMenu";
 import type { Finding, FindingSeverity, FindingStatus } from "@/store/findings.slice";
 import { updateFinding as updateFindingAction } from "@/actions/findings";
 import type { CAPA } from "@/store/capa.slice";
@@ -189,13 +188,6 @@ export function GapRegisterTab({
       ];
     });
   }
-  function handleExport(format: "csv" | "excel") {
-    const rows = buildExportRows();
-    if (rows.length === 0) return;
-    const stamp = dayjs().format("YYYY-MM-DD");
-    if (format === "csv") downloadCSV(`findings-register-${stamp}`, EXPORT_HEADERS, rows);
-    else downloadExcel(`findings-register-${stamp}`, EXPORT_HEADERS, rows);
-  }
 
   async function onSave(data: EditForm) {
     if (!selectedFinding || !user) return;
@@ -252,10 +244,14 @@ export function GapRegisterTab({
             {selectedIds.size > 0 && (
               <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{selectedIds.size} selected</span>
             )}
-            <Button variant="secondary" size="sm" icon={FileText} onClick={() => handleExport("csv")}>
-              {selectedIds.size > 0 ? "Export CSV" : "Export all (CSV)"}
-            </Button>
-            <Button variant="secondary" size="sm" icon={FileSpreadsheet} onClick={() => handleExport("excel")}>Excel</Button>
+            <ExportMenu
+              filename={`findings-register-${dayjs().format("YYYY-MM-DD")}`}
+              title="Findings register"
+              subtitle={`Generated ${dayjs().format("DD MMM YYYY HH:mm")}`}
+              headers={EXPORT_HEADERS}
+              rows={buildExportRows}
+              label={selectedIds.size > 0 ? `Export (${selectedIds.size})` : "Export all"}
+            />
           </div>
         )}
       </div>

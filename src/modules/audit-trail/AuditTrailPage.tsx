@@ -10,7 +10,6 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ShieldCheck,
-  Download,
   RefreshCw,
   Search,
   Funnel,
@@ -22,6 +21,7 @@ import type { AuditLog } from "@prisma/client";
 import dayjs from "@/lib/dayjs";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { Button } from "@/components/ui/Button";
+import { ExportMenu } from "@/components/ui/ExportMenu";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { AuditEventRow, type Severity } from "./_components/AuditEventRow";
 
@@ -243,31 +243,19 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
     return result;
   }, [logs, filters]);
 
-  function exportCSV() {
-    const header = "Timestamp,User,Role,Module,Action,Record ID,Record Title,Old Value,New Value";
-    const rows = filtered.map((e) =>
-      [
-        dayjs(e.createdAt).tz(timezone).format("DD/MM/YYYY HH:mm"),
-        `"${e.userName.replace(/"/g, '""')}"`,
-        `"${(e.userRole ?? "").replace(/"/g, '""')}"`,
-        `"${e.module.replace(/"/g, '""')}"`,
-        formatAction(e.action),
-        e.recordId ?? "",
-        `"${(e.recordTitle ?? "").replace(/"/g, '""')}"`,
-        `"${(e.oldValue ?? "").replace(/"/g, '""')}"`,
-        `"${(e.newValue ?? "").replace(/"/g, '""')}"`,
-      ].join(","),
-    );
-    const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `audit-trail-${dayjs().format("YYYY-MM-DD")}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const AUDIT_HEADERS = ["Timestamp", "User", "Role", "Module", "Action", "Record ID", "Record Title", "Old Value", "New Value"];
+  function buildAuditRows() {
+    return filtered.map((e) => [
+      dayjs(e.createdAt).tz(timezone).format("DD/MM/YYYY HH:mm"),
+      e.userName,
+      e.userRole ?? "",
+      e.module,
+      formatAction(e.action),
+      e.recordId ?? "",
+      e.recordTitle ?? "",
+      e.oldValue ?? "",
+      e.newValue ?? "",
+    ]);
   }
 
   // Header timestamp is computed in render-time UTC. Trimmed to minute
@@ -291,7 +279,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
     <main
       id="main-content"
       aria-label="Audit trail"
-      className="w-full bg-white text-[#1a1a1a]"
+      className="w-full bg-white text-[#1a1a1a] min-h-full flex flex-col"
     >
       {/* ── Compliance band — Part 11 trust signal ─────────────────── */}
       <div
@@ -325,15 +313,16 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
             </p>
           </div>
           <div className="flex items-center gap-1.5">
-            <Button
+            <ExportMenu
+              filename={`audit-trail-${dayjs().format("YYYY-MM-DD")}`}
+              title="Audit Trail"
+              subtitle={`${filtered.length} entries · ${dayjs().format("DD MMM YYYY HH:mm")}`}
+              headers={AUDIT_HEADERS}
+              rows={buildAuditRows}
               variant="ghost"
-              size="sm"
-              icon={Download}
-              onClick={exportCSV}
+              label="Export"
               disabled={filtered.length === 0}
-            >
-              Export CSV
-            </Button>
+            />
             <Button
               variant="ghost"
               size="sm"
@@ -498,7 +487,12 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
         </div>
       </div>
 
-      {/* ── Event list ─────────────────────────────────────────────── */}
+      {/* ── Event list ─────────────────────────────────────────────────
+          Wrapped in a flex-1 region so it absorbs any vertical slack when
+          the list is shorter than the viewport. This keeps the footer
+          compliance band pinned to the bottom of the white surface instead
+          of orphaning a large empty area below the last entry. */}
+      <div className="flex-1">
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
           <FileSearch className="h-10 w-10 text-[#d4cec5] mb-3" aria-hidden="true" />
@@ -537,6 +531,7 @@ export function AuditTrailPage({ logs, totalCount, truncated, limit }: AuditTrai
           ))}
         </ul>
       )}
+      </div>
 
       {/* ── Footer compliance band ─────────────────────────────────── */}
       <div className="px-6 py-3 border-t border-[#e8e4dd] bg-[#f8f6f3] text-[11px] text-[#7a7269] flex items-center justify-between gap-4 flex-wrap">

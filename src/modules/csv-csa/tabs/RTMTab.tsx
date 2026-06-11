@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import {
-  CheckCircle2, AlertTriangle, X, ChevronRight, Search, Download,
+  CheckCircle2, AlertTriangle, X, ChevronRight, Search,
   Plus, FileText, SkipForward, Clock,
 } from "lucide-react";
 import { useAppSelector } from "@/hooks/useAppSelector";
@@ -12,6 +12,7 @@ import { createRTMEntry, updateRTMEntry } from "@/actions/rtm";
 import type { RTMEntry, TraceabilityStatus, TestResult } from "@/types/csv-csa";
 import dayjs from "@/lib/dayjs";
 import { Button } from "@/components/ui/Button";
+import { ExportMenu } from "@/components/ui/ExportMenu";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
@@ -134,17 +135,13 @@ export function RTMTab({ entries: entriesProp, systemsOverride }: RTMTabProps = 
     router.refresh();
   }
 
-  function exportCSV() {
-    const header = "ID,URS,Requirement,Regulation,Priority,FS,DS,IQ,OQ,PQ,Evidence,Status";
-    const rows = sysEntries.map((e) =>
-      [e.id, e.ursId, `"${e.ursRequirement}"`, e.ursRegulation, e.ursPriority,
-        e.fsStatus, e.dsStatus, e.iqResult ?? "—", e.oqResult ?? "—", e.pqResult ?? "—",
-        e.evidenceStatus, e.traceabilityStatus].join(",")
-    );
-    const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `RTM-${dayjs().format("YYYY-MM-DD")}.csv`; a.click();
-    URL.revokeObjectURL(url);
+  const RTM_HEADERS = ["ID", "URS", "Requirement", "Regulation", "Priority", "FS", "DS", "IQ", "OQ", "PQ", "Evidence", "Status"];
+  function buildRtmRows() {
+    return sysEntries.map((e) => [
+      e.id, e.ursId, e.ursRequirement, e.ursRegulation, e.ursPriority,
+      e.fsStatus, e.dsStatus, e.iqResult ?? "—", e.oqResult ?? "—", e.pqResult ?? "—",
+      e.evidenceStatus, e.traceabilityStatus,
+    ]);
   }
 
   return (
@@ -155,7 +152,15 @@ export function RTMTab({ entries: entriesProp, systemsOverride }: RTMTabProps = 
           <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>Full validation lifecycle traceability for all GxP-critical systems</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" icon={Download} onClick={exportCSV}>Export RTM</Button>
+          <ExportMenu
+            filename={`RTM-${dayjs().format("YYYY-MM-DD")}`}
+            title="Requirement Traceability Matrix"
+            subtitle={`${sysEntries.length} requirements · ${dayjs().format("DD MMM YYYY HH:mm")}`}
+            headers={RTM_HEADERS}
+            rows={buildRtmRows}
+            label="Export RTM"
+            disabled={sysEntries.length === 0}
+          />
           {canEdit && <Button variant="primary" size="sm" icon={Plus} onClick={() => setAddOpen(true)}>Add Requirement</Button>}
         </div>
       </div>

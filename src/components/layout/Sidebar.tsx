@@ -19,6 +19,8 @@ import {
   FlaskConical,
   SlidersHorizontal,
   GraduationCap,
+  Radar,
+  Boxes,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
@@ -52,7 +54,9 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "deviation", label: "Deviation Management", icon: AlertTriangle },
       { path: "capa", label: "CAPA Tracker", icon: ClipboardList },
       { path: "csv-csa", label: "CSV/CSA Validation", icon: Monitor },
+      { path: "batch-records", label: "Batch Records", icon: Boxes },
       { path: "fda-483", label: "FDA 483 & Regulatory", icon: Building2 },
+      { path: "regulatory-intelligence", label: "Regulatory Intelligence", icon: Radar },
       { path: "evidence", label: "Evidence & Documents", icon: FileText },
     ],
   },
@@ -115,7 +119,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
     items: g.items.filter((item) => {
-      if (item.path === "readiness" || item.path === "deviation") return true;
+      if (item.path === "readiness" || item.path === "deviation" || item.path === "regulatory-intelligence" || item.path === "batch-records") return true;
       if (item.path === "audit-trail")
         return (
           role === "qa_head" ||

@@ -170,7 +170,7 @@ test.describe("Login + auth surface — smoke", () => {
   test("1. /login renders with email, password, and sign-in button", async ({ page, context }) => {
     await context.clearCookies();
     await page.goto("/login");
-    await expect(page.getByLabel("Work email")).toBeVisible();
+    await expect(page.locator("#email")).toBeVisible();
     await expect(page.locator("#password")).toBeVisible();
     await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
   });
@@ -178,7 +178,7 @@ test.describe("Login + auth surface — smoke", () => {
   test("2. Super admin sign-in lands on /admin", async ({ page, context }) => {
     await context.clearCookies();
     await page.goto("/login");
-    await page.getByLabel("Work email").fill(SEED.superAdmin.email);
+    await page.locator("#email").fill(SEED.superAdmin.email);
     await page.locator("#password").fill(SEED.superAdmin.password);
     await page.getByRole("button", { name: /sign in/i }).click();
     await page.waitForURL((u) => u.pathname.startsWith("/admin"), { timeout: 15_000 });
@@ -194,7 +194,7 @@ test.describe("Login + auth surface — smoke", () => {
   test("4. Customer admin (non-MFA tenant) sign-in lands on /", async ({ page, context }) => {
     await context.clearCookies();
     await page.goto("/login");
-    await page.getByLabel("Work email").fill(SEED.customerAdmin.email);
+    await page.locator("#email").fill(SEED.customerAdmin.email);
     await page.locator("#password").fill(SEED.customerAdmin.password);
     await page.getByRole("button", { name: /sign in/i }).click();
     await page.waitForURL((u) => u.pathname === "/", { timeout: 15_000 });
@@ -203,7 +203,7 @@ test.describe("Login + auth surface — smoke", () => {
   test("5. MFA-enabled tenant opens OTP modal on sign-in", async ({ page, context }) => {
     await context.clearCookies();
     await page.goto("/login");
-    await page.getByLabel("Work email").fill(MFA_TEST_TENANT.email);
+    await page.locator("#email").fill(MFA_TEST_TENANT.email);
     await page.locator("#password").fill(MFA_TEST_TENANT.password);
     await page.getByRole("button", { name: /sign in/i }).click();
     // The OTP modal is the shared <Modal>, title "Enter verification code".
@@ -224,7 +224,7 @@ test.describe("Login + auth surface — smoke", () => {
     });
 
     await page.goto("/login");
-    await page.getByLabel("Work email").fill(SEED.superAdmin.email);
+    await page.locator("#email").fill(SEED.superAdmin.email);
     await page.locator("#password").fill(SEED.superAdmin.password);
     await page.getByRole("button", { name: /sign in/i }).click();
 

@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, AlertTriangle, Circle, Save, Download, Plus } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Circle, Save, Plus } from "lucide-react";
 import type { RTMEntry, TraceabilityStatus, TestResult } from "@/types/csv-csa";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { ExportMenu } from "@/components/ui/ExportMenu";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { updateRTMEntry, createRTMEntry } from "@/actions/rtm";
 import { Modal } from "@/components/ui/Modal";
@@ -46,15 +47,9 @@ export function SystemRTMTab({ systemId, entries, canEdit, onError }: SystemRTMT
     (!priorityFilter || e.ursPriority === priorityFilter));
   const selected = selectedId ? entries.find((e) => e.id === selectedId) ?? null : null;
 
-  function exportCsv() {
-    const header = ["URS ID", "Requirement", "Priority", "FS", "DS", "IQ", "OQ", "PQ", "Evidence", "Traceability"];
-    const rows = entries.map((e) => [e.ursId, e.ursRequirement, e.ursPriority, e.fsReference ?? "", e.dsReference ?? "", e.iqResult ?? "", e.oqResult ?? "", e.pqResult ?? "", e.evidenceStatus, e.traceabilityStatus]);
-    const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `RTM-${systemId.slice(0, 8)}.csv`;
-    a.click();
+  const RTM_HEADERS = ["URS ID", "Requirement", "Priority", "FS", "DS", "IQ", "OQ", "PQ", "Evidence", "Traceability"];
+  function buildRtmRows() {
+    return entries.map((e) => [e.ursId, e.ursRequirement, e.ursPriority, e.fsReference ?? "", e.dsReference ?? "", e.iqResult ?? "", e.oqResult ?? "", e.pqResult ?? "", e.evidenceStatus, e.traceabilityStatus]);
   }
 
   return (
@@ -69,7 +64,15 @@ export function SystemRTMTab({ systemId, entries, canEdit, onError }: SystemRTMT
         <Dropdown value={statusFilter} onChange={setStatusFilter} width="w-36" options={[{ value: "", label: "All status" }, { value: "complete", label: "Traced" }, { value: "partial", label: "Partial" }, { value: "broken", label: "Broken" }]} />
         <Dropdown value={priorityFilter} onChange={setPriorityFilter} width="w-36" options={[{ value: "", label: "All priority" }, { value: "critical", label: "Critical" }, { value: "high", label: "High" }, { value: "medium", label: "Medium" }]} />
         <span className="text-[11px] ml-auto" style={{ color: "var(--text-muted)" }}>Coverage: <strong style={{ color: "var(--text-primary)" }}>{coverage}%</strong></span>
-        <Button variant="ghost" size="sm" icon={Download} onClick={exportCsv}>Export</Button>
+        <ExportMenu
+          filename={`RTM-${systemId.slice(0, 8)}`}
+          title="Requirement Traceability Matrix"
+          subtitle={`${entries.length} requirements`}
+          headers={RTM_HEADERS}
+          rows={buildRtmRows}
+          variant="ghost"
+          disabled={entries.length === 0}
+        />
         {canEdit && <Button variant="secondary" size="sm" icon={Plus} onClick={() => setAddOpen(true)}>Add</Button>}
       </div>
       <div className="card overflow-hidden"><div className="overflow-x-auto">

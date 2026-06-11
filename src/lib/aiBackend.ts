@@ -368,6 +368,49 @@ export const auditRecord = (recordId: string, token: string) =>
 export const usersList = () => request<unknown>("/api/v1/users/", { method: "GET" });
 
 /* ══════════════════════════════════════════════════════════════ */
+/* Document Review (CSV validation stage docs)                    */
+/* ══════════════════════════════════════════════════════════════ */
+
+/** One rubric finding as returned by the backend (snake_case DTO). */
+export interface StageDocReviewFindingDTO {
+  severity: string;
+  title: string;
+  detail: string;
+  section_ref?: string | null;
+  rubric_item?: string | null;
+}
+
+export interface StageDocReviewResponse {
+  stage_key: string;
+  file_name: string;
+  scan_duration_seconds: number;
+  rubric_version: string;
+  findings: StageDocReviewFindingDTO[];
+  scanned_at: string;
+}
+
+/**
+ * Pre-check an uploaded validation document against the rubric. Used by the
+ * mock-first gateway's getDocumentReview() when MOCK_AI_RESPONSES is false.
+ * The file is sent as multipart so the backend can extract its text.
+ */
+export async function scanStageDocument(
+  input: { file: File; stageKey: string; stageLabel: string; systemName: string },
+  token: string,
+): Promise<StageDocReviewResponse> {
+  const fd = new FormData();
+  fd.append("file", input.file);
+  fd.append("stage_key", input.stageKey);
+  fd.append("stage_label", input.stageLabel);
+  fd.append("system_name", input.systemName);
+  return request<StageDocReviewResponse>("/api/v1/document-review/scan", {
+    method: "POST",
+    formBody: fd,
+    token,
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════ */
 /* Selector helper                                                */
 /* ══════════════════════════════════════════════════════════════ */
 

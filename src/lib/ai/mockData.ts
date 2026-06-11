@@ -10,7 +10,22 @@ import type {
   FreeformSuggestion,
   CAPAPrefill,
   ResponseDraftEvent,
+  DocumentReviewInput,
+  DocumentReviewResult,
+  DocumentReviewFinding,
+  DocumentReviewSeverity,
+  RegulatoryGuidanceUpdate,
+  RegulatoryIntelligenceResult,
+  DeviationClusterInput,
+  DeviationCluster,
+  DeviationIntelligenceResult,
+  BatchRecord,
+  BatchReadinessAssessment,
+  BatchReadinessResult,
+  BatchReadinessLevel,
+  DriftDetectionResult,
 } from "./index";
+import type { DriftAlert } from "@/types/agi";
 
 /** Raw material for synthesizing method-shaped output. The 5-Why chain uses
  *  proximal/contributing/systemic; the Fishbone uses the 6 category keys. */
@@ -691,4 +706,743 @@ export function mockResponseDraft(event: ResponseDraftEvent): {
     `Pharma Glimmora International`;
 
   return { draft, characterCount: draft.length };
+}
+
+/* ── Feature D — CSV validation Document Review ──────────────────── */
+
+/** FNV-1a 32-bit. Deterministic seed from filename+stage so the same upload
+ *  always yields the same findings (no Math.random — demos must be stable). */
+function fnv1a(str: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+interface RubricCheck {
+  id: string;
+  /** Stages this check applies to. "all" = every stage. */
+  stages: "all" | string[];
+  severity: DocumentReviewSeverity;
+  sectionRef?: string;
+  title: string;
+  detail: string;
+  rubricItem: string;
+}
+
+/**
+ * The validation rubric. Each entry is a single completeness / signoff /
+ * required-section check that can flag a finding. Ordered so the most
+ * universally important checks (signatures, retired SOP refs, blank
+ * results) sort first for a given document.
+ */
+const REVIEW_RUBRIC: RubricCheck[] = [
+  {
+    id: "deleted-sop",
+    stages: ["URS", "FS", "DS", "IQ", "OQ", "PQ", "RTR"],
+    severity: "high",
+    sectionRef: "Section 4.2",
+    title: "Section 4.2 references a deleted SOP version (SOP-LIMS-007 v1.0 retired)",
+    detail:
+      "SOP-LIMS-007 v1.0 was retired and superseded by v2.0. A validation document " +
+      "must cite the current effective version. Update the citation in Section 4.2 " +
+      "before submitting for QA review.",
+    rubricItem: "SOP references cite current effective versions",
+  },
+  {
+    id: "no-signature",
+    stages: "all",
+    severity: "high",
+    sectionRef: "Document footer",
+    title: "No signature block found at end of document",
+    detail:
+      "The executed protocol has no reviewer/approver signature block. 21 CFR Part 11 " +
+      "requires an attributable signature carrying name, role and date. Add the " +
+      "signature block before submission.",
+    rubricItem: "Approval signature block present",
+  },
+  {
+    id: "missing-units",
+    stages: ["OQ", "PQ", "IQ"],
+    severity: "medium",
+    sectionRef: "Section 6 — Test results",
+    title: "Test result table in Section 6 missing measurement units",
+    detail:
+      "Recorded values in the Section 6 results table omit units (e.g. °C, mL, rpm). " +
+      "Add units to every measured parameter so results are unambiguous and reviewable.",
+    rubricItem: "Quantitative results carry measurement units",
+  },
+  {
+    id: "blank-results",
+    stages: ["OQ", "PQ"],
+    severity: "high",
+    sectionRef: "Section 6 — Test results",
+    title: "Executed test steps left blank in Section 6",
+    detail:
+      "Test steps 6.3, 6.5 and 6.9 have empty Actual Result fields. Every executed " +
+      "step must record an observed result or a justified N/A — blanks read as " +
+      "incomplete execution to an inspector.",
+    rubricItem: "No blank executed-result fields",
+  },
+  {
+    id: "missing-acceptance",
+    stages: ["FS", "OQ", "PQ"],
+    severity: "medium",
+    sectionRef: "Section 5",
+    title: "Acceptance criteria not stated for 2 test cases",
+    detail:
+      "Test cases TC-04 and TC-07 describe a procedure but state no pass/fail " +
+      "acceptance criteria. Define measurable acceptance criteria for each test case.",
+    rubricItem: "Each test case states acceptance criteria",
+  },
+  {
+    id: "no-traceability",
+    stages: ["URS", "FS", "DS"],
+    severity: "medium",
+    sectionRef: "Section 3",
+    title: "Requirements traceability matrix not attached",
+    detail:
+      "Section 3 references a requirements traceability matrix but none is attached. " +
+      "Attach the RTM linking each requirement to its verifying test case.",
+    rubricItem: "Traceability matrix present",
+  },
+  {
+    id: "iq-checklist",
+    stages: ["IQ"],
+    severity: "high",
+    sectionRef: "Section 4 — Installation checklist",
+    title: "Installation verification checklist incomplete (4 items unchecked)",
+    detail:
+      "Four installation verification items in Section 4 are neither checked nor marked " +
+      "N/A. Complete every line of the installation checklist before submitting IQ.",
+    rubricItem: "Installation checklist complete",
+  },
+  {
+    id: "pq-runs",
+    stages: ["PQ"],
+    severity: "high",
+    sectionRef: "Section 7",
+    title: "Only 2 of 3 required performance runs documented",
+    detail:
+      "PQ requires three consecutive successful runs; only runs 1 and 2 are present. " +
+      "Document the third run or provide a justified rationale for reduced sampling.",
+    rubricItem: "Required performance runs documented",
+  },
+  {
+    id: "undated-signoff",
+    stages: "all",
+    severity: "medium",
+    sectionRef: "Approval page",
+    title: "Reviewer sign-off present but undated",
+    detail:
+      "An approver signed the document but did not record the signature date. Part 11 " +
+      "electronic and handwritten signatures must both be dated.",
+    rubricItem: "Signatures are dated",
+  },
+  {
+    id: "no-prerequisites",
+    stages: ["IQ", "OQ"],
+    severity: "low",
+    sectionRef: "Section 2",
+    title: "Prerequisites / environment conditions not recorded",
+    detail:
+      "Section 2 leaves the as-found environment and prerequisite conditions " +
+      "(calibration status, utilities, software build) blank. Record them at execution.",
+    rubricItem: "Execution prerequisites recorded",
+  },
+  {
+    id: "stale-revision",
+    stages: "all",
+    severity: "low",
+    sectionRef: "Revision history",
+    title: "Revision history table not updated for this version",
+    detail:
+      "The revision history still lists the previous revision as latest. Add a row for " +
+      "the current version with author, date and a one-line change summary.",
+    rubricItem: "Revision history current",
+  },
+];
+
+/** Filenames that signal an already-clean, fully-executed document. These
+ *  pass with zero findings so the demo can show the "looks complete" path. */
+function looksClean(fileName: string): boolean {
+  return /(final|approved|signed|executed|clean|gold)([_\-. ]|$)/i.test(fileName);
+}
+
+export function mockDocumentReview(input: DocumentReviewInput): DocumentReviewResult {
+  const { stageKey, fileName } = input;
+  const seedStr = `${fileName.toLowerCase()}|${stageKey}`;
+  const seed = fnv1a(seedStr);
+
+  const scannedAt = new Date().toISOString();
+  // Reported (display) scan time: a stable 6–12s, independent of the ~1.1s
+  // actual shim in getDocumentReview. Mirrors the PDF mock's "Scanned in 8s".
+  const scanDurationSeconds = 6 + (seed % 7);
+
+  const baseResult: Omit<DocumentReviewResult, "findings"> = {
+    stageKey,
+    fileName,
+    scannedAt,
+    scanDurationSeconds,
+    rubricVersion: "csv-val-rubric-2026.1",
+    source: "mock",
+  };
+
+  if (looksClean(fileName)) {
+    return { ...baseResult, findings: [] };
+  }
+
+  const toFindings = (ids: string[]): DocumentReviewFinding[] =>
+    ids
+      .map((id) => REVIEW_RUBRIC.find((r) => r.id === id))
+      .filter((r): r is RubricCheck => Boolean(r))
+      .map((r) => ({
+        id: `${stageKey}-${r.id}`,
+        severity: r.severity,
+        title: r.title,
+        detail: r.detail,
+        sectionRef: r.sectionRef,
+        rubricItem: r.rubricItem,
+      }));
+
+  // Showcase path: an OQ validation document reproduces the spec's canonical
+  // three findings (retired SOP ref, missing signature block, missing units)
+  // so the demo matches the reference mock exactly.
+  if (stageKey === "OQ" && /validation/i.test(fileName)) {
+    return { ...baseResult, findings: toFindings(["deleted-sop", "no-signature", "missing-units"]) };
+  }
+
+  const applicable = REVIEW_RUBRIC.filter(
+    (r) => r.stages === "all" || r.stages.includes(stageKey),
+  );
+
+  // Deterministic selection: score each applicable check by hashing its id
+  // with the seed, sort ascending, then take k of them. Draft/early-version
+  // filenames surface more issues; everything else surfaces 1–3.
+  const isDraft = /(draft|wip|rev-?0|_v0|-v0|v1\b)/i.test(fileName);
+  const ranked = [...applicable].sort(
+    (a, b) => fnv1a(a.id + seedStr) - fnv1a(b.id + seedStr),
+  );
+  const k = isDraft
+    ? Math.min(4, applicable.length)
+    : 1 + (seed % Math.min(3, applicable.length));
+
+  const order: Record<DocumentReviewSeverity, number> = { high: 0, medium: 1, low: 2 };
+  const findings: DocumentReviewFinding[] = ranked
+    .slice(0, k)
+    .map((r) => ({
+      id: `${stageKey}-${r.id}`,
+      severity: r.severity,
+      title: r.title,
+      detail: r.detail,
+      sectionRef: r.sectionRef,
+      rubricItem: r.rubricItem,
+    }))
+    // Surface highest severity first so the inline list leads with what matters.
+    .sort((a, b) => order[a.severity] - order[b.severity]);
+
+  return { ...baseResult, findings };
+}
+
+/* ── Feature E — Regulatory Intelligence ─────────────────────────────
+ * A deterministic, curated set of FDA/EMA/ICH/MHRA guidance updates. Real
+ * agency feeds would be fetched + LLM-summarised when MOCK_AI_RESPONSES is
+ * off; the mock keeps the demo stable (same list, same order, every scan).
+ *
+ * Dates are FIXED (not relative to "now") so the dashboard alert count and
+ * the e2e tests stay deterministic across runs. */
+const REGULATORY_UPDATES: RegulatoryGuidanceUpdate[] = [
+  {
+    id: "reg-fda-csa-2026",
+    source: "FDA",
+    docRef: "FDA-2025-D-1402",
+    title:
+      "Computer Software Assurance for Production and Quality System Software",
+    publishedDate: "2026-05-18",
+    category: "Computer System Validation",
+    changeType: "New guidance",
+    impact: "high",
+    isNewRequirement: true,
+    summary:
+      "Finalises the risk-based Computer Software Assurance (CSA) approach, shifting CSV effort from exhaustive documentation toward critical-thinking and risk-proportionate testing for production and quality-system software.",
+    suggestedAlignment:
+      "Transition the CSV/CSA validation SOP to a CSA risk model; rebuild the test-rigor matrix so high-risk functions get scripted testing and low-risk ones use unscripted/ad-hoc evidence.",
+    affectedAreas: ["CSV/IT", "QMS"],
+  },
+  {
+    id: "reg-ema-annex1-ccs",
+    source: "EMA",
+    docRef: "EMA/INS/GMP/Annex1",
+    title:
+      "EU GMP Annex 1 — Manufacture of Sterile Medicinal Products (Contamination Control Strategy update)",
+    publishedDate: "2026-04-30",
+    category: "Aseptic Processing",
+    changeType: "Revised guidance",
+    impact: "high",
+    isNewRequirement: true,
+    summary:
+      "Reinforces a holistic, site-wide Contamination Control Strategy (CCS) and tightens expectations on aseptic process simulation, gowning qualification, and environmental monitoring rationale.",
+    suggestedAlignment:
+      "Update the site Contamination Control Strategy document and confirm gowning re-qualification cadence and APS coverage map to the revised expectations.",
+    affectedAreas: ["Manufacturing", "QC Lab"],
+  },
+  {
+    id: "reg-fda-di-qa",
+    source: "FDA",
+    docRef: "FDA-2025-D-3210",
+    title:
+      "Data Integrity and Compliance With Drug CGMP — Questions and Answers (Revision 2)",
+    publishedDate: "2026-03-22",
+    category: "Data Integrity",
+    changeType: "Revised guidance",
+    impact: "high",
+    isNewRequirement: false,
+    summary:
+      "Expanded Q&A clarifying ALCOA+ expectations for audit-trail review, shared logins, and dynamic electronic records under 21 CFR Part 11.",
+    suggestedAlignment:
+      "Cross-check the LIMS/CDS audit-trail review SOP and Part 11 e-signature configuration against the clarified expectations; close any shared-login gaps.",
+    affectedAreas: ["CSV/IT", "QC Lab"],
+  },
+  {
+    id: "reg-ich-q9r1",
+    source: "ICH",
+    docRef: "ICH Q9(R1)",
+    title: "ICH Q9(R1) — Quality Risk Management",
+    publishedDate: "2026-02-11",
+    category: "Quality Risk Management",
+    changeType: "Revised guidance",
+    impact: "medium",
+    isNewRequirement: false,
+    summary:
+      "Adds guidance on managing subjectivity in risk assessments, formality of QRM, and risk-based decision-making — clarifying rather than introducing new obligations.",
+    suggestedAlignment:
+      "Refresh risk-assessment templates to record formality level and address subjectivity; brief QRM facilitators on the revised principles.",
+    affectedAreas: ["QMS"],
+  },
+  {
+    id: "reg-mhra-nitrosamines",
+    source: "MHRA",
+    docRef: "MHRA-2026-NDSRI",
+    title:
+      "Nitrosamine impurities — recommended acceptable intakes for NDSRIs (draft)",
+    publishedDate: "2026-01-26",
+    category: "Nitrosamines",
+    changeType: "Draft for comment",
+    impact: "medium",
+    isNewRequirement: false,
+    summary:
+      "Draft update to recommended acceptable intake limits for nitrosamine drug-substance-related impurities (NDSRIs), open for industry comment.",
+    suggestedAlignment:
+      "Re-run the nitrosamine risk assessment for at-risk products against the draft limits and verify supplier change-control notifications are current.",
+    affectedAreas: ["QC Lab", "Manufacturing"],
+  },
+  {
+    id: "reg-ema-gvp-signal",
+    source: "EMA",
+    docRef: "EMA/GVP/ModuleIX",
+    title: "Good Pharmacovigilance Practices (GVP) Module IX — Signal Management (Rev. 1 addendum)",
+    publishedDate: "2025-12-09",
+    category: "Pharmacovigilance",
+    changeType: "Revised guidance",
+    impact: "low",
+    isNewRequirement: false,
+    summary:
+      "Minor addendum aligning signal-management terminology and timelines with the latest EU pharmacovigilance legislation.",
+    suggestedAlignment:
+      "Update PSMF references and confirm the signal-management SOP reflects the revised timelines.",
+    affectedAreas: ["QMS"],
+  },
+];
+
+/** Deterministic ordering — highest impact first, then most recent. Returns a
+ *  fresh sorted copy so callers can't mutate the source array. */
+export function buildRegulatoryUpdates(): RegulatoryGuidanceUpdate[] {
+  const order: Record<RegulatoryGuidanceUpdate["impact"], number> = {
+    high: 0,
+    medium: 1,
+    low: 2,
+  };
+  return [...REGULATORY_UPDATES].sort(
+    (a, b) =>
+      order[a.impact] - order[b.impact] ||
+      b.publishedDate.localeCompare(a.publishedDate),
+  );
+}
+
+export function mockRegulatoryIntelligence(): RegulatoryIntelligenceResult {
+  return {
+    updates: buildRegulatoryUpdates(),
+    scannedAt: new Date().toISOString(),
+    source: "mock",
+  };
+}
+
+/* ── Feature F — Deviation Intelligence ──────────────────────────────
+ * Deterministic clustering of the tenant's deviations by AREA (recurrence
+ * in the same area is the strongest signal in this data — categories are
+ * free-text and rarely repeat). A real backend would use embeddings; the
+ * mock is keyword + grouping so demos + e2e stay stable. */
+
+/** Lower = more severe. Accepts both casings. */
+function devSeverityRank(s: string): number {
+  const v = s.toLowerCase();
+  return v === "critical" ? 0 : v === "major" ? 1 : 2;
+}
+function devSeverityKey(s: string): "critical" | "major" | "minor" {
+  const v = s.toLowerCase();
+  return v === "critical" ? "critical" : v === "major" ? "major" : "minor";
+}
+
+/** Ordered keyword → candidate-root-cause map. First match wins, so place
+ *  the most specific signals first. */
+const DEV_ROOT_CAUSE_HINTS: { kw: string[]; hint: string }[] = [
+  {
+    kw: ["out of specification", "oos", "specification"],
+    hint: "Process or analytical-method controls are insufficient to prevent or contain out-of-specification results in this area.",
+  },
+  {
+    kw: ["em", "environmental", "excursion", "humidity", "temperature", "monitoring", "particulate"],
+    hint: "Environmental monitoring limits or controls are not conservative enough for the operations performed in this area.",
+  },
+  {
+    kw: ["qualification", "calibration", "overdue", "requalification", "maintenance"],
+    hint: "Equipment qualification/calibration scheduling is not aligned to usage, so intervals lapse undetected.",
+  },
+  {
+    kw: ["documentation", "record", "signature", "logbook", "entry"],
+    hint: "Procedures lack the detail or contemporaneous-record discipline needed for consistent execution.",
+  },
+  {
+    kw: ["sterile", "aseptic", "contamination", "gowning", "bioburden"],
+    hint: "Aseptic controls or contamination-control strategy are insufficient for the area's classification under dynamic operations.",
+  },
+  {
+    kw: ["process", "procedure", "batch", "yield"],
+    hint: "Process steps lack defined controls or acceptance criteria, allowing variation under routine operation.",
+  },
+  {
+    kw: ["training", "personnel", "operator", "competency"],
+    hint: "Training or competency assessment does not cover the task under the current procedure revision.",
+  },
+  {
+    kw: ["system", "software", "computer", "data", "audit trail"],
+    hint: "Computerised-system controls/validation do not fully cover the workflow generating these records.",
+  },
+];
+const DEV_DEFAULT_HINT =
+  "Multiple recurring events in this area point to a shared systemic gap — investigate a common root cause across these deviations.";
+
+function suggestDeviationRootCause(text: string): string {
+  const t = text.toLowerCase();
+  for (const r of DEV_ROOT_CAUSE_HINTS) {
+    if (r.kw.some((k) => t.includes(k))) return r.hint;
+  }
+  return DEV_DEFAULT_HINT;
+}
+
+export function mockDeviationIntelligence(
+  deviations: DeviationClusterInput[],
+): DeviationIntelligenceResult {
+  // Group by area. An area with >= 2 deviations is a "recurring pattern";
+  // >= 3 is "high frequency".
+  const byArea = new Map<string, DeviationClusterInput[]>();
+  for (const d of deviations) {
+    const key = d.area?.trim() || "Unspecified";
+    const arr = byArea.get(key) ?? [];
+    arr.push(d);
+    byArea.set(key, arr);
+  }
+
+  const clusters: DeviationCluster[] = [];
+  for (const [area, members] of byArea) {
+    if (members.length < 2) continue; // recurrence needs 2+
+    const count = members.length;
+
+    // Driver = worst-severity member (tie-break by reference) — drives the
+    // suggested-root-cause keyword match.
+    const driver = [...members].sort(
+      (a, b) =>
+        devSeverityRank(a.severity) - devSeverityRank(b.severity) ||
+        a.reference.localeCompare(b.reference),
+    )[0];
+
+    // Category breakdown.
+    const catMap = new Map<string, number>();
+    for (const m of members) catMap.set(m.category, (catMap.get(m.category) ?? 0) + 1);
+    const categoryChips = [...catMap.entries()]
+      .map(([label, c]) => ({ label, count: c }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+    // Severity mix.
+    const severityMix = { critical: 0, major: 0, minor: 0 };
+    for (const m of members) severityMix[devSeverityKey(m.severity)]++;
+
+    const isHighFrequency = count >= 3;
+    clusters.push({
+      id: `cluster-${area.toLowerCase().replace(/\s+/g, "-")}`,
+      theme: isHighFrequency
+        ? `High-frequency deviations in ${area}`
+        : `Recurring deviations in ${area}`,
+      area,
+      category: driver.category,
+      count,
+      isHighFrequency,
+      categoryChips,
+      severityMix,
+      members: [...members]
+        .sort((a, b) => a.reference.localeCompare(b.reference))
+        .map((m) => ({ id: m.id, reference: m.reference })),
+      suggestedRootCause: suggestDeviationRootCause(`${driver.category} ${driver.title}`),
+      confidence: Math.min(95, 50 + count * 12),
+    });
+  }
+
+  // High-frequency first, then by size, then area name — deterministic.
+  clusters.sort(
+    (a, b) =>
+      Number(b.isHighFrequency) - Number(a.isHighFrequency) ||
+      b.count - a.count ||
+      a.area.localeCompare(b.area),
+  );
+
+  return {
+    clusters,
+    analyzedCount: deviations.length,
+    patternCount: clusters.length,
+    scannedAt: new Date().toISOString(),
+    source: "mock",
+  };
+}
+
+/* ── Feature G — Batch Readiness Agent ───────────────────────────────
+ * Deterministic demo batch records (real backend = MES) + a pure
+ * completeness assessment. Entry statuses drive everything: "missing" →
+ * not ready, "review" → needs review, all "complete" → ready. */
+
+/** Canonical record sections, in batch-record order. Drives the pre-release
+ *  checklist (one gate per section the batch actually has). */
+const BATCH_SECTIONS = [
+  "Manufacturing",
+  "In-Process Controls",
+  "QC Testing",
+  "Packaging",
+  "Documentation",
+] as const;
+
+const BATCH_SECTION_GATE: Record<string, string> = {
+  Manufacturing: "Manufacturing steps recorded & signed",
+  "In-Process Controls": "In-process controls within limits",
+  "QC Testing": "QC results attached and reviewed",
+  Packaging: "Packaging & labelling reconciled",
+  Documentation: "Batch record reviewed, deviations reconciled",
+};
+
+const BATCH_RECORDS: BatchRecord[] = [
+  {
+    id: "STB-2026-041",
+    product: "Sterile Tablets 50 mg",
+    stage: "Released to QA",
+    site: "Chennai",
+    manufactureDate: "2026-05-20",
+    status: "under_review",
+    entries: [
+      { id: "41-mfg-1", section: "Manufacturing", label: "Dispensing weights recorded", status: "complete" },
+      { id: "41-mfg-2", section: "Manufacturing", label: "Granulation parameters logged", status: "complete" },
+      { id: "41-mfg-3", section: "Manufacturing", label: "Line clearance signature", status: "complete" },
+      { id: "41-ipc-1", section: "In-Process Controls", label: "Tablet hardness within range", status: "complete" },
+      { id: "41-ipc-2", section: "In-Process Controls", label: "Weight variation recorded", status: "complete" },
+      { id: "41-qc-1", section: "QC Testing", label: "Assay result attached", status: "complete" },
+      { id: "41-qc-2", section: "QC Testing", label: "Dissolution result attached", status: "complete" },
+      { id: "41-doc-1", section: "Documentation", label: "Batch record reviewed", status: "complete" },
+      { id: "41-doc-2", section: "Documentation", label: "Deviations reconciled", status: "complete" },
+    ],
+  },
+  {
+    id: "STB-2026-042",
+    product: "Sterile Tablets 50 mg",
+    stage: "Compression",
+    site: "Chennai",
+    manufactureDate: "2026-05-28",
+    status: "in_process",
+    entries: [
+      { id: "42-mfg-1", section: "Manufacturing", label: "Dispensing weights recorded", status: "complete" },
+      { id: "42-mfg-2", section: "Manufacturing", label: "Granulation parameters logged", status: "complete" },
+      { id: "42-mfg-3", section: "Manufacturing", label: "Line clearance signature", status: "complete" },
+      { id: "42-ipc-1", section: "In-Process Controls", label: "Tablet hardness within range", status: "review" },
+      { id: "42-ipc-2", section: "In-Process Controls", label: "Weight variation recorded", status: "complete" },
+      { id: "42-qc-1", section: "QC Testing", label: "Assay result attached", status: "complete" },
+      { id: "42-qc-2", section: "QC Testing", label: "Dissolution result attached", status: "review" },
+      { id: "42-doc-1", section: "Documentation", label: "Batch record reviewed", status: "complete" },
+      { id: "42-doc-2", section: "Documentation", label: "Deviations reconciled", status: "complete" },
+    ],
+  },
+  {
+    id: "STB-2026-043",
+    product: "Coated Tablets 100 mg",
+    stage: "Packaging",
+    site: "Bangalore",
+    manufactureDate: "2026-06-01",
+    status: "in_process",
+    entries: [
+      { id: "43-mfg-1", section: "Manufacturing", label: "Dispensing weights recorded", status: "complete" },
+      { id: "43-mfg-2", section: "Manufacturing", label: "Granulation parameters logged", status: "complete" },
+      { id: "43-mfg-3", section: "Manufacturing", label: "Line clearance signature", status: "missing" },
+      { id: "43-ipc-1", section: "In-Process Controls", label: "Tablet hardness within range", status: "complete" },
+      { id: "43-ipc-2", section: "In-Process Controls", label: "Weight variation recorded", status: "missing" },
+      { id: "43-qc-1", section: "QC Testing", label: "Assay result attached", status: "complete" },
+      { id: "43-qc-2", section: "QC Testing", label: "Dissolution result attached", status: "missing" },
+      { id: "43-pkg-1", section: "Packaging", label: "Label reconciliation", status: "missing" },
+      { id: "43-pkg-2", section: "Packaging", label: "Leak test recorded", status: "complete" },
+      { id: "43-doc-1", section: "Documentation", label: "Batch record reviewed", status: "missing" },
+    ],
+  },
+];
+
+export function listBatchRecords(): BatchRecord[] {
+  // Fresh deep-ish copy so callers can't mutate the source entries.
+  return BATCH_RECORDS.map((b) => ({ ...b, entries: b.entries.map((e) => ({ ...e })) }));
+}
+
+export function analyzeBatchReadiness(batch: BatchRecord): BatchReadinessAssessment {
+  const total = batch.entries.length;
+  const complete = batch.entries.filter((e) => e.status === "complete").length;
+  const missingEntries = batch.entries.filter((e) => e.status === "missing");
+  const reviewItems = batch.entries.filter((e) => e.status === "review");
+
+  const readiness: BatchReadinessLevel =
+    missingEntries.length > 0
+      ? "not_ready"
+      : reviewItems.length > 0
+        ? "needs_review"
+        : "ready";
+
+  // Pre-release checklist — one gate per section the batch actually has,
+  // in canonical order. A gate is "done" only when every entry in that
+  // section is complete (no missing AND no review).
+  const checklist = BATCH_SECTIONS.filter((sec) =>
+    batch.entries.some((e) => e.section === sec),
+  ).map((sec) => ({
+    id: sec,
+    label: BATCH_SECTION_GATE[sec] ?? sec,
+    done: batch.entries
+      .filter((e) => e.section === sec)
+      .every((e) => e.status === "complete"),
+  }));
+
+  return {
+    batchId: batch.id,
+    completenessPct: total === 0 ? 0 : Math.round((complete / total) * 100),
+    totalEntries: total,
+    completeEntries: complete,
+    missingEntries,
+    reviewItems,
+    checklist,
+    readiness,
+  };
+}
+
+export function mockBatchReadiness(batch: BatchRecord): BatchReadinessResult {
+  return {
+    ...analyzeBatchReadiness(batch),
+    scannedAt: new Date().toISOString(),
+    source: "mock",
+  };
+}
+
+/* ── Feature H — Drift Detection ─────────────────────────────────────
+ * Deterministic drift alerts across validated systems (config changes,
+ * access creep, audit-trail anomalies). A real backend would diff validated
+ * baselines + watch IAM/audit flags; the mock keeps the demo stable. Dates
+ * are fixed so the dashboard count and e2e tests stay deterministic. */
+const DRIFT_ALERTS: DriftAlert[] = [
+  {
+    id: "drift-audit-cds-07",
+    tenantId: "",
+    type: "Audit Trail Anomaly",
+    severity: "Critical",
+    description:
+      "Audit trail disabled on Empower CDS (instrument QC-HPLC-07) for 6 days — electronic records created without an attributable change log.",
+    agent: "Drift Detection",
+    detectedAt: "2026-06-08",
+    owner: "IT/CDO",
+    action: "Re-enable audit trail and investigate records created while it was off.",
+    status: "Open",
+  },
+  {
+    id: "drift-access-lims-admin",
+    tenantId: "",
+    type: "Access Creep",
+    severity: "Major",
+    description:
+      "LIMS: 3 analyst accounts hold the Administrator role — segregation-of-duties conflict (a user can run and approve their own results).",
+    agent: "Drift Detection",
+    detectedAt: "2026-06-06",
+    owner: "QA Head",
+    action: "Review entitlements and revoke over-scoped admin rights.",
+    status: "Investigating",
+  },
+  {
+    id: "drift-config-scada-r200",
+    tenantId: "",
+    type: "Configuration Change",
+    severity: "Major",
+    description:
+      "SCADA high-temperature alarm limit for Reactor R-200 changed from 78°C to 85°C outside change control on 03 Jun 2026.",
+    agent: "Drift Detection",
+    detectedAt: "2026-06-04",
+    owner: "Operations Head",
+    action: "Confirm change control / revert to the validated set-point.",
+    status: "Open",
+  },
+  {
+    id: "drift-config-mes-template",
+    tenantId: "",
+    type: "Configuration Change",
+    severity: "Minor",
+    description:
+      "MES batch-report template (v4) differs from the validated baseline (v3) — an uncontrolled layout change was detected.",
+    agent: "Drift Detection",
+    detectedAt: "2026-06-02",
+    owner: "CSV/Val Lead",
+    action: "Assess change impact and update validation documentation.",
+    status: "Open",
+  },
+  {
+    id: "drift-access-dormant-bms",
+    tenantId: "",
+    type: "Access Creep",
+    severity: "Minor",
+    description:
+      "Dormant vendor account on the Building Management System has been active and unused for 180+ days.",
+    agent: "Drift Detection",
+    detectedAt: "2026-05-30",
+    owner: "IT/CDO",
+    action: "Disable or recertify the dormant account.",
+    status: "Open",
+  },
+];
+
+/** Deterministic ordering — most severe first, then most recent. Returns a
+ *  fresh sorted copy so callers can't mutate the source array. */
+export function buildDriftAlerts(): DriftAlert[] {
+  const order: Record<DriftAlert["severity"], number> = {
+    Critical: 0,
+    Major: 1,
+    Minor: 2,
+  };
+  return [...DRIFT_ALERTS].sort(
+    (a, b) =>
+      order[a.severity] - order[b.severity] ||
+      b.detectedAt.localeCompare(a.detectedAt),
+  );
+}
+
+export function mockDriftDetection(): DriftDetectionResult {
+  return {
+    alerts: buildDriftAlerts(),
+    scannedAt: new Date().toISOString(),
+    source: "mock",
+  };
 }
