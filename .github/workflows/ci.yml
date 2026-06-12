@@ -11,23 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: glimmora_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
+    # Postgres CI deferred to the Phase-4 Postgres migration (schema is sqlite
+    # until then). CI runs against a throwaway SQLite file matching dev.
     env:
-      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/glimmora_test"
+      DATABASE_URL: "file:./prisma/ci.db"
       NEXTAUTH_SECRET: "ci-only-secret-32-bytes-long-aaaaaa"
       NEXTAUTH_URL: "http://localhost:3000"
 
@@ -45,7 +32,7 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Apply migrations to a fresh PostgreSQL DB
+      - name: Apply migrations to a fresh SQLite DB
         run: npx prisma migrate deploy
 
       - name: Lint
@@ -63,23 +50,10 @@ jobs:
     timeout-minutes: 20
     needs: check
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: glimmora_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
+    # Postgres CI deferred to the Phase-4 Postgres migration (schema is sqlite
+    # until then). CI runs against a throwaway SQLite file matching dev.
     env:
-      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/glimmora_test"
+      DATABASE_URL: "file:./prisma/ci.db"
       NEXTAUTH_SECRET: "ci-only-secret-32-bytes-long-aaaaaa"
       NEXTAUTH_URL: "http://localhost:3000"
       CI: "true"
