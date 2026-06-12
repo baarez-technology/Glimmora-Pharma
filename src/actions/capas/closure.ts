@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { notify } from "@/lib/notify";
 import { CAPA_CLOSE_ROLES } from "@/lib/permissions/roleSets";
 import { lockCAPAArtifacts } from "@/lib/evidence-lock";
 import {
@@ -96,6 +97,7 @@ export async function signAndCloseCAPA(
       reference: true,
       description: true,
       status: true,
+      ownerId: true,
       verifiedAt: true,
     },
   });
@@ -491,6 +493,20 @@ export async function signAndCloseCAPA(
     //     },
     //   });
     // }
+
+    // Phase 2 — notify the driver their CAPA is closed (fault-isolated;
+    // notify() skips the actor + null FKs). Does not affect the committed write.
+    await notify({
+      tenantId: session.user.tenantId,
+      recipientUserId: existing.ownerId,
+      actorUserId: actor.userId,
+      type: "CAPA_CLOSED",
+      title: `CAPA ${existing.reference ?? id} was closed`,
+      body: existing.description?.slice(0, 200) ?? null,
+      linkPath: `/capa/${id}`,
+      entityType: "CAPA",
+      entityId: id,
+    });
 
     revalidatePath("/capa");
     revalidatePath(`/capa/${id}`);

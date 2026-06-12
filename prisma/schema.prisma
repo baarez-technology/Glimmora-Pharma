@@ -1599,3 +1599,27 @@ model EmailOTP {
   @@index([identifier, tenantId])
   @@index([expiresAt])
 }
+
+// ── IN-APP NOTIFICATIONS (Phase 2) ──
+// A fault-isolated SIDE EFFECT of GxP lifecycle events. Observer only: emitting
+// one never blocks or rolls back the triggering action (see src/lib/notify.ts).
+// Tenant-scoped + per-recipient. recipientUserId is a User.id; it is a plain
+// indexed FK string (no relation back-edge) to keep this purely additive — one
+// new table, zero changes to User or any existing model.
+model Notification {
+  id              String    @id @default(cuid())
+  tenantId        String
+  recipientUserId String
+  type            String
+  title           String
+  body            String?
+  linkPath        String?
+  entityType      String?
+  entityId        String?
+  isRead          Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  readAt          DateTime?
+
+  @@index([recipientUserId, isRead, createdAt])
+  @@index([tenantId])
+}

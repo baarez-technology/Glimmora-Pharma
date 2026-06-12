@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { notify } from "@/lib/notify";
 import { canApproveCAPA } from "@/lib/capa-approvals";
 import {
   canonicalizeCAPAVerificationContent,
@@ -98,6 +99,7 @@ export async function verifyCAPA(
       description: true,
       createdBy: true,
       createdById: true,
+      ownerId: true,
       verifiedAt: true,
     },
   });
@@ -326,6 +328,20 @@ export async function verifyCAPA(
           capaId,
         }),
       },
+    });
+
+    // Phase 2 — notify the driver verification is complete (fault-isolated;
+    // notify() skips the actor + null FKs). Does not affect the committed write.
+    await notify({
+      tenantId: session.user.tenantId,
+      recipientUserId: existing.ownerId,
+      actorUserId: actor.userId,
+      type: "CAPA_VERIFIED",
+      title: `CAPA ${existing.reference ?? capaId} was verified`,
+      body: "Independent QA verification recorded — ready for closure.",
+      linkPath: `/capa/${capaId}`,
+      entityType: "CAPA",
+      entityId: capaId,
     });
 
     revalidatePath("/capa");

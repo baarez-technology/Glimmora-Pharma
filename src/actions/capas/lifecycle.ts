@@ -14,6 +14,7 @@ import {
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import type { ActionResult } from "./_types";
 import { sanitizeServerError } from "@/lib/errors";
+import { notify, notifyMany } from "@/lib/notify";
 
 /* â”€â”€ CAPA lifecycle actions â”€â”€
  *
@@ -411,6 +412,7 @@ export async function updateCAPA(
         rca: true,
         rcaMethod: true,
         rcaApproved: true,
+        ownerId: true,
       },
     });
     if (!before) return { success: false, error: "CAPA not found" };
@@ -550,6 +552,22 @@ export async function updateCAPA(
         recordId: id,
       },
     });
+
+    // Phase 2 — notify the NEW driver when ownership actually changed
+    // (fault-isolated; notify() skips the actor + null FKs).
+    if (parsed.data.owner !== undefined && ownerIdUpdate && ownerIdUpdate !== before.ownerId) {
+      await notify({
+        tenantId: session.user.tenantId,
+        recipientUserId: ownerIdUpdate,
+        actorUserId: actor.userId,
+        type: "CAPA_ASSIGNED",
+        title: `You are now the driver of CAPA ${before.reference ?? id}`,
+        body: capa.description?.slice(0, 200) ?? null,
+        linkPath: `/capa/${id}`,
+        entityType: "CAPA",
+        entityId: id,
+      });
+    }
 
     revalidatePath("/capa");
     revalidatePath(`/capa/${id}`);
@@ -924,6 +942,64 @@ export async function rejectCAPA(
           newValue: JSON.stringify({ capaId: id, reason: parsed.data.reason.slice(0, 200) }),
         })),
       });
+    }
+
+    // Phase 2 notifications — fault-isolated side effect (notify()/notifyMany()
+    // never throw). Affected parties only; the actor (QA) is never notified of
+    // their own act. A notify failure cannot affect the reject that just
+    // committed above.
+    const capaRef = capa?.reference ?? id;
+    await notify({
+      tenantId: session.user.tenantId,
+      recipientUserId: capa?.ownerId,
+      actorUserId: actor.userId,
+      type: "CAPA_REJECTED",
+      title: `CAPA ${capaRef} was rejected`,
+      body: parsed.data.reason.slice(0, 200),
+      linkPath: `/capa/${id}`,
+      entityType: "CAPA",
+      entityId: id,
+    });
+    if (reworkIds.length > 0) {
+      const reworkOwners = await prisma.cAPAActionItem.findMany({
+        where: { id: { in: reworkIds }, capaId: id, tenantId: session.user.tenantId },
+        select: { id: true, ownerId: true, description: true },
+      });
+      await notifyMany(
+        reworkOwners.map((it) => ({
+          tenantId: session.user.tenantId,
+          recipientUserId: it.ownerId,
+          actorUserId: actor.userId,
+          type: "REWORK_ASSIGNED" as const,
+          title: `Action item needs rework (CAPA ${capaRef})`,
+          body: it.description.slice(0, 200),
+          linkPath: "/worklist",
+          entityType: "CAPAActionItem",
+          entityId: it.id,
+        })),
+      );
+    }
+    if (rejectedEvidenceIds.length > 0) {
+      const fixerFiles = await prisma.evidenceFile.findMany({
+        where: { evidenceItemId: { in: rejectedEvidenceIds } },
+        select: { uploadedById: true },
+      });
+      const fixerIds = Array.from(
+        new Set(fixerFiles.map((f) => f.uploadedById).filter((v): v is string => !!v)),
+      );
+      await notifyMany(
+        fixerIds.map((uid) => ({
+          tenantId: session.user.tenantId,
+          recipientUserId: uid,
+          actorUserId: actor.userId,
+          type: "EVIDENCE_REJECTED" as const,
+          title: `Evidence rejected (CAPA ${capaRef})`,
+          body: parsed.data.reason.slice(0, 200),
+          linkPath: `/capa/${id}`,
+          entityType: "CAPA",
+          entityId: id,
+        })),
+      );
     }
 
     revalidatePath("/capa");

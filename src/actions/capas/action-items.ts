@@ -16,6 +16,7 @@ import {
   type ActionResult,
 } from "./_types";
 import { sanitizeServerError } from "@/lib/errors";
+import { notify } from "@/lib/notify";
 
 // NOTE — actor identity (AUDIT Finding #2 / Rung 3E): completedByUser is a
 // real User FK (completedById). Never connect `session.user.id` (a Tenant id
@@ -217,6 +218,20 @@ export async function addActionItem(
           dueDate: created.dueDate.toISOString(),
         }),
       },
+    });
+
+    // Phase 2 — notify the assignee when an action item is created with an
+    // owner (fault-isolated; notify() skips the actor + null FKs).
+    await notify({
+      tenantId: session.user.tenantId,
+      recipientUserId: created.ownerId,
+      actorUserId: actor.userId,
+      type: "ACTION_ASSIGNED",
+      title: `New action item assigned to you (CAPA ${capa.reference ?? capaId})`,
+      body: created.description.slice(0, 200),
+      linkPath: "/worklist",
+      entityType: "CAPAActionItem",
+      entityId: created.id,
     });
 
     revalidatePath("/capa");
@@ -467,6 +482,22 @@ export async function updateActionItem(
           recordTitle: (existing.capa.reference ?? existing.capa.description).slice(0, 80),
           newValue: JSON.stringify({ itemId, changedFields }),
         },
+      });
+    }
+
+    // Phase 2 — notify the NEW assignee when ownership changed (fault-isolated;
+    // notify() skips the actor + null FKs).
+    if (ownerChanged && updated.ownerId) {
+      await notify({
+        tenantId: session.user.tenantId,
+        recipientUserId: updated.ownerId,
+        actorUserId: actor.userId,
+        type: "ACTION_ASSIGNED",
+        title: `Action item assigned to you (CAPA ${existing.capa.reference ?? existing.capa.id})`,
+        body: updated.description.slice(0, 200),
+        linkPath: "/worklist",
+        entityType: "CAPAActionItem",
+        entityId: updated.id,
       });
     }
 

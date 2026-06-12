@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, requireGxPAuthor } from "@/lib/auth";
+import { notify } from "@/lib/notify";
 import {
   canonicalizeCAPAApprovalContent,
   canonicalizeCAPAApprovalRevocationContent,
@@ -110,6 +111,7 @@ export async function approveCAPA(
       reference: true,
       createdBy: true,
       createdById: true,
+      ownerId: true,
     },
   });
   if (!existing) return { success: false, error: "CAPA not found" };
@@ -391,6 +393,20 @@ export async function approveCAPA(
         },
       });
     }
+
+    // Phase 2 — notify the driver their CAPA was approved (fault-isolated;
+    // notify() skips the actor + null FKs). Does not affect the committed write.
+    await notify({
+      tenantId: session.user.tenantId,
+      recipientUserId: existing.ownerId,
+      actorUserId: actor.userId,
+      type: "CAPA_APPROVED",
+      title: `CAPA ${existing.reference ?? capaId} was approved`,
+      body: transitioned ? "All approvals collected — now awaiting verification." : null,
+      linkPath: `/capa/${capaId}`,
+      entityType: "CAPA",
+      entityId: capaId,
+    });
 
     revalidatePath("/capa");
     revalidatePath(`/capa/${capaId}`);
