@@ -110,6 +110,9 @@ const RejectSchema = z.object({
   // for rework; each gets status "rework" + the reason recorded. Omitting it
   // bounces the whole CAPA to in_progress without flagging specific items.
   reworkItems: z.array(z.string().min(1)).optional(),
+  // Per-evidence disposition — optional list of EvidenceItem ids to reject;
+  // each gets status "REJECTED" + the reason + reviewer, in the same bounce.
+  rejectedEvidenceItems: z.array(z.string().min(1)).optional(),
 });
 
 // RUNG 3D-CAPA — reopening a closed/rejected CAPA is a senior corrective act;
@@ -809,6 +812,18 @@ export async function rejectCAPA(
       }
     }
 
+    // Per-evidence reject — validate the evidence items belong to THIS CAPA.
+    const rejectedEvidenceIds = parsed.data.rejectedEvidenceItems ?? [];
+    if (rejectedEvidenceIds.length > 0) {
+      const ownedEv = await prisma.evidenceItem.findMany({
+        where: { id: { in: rejectedEvidenceIds }, capaId: id, capa: { tenantId: session.user.tenantId } },
+        select: { id: true },
+      });
+      if (ownedEv.length !== rejectedEvidenceIds.length) {
+        return { success: false, error: "One or more rejected evidence items do not belong to this CAPA." };
+      }
+    }
+
     const now = new Date();
     // Phase 4 — a TARGETED reject is a BOUNCE, not a dead end: the CAPA returns
     // to in_progress (workable again) rather than the terminal "rejected".
@@ -836,6 +851,19 @@ export async function rejectCAPA(
             reworkReason: parsed.data.reason,
             reworkRequestedById: actor.userId,
             reworkRequestedAt: now,
+          },
+        });
+      }
+      // Per-evidence reject — flag each as REJECTED (un-resolves its category,
+      // since REJECTED isn't in the readiness RESOLVED set) with who/when/why.
+      if (rejectedEvidenceIds.length > 0) {
+        await tx.evidenceItem.updateMany({
+          where: { id: { in: rejectedEvidenceIds }, capaId: id },
+          data: {
+            status: "REJECTED",
+            rejectionReason: parsed.data.reason,
+            reviewedById: actor.userId,
+            reviewedAt: now,
           },
         });
       }
@@ -875,9 +903,28 @@ export async function rejectCAPA(
           to: "in_progress",
           reason: parsed.data.reason.slice(0, 200),
           reworkItems: reworkIds,
+          rejectedEvidenceItems: rejectedEvidenceIds,
         }),
       },
     });
+
+    // Per-item EVIDENCE_REJECTED audit entries (reuse the evidence.ts pattern),
+    // so each rejected evidence item carries its own append-only record.
+    if (rejectedEvidenceIds.length > 0) {
+      await prisma.auditLog.createMany({
+        data: rejectedEvidenceIds.map((evId) => ({
+          tenantId: session.user.tenantId,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
+          module: "CAPA / Evidence",
+          action: "EVIDENCE_REJECTED",
+          recordId: evId,
+          oldValue: null,
+          newValue: JSON.stringify({ capaId: id, reason: parsed.data.reason.slice(0, 200) }),
+        })),
+      });
+    }
 
     revalidatePath("/capa");
     revalidatePath(`/capa/${id}`);

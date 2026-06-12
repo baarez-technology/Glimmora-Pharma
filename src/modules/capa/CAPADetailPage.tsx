@@ -492,7 +492,7 @@ export function CAPADetailPage({ capa, readiness, evidence, criteriaCount, audit
         </div>
       )}
       {activeTab === "evidence" && (filterActive ? noneOfTheirs : (
-        <div className="capa-card"><EvidenceCollectionPanel capaId={capa.id} readOnly={isViewOnly || capa.status === "closed"} /></div>
+        <div className="capa-card"><EvidenceCollectionPanel capaId={capa.id} readOnly={isViewOnly || capa.status === "closed"} capaStatus={capa.status} canRejectEvidence={isQAHead} /></div>
       ))}
       {/* Criteria — criteria list + the 90-day Effectiveness Review beneath. */}
       {activeTab === "criteria" && (filterActive ? noneOfTheirs : (

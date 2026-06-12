@@ -29,6 +29,8 @@ export interface WorklistEvidenceCategory {
   id: string;
   category: string;
   status: string;
+  /** QA rejection reason (when status === "REJECTED"). */
+  rejectionReason: string | null;
 }
 
 export interface WorklistGroup {
@@ -118,7 +120,7 @@ export const getWorklist = cache(async (userId: string, tenantId: string): Promi
     if (isDriver) {
       const [allActions, evidence, criteria, capaRow] = await Promise.all([
         prisma.cAPAActionItem.findMany({ where: { capaId, tenantId, deletedAt: null }, select: { status: true } }),
-        prisma.evidenceItem.findMany({ where: { capaId }, select: { id: true, category: true, status: true } }),
+        prisma.evidenceItem.findMany({ where: { capaId }, select: { id: true, category: true, status: true, rejectionReason: true } }),
         prisma.cAPAEffectivenessCriterion.findMany({ where: { capaId, deletedAt: null }, select: { id: true } }),
         prisma.cAPA.findUnique({
           where: { id: capaId },
@@ -133,9 +135,11 @@ export const getWorklist = cache(async (userId: string, tenantId: string): Promi
         conditions: r.conditions,
       };
       evidenceNeedsInit = evidence.length === 0;
+      // Surface categories that still need the driver's attention: not-yet-
+      // answered (PENDING/IN_PROGRESS) PLUS QA-rejected ones (need re-work).
       unansweredEvidence = evidence
-        .filter((e) => e.status === "PENDING" || e.status === "IN_PROGRESS")
-        .map((e) => ({ id: e.id, category: e.category, status: e.status }));
+        .filter((e) => e.status === "PENDING" || e.status === "IN_PROGRESS" || e.status === "REJECTED")
+        .map((e) => ({ id: e.id, category: e.category, status: e.status, rejectionReason: e.rejectionReason }));
     }
 
     groups.push({

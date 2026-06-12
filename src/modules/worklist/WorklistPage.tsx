@@ -412,10 +412,15 @@ export function WorklistPage({
                     {(group.unansweredEvidence ?? []).length > 0 && (
                       <ul className="list-none p-0 m-0 mt-1 space-y-1">
                         {group.unansweredEvidence!.map((ev) => (
-                          <li key={ev.id} className="flex items-center justify-between gap-2 text-[11px]">
-                            <span style={{ color: "var(--text-secondary)" }}>{EVIDENCE_LABEL[ev.category] ?? ev.category} · {ev.status}</span>
+                          <li key={ev.id} className="flex items-start justify-between gap-2 text-[11px]">
+                            <span style={{ color: ev.status === "REJECTED" ? "var(--status-blocked)" : "var(--text-secondary)" }}>
+                              {EVIDENCE_LABEL[ev.category] ?? ev.category} · {ev.status === "REJECTED" ? "Rejected by QA" : ev.status}
+                              {ev.status === "REJECTED" && ev.rejectionReason && (
+                                <span className="block" style={{ color: "var(--status-blocked)" }}>↳ {ev.rejectionReason}</span>
+                              )}
+                            </span>
                             {canWrite && (
-                              <button type="button" className="text-[11px] underline bg-transparent border-none cursor-pointer" style={{ color: "var(--brand)" }} onClick={() => { setNaModal({ evidenceItemId: ev.id, category: ev.category }); setNaReason(""); setNaError(null); }}>
+                              <button type="button" className="text-[11px] underline bg-transparent border-none cursor-pointer shrink-0" style={{ color: "var(--brand)" }} onClick={() => { setNaModal({ evidenceItemId: ev.id, category: ev.category }); setNaReason(""); setNaError(null); }}>
                                 Mark N/A &rsaquo;
                               </button>
                             )}

@@ -1206,6 +1206,15 @@ model EvidenceItem {
   // when the item leaves NOT_APPLICABLE.
   naReason          String?
 
+  // Per-evidence QA disposition — when QA rejects a specific evidence item at
+  // pending_qa_review (via rejectCAPA), status becomes "REJECTED" and these
+  // capture who/when/why. Cleared when the driver re-works the item (any
+  // updateEvidenceStatus status change). REJECTED is not in the readiness
+  // RESOLVED set, so a rejected item auto-un-resolves its category.
+  reviewedById      String?
+  reviewedAt        DateTime?
+  rejectionReason   String?
+
   // Wave 3 e-sig lock placeholder (unused in v1; schema-stable for future).
   // When set, all mutations on this EvidenceItem and its files are rejected.
   lockedAt          DateTime?

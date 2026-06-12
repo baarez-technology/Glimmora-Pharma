@@ -22,8 +22,19 @@ export const EVIDENCE_STATUSES = [
   "IN_PROGRESS",
   "COMPLETE",
   "NOT_APPLICABLE",
+  // QA disposition (set only by rejectCAPA, never by the driver). Not in the
+  // readiness RESOLVED set, so a rejected category auto-un-resolves.
+  "REJECTED",
 ] as const;
 export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
+
+/** Statuses the author/driver may set directly (excludes the QA-only REJECTED). */
+export const USER_SETTABLE_EVIDENCE_STATUSES = [
+  "PENDING",
+  "IN_PROGRESS",
+  "COMPLETE",
+  "NOT_APPLICABLE",
+] as const;
 
 export interface EvidenceFileSummary {
   id: string;
@@ -51,6 +62,10 @@ export interface EvidenceItemSummary {
   deletedFileCount: number;
   isLocked: boolean;
   hasNoteHistory: boolean;
+  // Per-evidence QA disposition (set when status === "REJECTED").
+  reviewedById: string | null;
+  reviewedAt: Date | null;
+  rejectionReason: string | null;
 }
 
 /**
@@ -110,6 +125,9 @@ export const getEvidenceForCAPA = cache(async (capaId: string, tenantId: string)
       deletedFileCount: it._count.files,
       isLocked: it.lockedAt !== null,
       hasNoteHistory: it._count.noteVersions > 0,
+      reviewedById: it.reviewedById,
+      reviewedAt: it.reviewedAt,
+      rejectionReason: it.rejectionReason,
     };
   }).filter((x): x is EvidenceItemSummary => x !== null);
 });

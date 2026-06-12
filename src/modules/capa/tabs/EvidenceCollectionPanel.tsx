@@ -35,6 +35,7 @@ import {
   removeEvidenceFile,
   updateEvidenceStatus,
 } from "@/actions/evidence";
+import { rejectCAPA } from "@/actions/capas";
 import {
   EVIDENCE_CATEGORIES,
   type EvidenceCategory,
@@ -51,6 +52,11 @@ interface EvidenceCollectionPanelProps {
    *  the parent (e.g. the CAPA detail page) can render a tab badge like "3/7"
    *  without re-querying. Optional — panel works standalone without it. */
   onCountsChange?: (counts: { complete: number; inProgress: number; pending: number; total: number }) => void;
+  /** Parent CAPA status — the QA reject control only shows at pending_qa_review. */
+  capaStatus?: string;
+  /** Viewer may disposition (reject) evidence — qa_head (CAPA_REJECT_ROLES). SoD:
+   *  not the driver/author. Combined with capaStatus === "pending_qa_review". */
+  canRejectEvidence?: boolean;
 }
 
 const CATEGORY_LABEL: Record<EvidenceCategory, string> = {
@@ -79,13 +85,15 @@ const STATUS_LABEL: Record<EvidenceStatus, string> = {
   IN_PROGRESS: "In progress",
   COMPLETE: "Answered",
   NOT_APPLICABLE: "N/A",
+  REJECTED: "Rejected by QA",
 };
 
-const STATUS_VARIANT: Record<EvidenceStatus, "gray" | "amber" | "green" | "blue"> = {
+const STATUS_VARIANT: Record<EvidenceStatus, "gray" | "amber" | "green" | "blue" | "red"> = {
   PENDING: "gray",
   IN_PROGRESS: "amber",
   COMPLETE: "green",
   NOT_APPLICABLE: "blue",
+  REJECTED: "red",
 };
 
 const ALLOWED_ACCEPT =
@@ -109,10 +117,17 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChange }: EvidenceCollectionPanelProps) {
+export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChange, capaStatus, canRejectEvidence = false }: EvidenceCollectionPanelProps) {
   const [items, setItems] = useState<EvidenceItemSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // QA reject (per-evidence disposition) — only at pending_qa_review, qa_head.
+  const canReject = canRejectEvidence && capaStatus === "pending_qa_review";
+  const panelToast = useToast();
+  const [rejectItem, setRejectItem] = useState<EvidenceItemSummary | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState(false);
 
   // Per-category expanded state. Categories with any activity (status not
   // Pending OR files OR notes) seed expanded on first load; truly empty
@@ -175,6 +190,23 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
     setLoading(true);
     refresh();
   }, [refresh]);
+
+  // QA rejects a specific evidence item — routes through the existing
+  // rejectCAPA bounce (pending_qa_review → in_progress), so the category
+  // un-resolves and evidence unlocks for re-work. Reason required (≥ 5).
+  async function handleRejectEvidence() {
+    if (!rejectItem) return;
+    if (rejectReason.trim().length < 5) { setRejectError("Add a brief reason (at least 5 characters)."); return; }
+    setRejecting(true);
+    setRejectError(null);
+    const res = await rejectCAPA(capaId, { reason: rejectReason.trim(), rejectedEvidenceItems: [rejectItem.id] });
+    setRejecting(false);
+    if (!res.success) { setRejectError(res.error || "Could not reject evidence."); panelToast.error(res.error || "Could not reject evidence."); return; }
+    setRejectItem(null);
+    setRejectReason("");
+    panelToast.success("Evidence rejected — CAPA returned to in progress for rework.");
+    await refresh();
+  }
 
   // Batch 4 Part 4 — every category collapsed by default (the status pill +
   // file count make the row legible without expanding). Seeds once on first
@@ -275,8 +307,31 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
           onChange={refresh}
           isExpanded={isExpanded(item.category)}
           onToggleExpanded={() => toggleExpanded(item.category)}
+          canReject={canReject}
+          onReject={() => { setRejectItem(item); setRejectReason(""); setRejectError(null); }}
         />
       ))}
+
+      {/* QA per-evidence reject modal (qa_head @ pending_qa_review). */}
+      {rejectItem && (
+        <Modal open onClose={() => { if (!rejecting) { setRejectItem(null); setRejectError(null); } }} title={`Reject "${CATEGORY_LABEL[rejectItem.category]}" evidence`}>
+          <p className="text-[12px] mb-2" style={{ color: "var(--text-secondary)" }}>
+            Rejecting bounces the CAPA back to <strong>in progress</strong> so the team can re-work this category. Record why it&rsquo;s inadequate (≥ 5 characters).
+          </p>
+          <textarea
+            className="input text-[12px] w-full min-h-20"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            maxLength={2000}
+            placeholder="e.g. Batch record is illegible / missing the deviation reference…"
+          />
+          {rejectError && <p role="alert" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{rejectError}</p>}
+          <div className="flex justify-end gap-2 mt-3">
+            <Button variant="secondary" size="sm" disabled={rejecting} onClick={() => { setRejectItem(null); setRejectError(null); }}>Cancel</Button>
+            <Button variant="danger" size="sm" disabled={rejecting || rejectReason.trim().length < 5} loading={rejecting} onClick={() => void handleRejectEvidence()}>Reject evidence</Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -293,9 +348,12 @@ interface CardProps {
    *  is unmounted in collapsed state so its useEffects don't run. */
   isExpanded: boolean;
   onToggleExpanded: () => void;
+  /** QA reviewer may reject this evidence item (qa_head @ pending_qa_review). */
+  canReject?: boolean;
+  onReject?: () => void;
 }
 
-function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }: CardProps) {
+function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded, canReject = false, onReject }: CardProps) {
   const toast = useToast();
   const Icon = CATEGORY_ICON[item.category];
   const locked = item.isLocked;
@@ -510,6 +568,23 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded }
           <p className="text-[11px]" style={{ color: "var(--warning)" }}>
             This evidence package was locked. Contact QA to unlock.
           </p>
+        </div>
+      )}
+
+      {/* QA rejection — red pin so the driver sees exactly what to fix
+          (mirrors the action-item rework banner). */}
+      {item.status === "REJECTED" && (
+        <div className="mb-2 flex items-start gap-2 rounded-md p-2" style={{ background: "var(--danger-bg)", border: "1px solid var(--danger)" }}>
+          <p className="text-[11px]" style={{ color: "var(--danger)" }}>
+            <strong>Rejected by QA:</strong> {item.rejectionReason || "Re-work required before resubmission."}
+          </p>
+        </div>
+      )}
+
+      {/* QA reviewer reject control (qa_head @ pending_qa_review only — SoD). */}
+      {canReject && item.status !== "REJECTED" && (
+        <div className="mb-2">
+          <Button variant="danger" size="xs" onClick={onReject}>Reject this evidence</Button>
         </div>
       )}
 

@@ -10,7 +10,7 @@ import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import {
   EVIDENCE_CATEGORIES,
-  EVIDENCE_STATUSES,
+  USER_SETTABLE_EVIDENCE_STATUSES,
   getEvidenceForCAPA,
   getEvidenceNoteHistory,
   type EvidenceStatus,
@@ -43,7 +43,9 @@ const AUDIT_MODULE = "CAPA / Evidence";
 // â”€â”€ Schemas â”€â”€
 
 const StatusUpdateSchema = z.object({
-  status: z.enum(EVIDENCE_STATUSES as readonly [EvidenceStatus, ...EvidenceStatus[]]),
+  // Driver/author-settable statuses only — "REJECTED" is a QA-only disposition
+  // set exclusively by rejectCAPA (SoD), never through this author/driver path.
+  status: z.enum(USER_SETTABLE_EVIDENCE_STATUSES as readonly [EvidenceStatus, ...EvidenceStatus[]]),
   notes: z.string().max(10_000).optional(),
   // Required when transitioning TO or FROM NOT_APPLICABLE (Part 11 ALCOA+:
   // every NA decision needs an auditable rationale). Server enforces the
@@ -277,6 +279,12 @@ export async function updateEvidenceStatus(
             : transitioningFromNA
               ? { naReason: null }
               : {}),
+          // Per-evidence disposition — re-working the item (any status change)
+          // clears the QA rejection so the red "Rejected by QA" pin disappears
+          // once the driver answers it again.
+          ...(statusChanged
+            ? { reviewedById: null, reviewedAt: null, rejectionReason: null }
+            : {}),
         },
       });
       // Differentiate audit action so the trail distinguishes status changes
