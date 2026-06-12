@@ -12,6 +12,8 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { Modal } from "@/components/ui/Modal";
 import { roleLabel } from "@/lib/labels/roles";
+import { RcaMethodFields, rcaDetailToText, type RcaDetail } from "@/modules/capa/modals/components/RcaMethodFields";
+import { CAPA_RCA_METHODS, rcaMethodOptions } from "@/constants/rcaMethods";
 
 const AREAS = ["Manufacturing", "QC Lab", "Warehouse", "Utilities", "QMS", "CSV/IT"];
 
@@ -31,6 +33,7 @@ const findingSchema = z.object({
   targetDate: z.string().min(1, "Target date required"),
   evidenceLink: z.string().optional(),
   rootCause: z.string().optional(),
+  rcaMethod: z.enum(CAPA_RCA_METHODS).optional(),
   linkedSystemId: z.string().optional(),
   linkedSystemName: z.string().optional(),
   raiseCapaImmediately: z.boolean().optional(),
@@ -45,6 +48,8 @@ interface UploadedEvidenceFile {
 
 type AddFindingPayload = FindingForm & {
   evidenceFile?: UploadedEvidenceFile;
+  /** Structured RCA JSON (rootCause carries the readable mirror). */
+  rcaDetail?: string;
 };
 
 interface AddFindingModalProps {
@@ -66,6 +71,9 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, systems, activ
     defaultValues: { severity: "High", siteId: lockedSiteId ?? "", raiseCapaImmediately: false },
   });
   const [evidenceFile, setEvidenceFile] = useState<UploadedEvidenceFile | null>(null);
+  // Gap RCA (Batch B) — structured method detail (mirrors CAPA's create modal).
+  const [detail, setDetail] = useState<RcaDetail>({});
+  const rcaMethod = watch("rcaMethod");
 
   function inferDocType(fileName: string): DocType {
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
@@ -101,13 +109,23 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, systems, activ
   }, [watchArea, watchFramework, activeFrameworks, setValue]);
 
   function onSubmit(data: FindingForm) {
-    onSave({ ...data, evidenceFile: evidenceFile ?? undefined });
+    // Serialize the structured RCA: rootCause = readable mirror (shared
+    // rcaDetailToText), rcaDetail = JSON source. Mirrors CAPA's create modal.
+    const rootCause = data.rcaMethod ? rcaDetailToText(data.rcaMethod, detail) : undefined;
+    onSave({
+      ...data,
+      evidenceFile: evidenceFile ?? undefined,
+      rootCause: rootCause || undefined,
+      rcaDetail: data.rcaMethod ? JSON.stringify(detail) : undefined,
+    });
     reset();
     setEvidenceFile(null);
+    setDetail({});
   }
 
   function handleClose() {
     onClose();
+    setDetail({});
     reset();
     setEvidenceFile(null);
   }
@@ -231,9 +249,16 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, systems, activ
               )}
             </div>
           </div>
+          {/* Root Cause Analysis — method-driven (reuses CAPA's RcaMethodFields
+              + canonical CAPA_RCA_METHODS). Serialized to rootCause (mirror) +
+              rcaDetail (JSON) on save. */}
           <div className="col-span-2">
-            <label htmlFor="f-rootcause" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Root Cause Analysis <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></label>
-            <textarea id="f-rootcause" rows={3} className="input text-[12px] resize-none" placeholder="What is the likely root cause of this gap?&#10;Can be updated later in CAPA Tracker." {...reg("rootCause")} />
+            <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Root Cause Analysis <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></p>
+            <Dropdown placeholder="Select method..." value={watch("rcaMethod") ?? ""} onChange={(v) => setValue("rcaMethod", v as FindingForm["rcaMethod"])} width="w-full"
+              options={rcaMethodOptions(CAPA_RCA_METHODS)} />
+            <div className="mt-2">
+              <RcaMethodFields method={rcaMethod} detail={detail} onChange={setDetail} />
+            </div>
           </div>
           <div className="col-span-2 pt-1">
             <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: "var(--text-primary)" }}>

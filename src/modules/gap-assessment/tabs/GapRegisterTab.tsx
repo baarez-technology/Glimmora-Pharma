@@ -20,10 +20,13 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
+import { Dropdown } from "@/components/ui/Dropdown";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
 import { displayName, displayUserName, displaySiteName } from "@/lib/identity-display";
 import { roleLabel } from "@/lib/labels/roles";
 import { DatePicker } from "@/components/ui/DatePicker";
+import { RcaMethodFields, parseRcaDetail, rcaDetailToText, type RcaDetail } from "@/modules/capa/modals/components/RcaMethodFields";
+import { CAPA_RCA_METHODS, rcaMethodOptions, type CapaRCAMethod } from "@/constants/rcaMethods";
 
 /* ── Helpers ── */
 
@@ -71,6 +74,15 @@ interface EditForm {
   targetDate: string;
   evidenceLink: string;
   rootCause: string;
+  rcaMethod?: string;
+}
+
+/** Seed structured RCA detail from the row; fall back to the flat rootCause
+ *  text for findings that predate rcaDetail (so old gaps still show it). */
+function seedRcaDetail(f: { rcaDetail?: string; rootCause?: string }): RcaDetail {
+  const d = parseRcaDetail(f.rcaDetail);
+  if (Object.keys(d).length === 0 && f.rootCause) return { text: f.rootCause, faultTree: f.rootCause };
+  return d;
 }
 
 /* ── Props ── */
@@ -139,8 +151,12 @@ export function GapRegisterTab({
       targetDate: "",
       evidenceLink: "",
       rootCause: "",
+      rcaMethod: "",
     },
   });
+  // Gap RCA (Batch B) — structured detail, prefilled from rcaDetail (or the
+  // rootCause text for findings that predate it).
+  const [detail, setDetail] = useState<RcaDetail>({});
 
   // Reset form when selected finding changes
   useEffect(() => {
@@ -152,7 +168,9 @@ export function GapRegisterTab({
         targetDate: selectedFinding.targetDate ? dayjs.utc(selectedFinding.targetDate).format("YYYY-MM-DD") : "",
         evidenceLink: selectedFinding.evidenceLink ?? "",
         rootCause: selectedFinding.rootCause ?? "",
+        rcaMethod: selectedFinding.rcaMethod ?? "",
       });
+      setDetail(seedRcaDetail(selectedFinding));
     }
     // Reset edit form when the selected finding changes.
 
@@ -221,13 +239,22 @@ export function GapRegisterTab({
 
     const targetDateISO = dayjs(data.targetDate).utc().toISOString();
 
+    // Gap RCA (Batch B) — serialize structured RCA: rootCause = readable mirror
+    // (shared rcaDetailToText; preserve prior text if the structured fields are
+    // empty), rcaDetail = JSON source. Mirrors CAPA's edit modal.
+    const method = (data.rcaMethod || undefined) as CapaRCAMethod | undefined;
+    const rcaText = (method ? rcaDetailToText(method, detail) : "") || (selectedFinding.rootCause ?? "");
+    const rcaDetailJson = method ? JSON.stringify(detail) : undefined;
+
     const noChange =
       data.requirement === selectedFinding.requirement &&
       (data.purpose ?? "") === (selectedFinding.purpose ?? "") &&
       data.owner === selectedFinding.owner &&
       targetDateISO === selectedFinding.targetDate &&
       data.evidenceLink === (selectedFinding.evidenceLink ?? "") &&
-      (data.rootCause ?? "") === (selectedFinding.rootCause ?? "");
+      (rcaText ?? "") === (selectedFinding.rootCause ?? "") &&
+      (data.rcaMethod ?? "") === (selectedFinding.rcaMethod ?? "") &&
+      (rcaDetailJson ?? "") === (selectedFinding.rcaDetail ?? "");
 
     if (noChange) {
       setIsEditing(false);
@@ -240,7 +267,9 @@ export function GapRegisterTab({
       owner: data.owner,
       targetDate: targetDateISO,
       evidenceLink: data.evidenceLink,
-      rootCause: data.rootCause,
+      rootCause: rcaText,
+      rcaMethod: method,
+      rcaDetail: rcaDetailJson,
       reason: editReason,
     });
 
@@ -522,21 +551,26 @@ export function GapRegisterTab({
               </div>
             ) : null}
 
-            {/* ── Root cause analysis (free-text); prefills from stored value ── */}
+            {/* ── Root cause analysis — method-driven (reuses CAPA's
+                RcaMethodFields + canonical CAPA_RCA_METHODS). Prefills from
+                rcaDetail; rootCause stays the readable mirror. ── */}
             {isEditing ? (
               <div>
-                <label className={LABEL} htmlFor="edit-rootcause">Root cause analysis <span className="text-[10px] font-normal italic">(optional)</span></label>
-                <textarea
-                  id="edit-rootcause"
-                  rows={3}
-                  {...form.register("rootCause")}
-                  className="w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-all duration-150 resize-none bg-(--bg-elevated) border border-(--bg-border) text-(--text-primary) placeholder:text-(--text-muted) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
-                  placeholder="What is the likely root cause of this gap?"
+                <label className={LABEL} htmlFor="edit-rcamethod">Root cause analysis <span className="text-[10px] font-normal italic">(optional)</span></label>
+                <Controller
+                  name="rcaMethod"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Dropdown value={field.value ?? ""} onChange={field.onChange} placeholder="Select method..." width="w-full" options={rcaMethodOptions(CAPA_RCA_METHODS)} />
+                  )}
                 />
+                <div className="mt-2">
+                  <RcaMethodFields method={(form.watch("rcaMethod") || undefined) as CapaRCAMethod | undefined} detail={detail} onChange={setDetail} />
+                </div>
               </div>
             ) : selectedFinding.rootCause ? (
               <div>
-                <h3 className={LABEL}>Root cause analysis</h3>
+                <h3 className={LABEL}>Root cause analysis {selectedFinding.rcaMethod && <Badge variant="gray">{selectedFinding.rcaMethod}</Badge>}</h3>
                 <p className="text-[12px] whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>{selectedFinding.rootCause}</p>
               </div>
             ) : null}

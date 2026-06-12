@@ -25,6 +25,7 @@ import { fileStorage } from "@/lib/fileStorage";
 import { sanitizeFilename } from "@/lib/sanitize";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { sanitizeServerError } from "@/lib/errors";
+import { CAPA_RCA_METHODS } from "@/constants/rcaMethods";
 
 // Shared with the create form (AddFindingModal) — keep this the single source
 // of truth for the minimum requirement length so client and server never
@@ -45,6 +46,11 @@ const CreateFindingSchema = z.object({
   targetDate: z.string().min(1, "Target date is required"),
   siteId: z.string().optional(),
   evidenceLink: z.string().optional(),
+  // Gap RCA (Batch B) — structured method + JSON detail; rootCause is the
+  // readable mirror serialized by the modal (rcaDetailToText).
+  rootCause: z.string().optional(),
+  rcaMethod: z.enum(CAPA_RCA_METHODS).optional(),
+  rcaDetail: z.string().optional(),
   // SME Section 1, Stage 6 (FULL) â€” optional recurrence link, same
   // semantic as Deviation.previousCAPAId.
   previousCAPAId: z.string().optional(),
@@ -59,6 +65,9 @@ const UpdateFindingSchema = z.object({
   owner: z.string().min(1).optional(),
   targetDate: z.string().optional(),
   rootCause: z.string().optional(),
+  // Gap RCA (Batch B) — structured method + JSON detail (rootCause = mirror).
+  rcaMethod: z.enum(CAPA_RCA_METHODS).optional(),
+  rcaDetail: z.string().optional(),
   evidenceLink: z.string().optional(),
   linkedCAPAId: z.string().optional(),
   // Free-text rationale recorded alongside the edit-history diff. Not a column
@@ -212,13 +221,17 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
 
 // Human-readable labels + value formatting for the edit-history diff. Only
 // the fields a user can actually change through the detail form are diffed.
-const DIFF_FIELDS: { key: "requirement" | "purpose" | "owner" | "targetDate" | "evidenceLink" | "status"; label: string }[] = [
+const DIFF_FIELDS: { key: "requirement" | "purpose" | "owner" | "targetDate" | "evidenceLink" | "status" | "rcaMethod" | "rootCause"; label: string }[] = [
   { key: "requirement", label: "Requirement" },
   { key: "purpose", label: "Purpose" },
   { key: "owner", label: "Owner" },
   { key: "targetDate", label: "Target date" },
   { key: "evidenceLink", label: "Evidence link" },
   { key: "status", label: "Status" },
+  // RCA — track the method + the readable rootCause mirror so edits to a
+  // finding's root-cause analysis are captured in the edit-history diff.
+  { key: "rcaMethod", label: "RCA method" },
+  { key: "rootCause", label: "Root cause" },
 ];
 
 function normalizeForDiff(key: string, value: unknown): string {

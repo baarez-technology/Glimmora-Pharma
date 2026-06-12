@@ -28,6 +28,9 @@ export interface Finding {
   targetDate: string;
   evidenceLink: string;
   rootCause?: string;
+  // Gap RCA (Batch B) — structured method + JSON detail; rootCause is the mirror.
+  rcaMethod?: string;
+  rcaDetail?: string;
   agiSummary?: string;
   capaId?: string;
   linkedSystemId?: string;

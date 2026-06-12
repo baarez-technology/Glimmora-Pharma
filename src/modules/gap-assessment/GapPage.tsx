@@ -66,6 +66,8 @@ function adaptFinding(p: FindingWithEdits): Finding {
     targetDate: p.targetDate ? p.targetDate.toISOString() : "",
     evidenceLink: p.evidenceLink ?? "",
     rootCause: p.rootCause ?? undefined,
+    rcaMethod: p.rcaMethod ?? undefined,
+    rcaDetail: p.rcaDetail ?? undefined,
     capaId: p.linkedCAPAId ?? undefined,
     createdAt: p.createdAt.toISOString(),
     editHistory: p.edits?.length
@@ -359,6 +361,10 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
       targetDate: rest.targetDate,
       siteId: rest.siteId || undefined,
       evidenceLink: evidenceReference || undefined,
+      // Gap RCA (Batch B) — structured method + JSON detail + readable mirror.
+      rcaMethod: rest.rcaMethod,
+      rcaDetail: data.rcaDetail,
+      rootCause: rest.rootCause || undefined,
     });
     if (!result.success) {
       console.error("[gap] handleAddFinding failed:", result.error);
