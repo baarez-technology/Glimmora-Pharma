@@ -11,14 +11,12 @@ import {
   Mail,
   Lock,
   LogIn,
-  Building2,
   ChevronDown,
   Eye,
   EyeOff,
 } from "lucide-react";
 import clsx from "clsx";
 import { useAppDispatch } from "@/hooks/useAppDispatch";
-import { useAppSelector } from "@/hooks/useAppSelector";
 import { setCredentials, setActiveSite, setSelectedSite, type AuthUser, type Tenant, type TenantSiteConfig } from "@/store/auth.slice";
 import { login as nextAuthLogin, fetchCurrentUser } from "@/lib/authClient";
 import { flushPersist } from "@/store/persistence";
@@ -62,14 +60,10 @@ export function LoginPage() {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const toast = useToast();
-  const themeMode = useAppSelector((s) => s.theme.mode);
   const [showCreds, setShowCreds] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loadingTenant, setLoadingTenant] = useState(false);
   const [loadingName, setLoadingName] = useState("");
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-  const isDark = mounted && themeMode === "dark";
 
   // Session-expired toast handoff. AdminShell navigates to
   // /login?session=expired on a 401 from /api/auth/me; this effect
@@ -251,7 +245,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-white px-4">
+    <div className="min-h-screen flex flex-col items-center justify-center px-4" style={{ background: "var(--bg-base)" }}>
 
       <div className="w-full max-w-[420px] pt-12 pb-10 px-10">
         {/* Logo — hidden during loading */}
@@ -265,10 +259,10 @@ export function LoginPage() {
               priority
               className="h-auto w-[220px] mb-5"
             />
-            <h1 className="text-[28px] font-extrabold text-[#302d29] tracking-tight mb-1">
+            <h1 className="text-[28px] font-extrabold tracking-tight mb-1" style={{ color: "var(--text-primary)" }}>
               Welcome !
             </h1>
-            <p className="text-[14px] text-[#7a736a]">
+            <p className="text-[14px]" style={{ color: "var(--text-secondary)" }}>
               Log into your account
             </p>
           </div>
@@ -277,7 +271,7 @@ export function LoginPage() {
         {/* Loading tenant */}
         {loadingTenant && (
           <div className="flex flex-col items-center justify-center gap-3 py-8" role="status" aria-live="polite">
-            <div className="w-8 h-8 rounded-full border-2 border-[#8b6914] border-t-transparent animate-spin" />
+            <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "var(--brand)", borderTopColor: "transparent" }} />
             <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
               Loading {loadingName}...
             </p>
@@ -302,12 +296,12 @@ export function LoginPage() {
         >
           {/* Root error */}
           {errors.root && (
-            <div role="alert" className="rounded-lg px-3 py-2.5 bg-[#fef2f2] border border-[#fecaca] text-[12px] text-[#dc2626] flex items-start gap-2">
+            <div role="alert" className="rounded-lg px-3 py-2.5 text-[12px] flex items-start gap-2" style={{ background: "var(--danger-bg)", border: "1px solid var(--danger)", color: "var(--danger)" }}>
               <span aria-hidden="true" className="mt-0.5">⚠️</span>
               <div className="min-w-0">
                 <p className="font-medium">{errors.root.message}</p>
                 {process.env.NODE_ENV === "development" && (
-                  <p className="text-[11px] mt-0.5 text-[#ef4444]">
+                  <p className="text-[11px] mt-0.5" style={{ color: "var(--danger)" }}>
                     Tip: click &quot;Show dev credentials&quot; below to auto-fill a working account.
                   </p>
                 )}
@@ -315,11 +309,10 @@ export function LoginPage() {
             </div>
           )}
 
-          {/* Username / email — matches the passcode field below to stay
-              light-themed regardless of the user's stored theme preference. */}
+          {/* Username / email — token-themed so it follows the active theme. */}
           <div>
-            <label htmlFor="email" className="text-[11px] font-medium text-[#302d29] block mb-1.5">
-              Email or username <span className="text-[#dc2626]" aria-hidden="true">*</span>
+            <label htmlFor="email" className="text-[11px] font-medium block mb-1.5" style={{ color: "var(--text-primary)" }}>
+              Email or username <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>
               <span className="sr-only">(required)</span>
             </label>
             {/* suppressHydrationWarning on form fields is intentional:
@@ -327,7 +320,7 @@ export function LoginPage() {
                 LastPass, 1Password, etc.) inject fdprocessedid attributes
                 post-SSR, causing a benign hydration mismatch. Do not remove. */}
             <div className="relative">
-              <Mail className="w-3.5 h-3.5 text-[#a39e96] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+              <Mail className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
               <input
                 id="email"
                 type="text"
@@ -339,24 +332,24 @@ export function LoginPage() {
                 aria-describedby={errors.email ? "email-error" : undefined}
                 suppressHydrationWarning
                 {...register("email")}
-                className="w-full bg-white border border-[#e8e4dd] rounded-lg pl-9.5 pr-3 py-2.5 text-[13px] text-[#302d29] placeholder:text-[#a39e96] outline-none focus:border-[#8b6914] focus:ring-[3px] focus:ring-[rgba(139,105,20,0.12)] transition-all duration-150"
+                className="w-full rounded-lg pl-9.5 pr-3 py-2.5 text-[13px] outline-none transition-all duration-150 bg-(--bg-surface) border border-(--bg-border) text-(--text-primary) placeholder:text-(--text-muted) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
               />
             </div>
             {errors.email && (
-              <p id="email-error" role="alert" className="text-[11px] text-[#dc2626] mt-1">{errors.email.message}</p>
+              <p id="email-error" role="alert" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.email.message}</p>
             )}
           </div>
 
           {/* Password */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
-              <label htmlFor="password" className="text-[11px] font-medium text-[#302d29]">
-                Passcode <span className="text-[#dc2626]" aria-hidden="true">*</span>
+              <label htmlFor="password" className="text-[11px] font-medium" style={{ color: "var(--text-primary)" }}>
+                Passcode <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>
               </label>
-              <span className="text-[11px] text-[#8b6914] cursor-pointer underline">Forgot passcode?</span>
+              <span className="text-[11px] cursor-pointer underline" style={{ color: "var(--brand)" }}>Forgot passcode?</span>
             </div>
             <div className="relative">
-              <Lock className="w-3.5 h-3.5 text-[#a39e96] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+              <Lock className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
               <input
                 id="password"
                 type={showPassword ? "text" : "password"}
@@ -368,7 +361,7 @@ export function LoginPage() {
                 aria-describedby={errors.password ? "password-error" : undefined}
                 suppressHydrationWarning
                 {...register("password")}
-                className="w-full bg-white border border-[#e8e4dd] rounded-lg pl-9.5 pr-9 py-2.5 text-[13px] text-[#302d29] placeholder:text-[#a39e96] outline-none focus:border-[#8b6914] focus:ring-[3px] focus:ring-[rgba(139,105,20,0.12)] transition-all duration-150"
+                className="w-full rounded-lg pl-9.5 pr-9 py-2.5 text-[13px] outline-none transition-all duration-150 bg-(--bg-surface) border border-(--bg-border) text-(--text-primary) placeholder:text-(--text-muted) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
               />
               <button
                 type="button"
@@ -376,7 +369,7 @@ export function LoginPage() {
                 aria-label={showPassword ? "Hide passcode" : "Show passcode"}
                 aria-pressed={showPassword}
                 tabIndex={-1}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex items-center justify-center min-w-[24px] min-h-[24px] rounded hover:bg-[#f5f1ea] text-[#a39e96] hover:text-[#302d29] transition-colors"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex items-center justify-center min-w-[24px] min-h-[24px] rounded transition-colors hover:bg-(--bg-hover) text-(--text-muted) hover:text-(--text-primary)"
               >
                 {showPassword
                   ? <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
@@ -384,7 +377,7 @@ export function LoginPage() {
               </button>
             </div>
             {errors.password && (
-              <p id="password-error" role="alert" className="text-[11px] text-[#dc2626] mt-1">{errors.password.message}</p>
+              <p id="password-error" role="alert" className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{errors.password.message}</p>
             )}
           </div>
 
@@ -392,32 +385,18 @@ export function LoginPage() {
             {isSubmitting ? "Signing in..." : "Sign in"}
           </Button>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 h-px bg-[#e8e4dd]" />
-            <span className="text-[11px] text-[#a39e96]">or continue with</span>
-            <div className="flex-1 h-px bg-[#e8e4dd]" />
-          </div>
-
-          {/* SSO — light cream tint so it reads as a secondary action
-              while staying distinct from the white email/passcode fields. */}
-          <button
-            type="button"
-            suppressHydrationWarning
-            className="w-full inline-flex items-center justify-center gap-2 bg-[#f7efe2] border border-[#e8d9b8] rounded-lg py-2.5 text-[13px] font-semibold text-[#302d29] cursor-pointer outline-none transition-all duration-150 hover:bg-[#f0e3c8] hover:border-[#8b6914] focus:border-[#8b6914] focus:ring-[3px] focus:ring-[rgba(139,105,20,0.12)]"
-          >
-            <Building2 className="w-4 h-4 text-[#8b6914]" aria-hidden="true" />
-            Single Sign-On (SSO)
-          </button>
+          {/* SSO / SAML is a Phase-3 feature (not yet implemented). The button +
+              "or continue with" divider were removed so logged-out users aren't
+              shown a non-working auth option; re-add here when SSO is wired. */}
         </form>
 
         {/* Footer */}
-        <div className="flex items-center justify-between mt-8 pt-5 border-t border-[#e8e4dd]" style={{ display: loadingTenant ? "none" : undefined }}>
-          <div className="flex items-center gap-1.5 text-[11px] text-[#a39e96]">
+        <div className="flex items-center justify-between mt-8 pt-5 border-t border-(--bg-border)" style={{ display: loadingTenant ? "none" : undefined }}>
+          <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
             <Shield className="w-3 h-3" aria-hidden="true" />
             21 CFR Part 11 compliant
           </div>
-          <span className="text-[11px] text-[#7a736a]">Privacy · Terms</span>
+          <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Privacy · Terms</span>
         </div>
 
         {/* Dev credentials toggle — gated to non-production builds so production
@@ -430,14 +409,7 @@ export function LoginPage() {
             type="button"
             onClick={() => setShowCreds((v) => !v)}
             suppressHydrationWarning
-            className={clsx(
-              "w-full flex items-center justify-center gap-2",
-              "py-2 rounded-lg text-[11px] font-medium",
-              "border transition-all duration-150 bg-transparent",
-              isDark
-                ? "border-[#3d362c] text-[#9c8e80] hover:text-[#d5bfb2] hover:border-[#4a4238]"
-                : "border-[#e8e4dd] text-[#7a736a] hover:text-[#302d29]",
-            )}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[11px] font-medium border transition-all duration-150 bg-transparent border-(--bg-border) text-(--text-secondary) hover:text-(--text-primary) hover:border-(--brand)"
           >
             <ChevronDown
               className={clsx("w-3.5 h-3.5 transition-transform", showCreds && "rotate-180")}
@@ -447,40 +419,32 @@ export function LoginPage() {
           </button>
 
           {showCreds && (
-            <div
-              className={clsx(
-                "mt-2 rounded-xl overflow-hidden border",
-                isDark ? "border-[#3d362c] bg-[#242019]" : "border-[#e8e4dd] bg-white",
-              )}
-            >
+            <div className="mt-2 rounded-xl overflow-hidden border border-(--bg-border) bg-(--bg-surface)">
               <table className="w-full border-collapse text-[11px]">
                 <thead>
-                  <tr className={isDark ? "border-b border-[#3d362c]" : "border-b border-[#e8e4dd]"}>
-                    <th className="px-2.5 py-2 text-left text-[#a39e96] font-semibold">Role</th>
-                    <th className="px-2.5 py-2 text-left text-[#a39e96] font-semibold">Email</th>
-                    <th className="px-2.5 py-2 text-left text-[#a39e96] font-semibold">Password</th>
+                  <tr className="border-b border-(--bg-border)">
+                    <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Role</th>
+                    <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Email</th>
+                    <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Password</th>
                   </tr>
                 </thead>
                 <tbody>
                   {CRED_ROWS.map((group) => (
                     <Fragment key={group.org}>
-                      <tr><td colSpan={3} className={clsx("px-2.5 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider", isDark ? "text-[#c9a84c]" : "text-[#8b6914]")}>{group.org}</td></tr>
+                      <tr><td colSpan={3} className="px-2.5 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-(--brand)">{group.org}</td></tr>
                       {group.rows.map(([role, email, pass, colour], i) => (
                         <tr key={i} onClick={() => { setValue("email", email); setValue("password", pass); setShowCreds(false); }}
-                          className={clsx("cursor-pointer transition-colors", isDark ? "hover:bg-[#2e2820]" : "hover:bg-[#faf9f7]", i < group.rows.length - 1 && (isDark ? "border-b border-[#3d362c]" : "border-b border-[#f5f3ef]"))}>
+                          className={clsx("cursor-pointer transition-colors hover:bg-(--bg-elevated)", i < group.rows.length - 1 && "border-b border-(--bg-border)")}>
                           <td className="px-2.5 py-2"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: colour + "1a", color: colour }}>{role}</span></td>
-                          <td className={clsx("px-2.5 py-2 font-mono", isDark ? "text-[#9c8e80]" : "text-[#7a736a]")}>{email}</td>
-                          <td className={clsx("px-2.5 py-2 font-mono", isDark ? "text-[#9c8e80]" : "text-[#7a736a]")}>{pass}</td>
+                          <td className="px-2.5 py-2 font-mono text-(--text-secondary)">{email}</td>
+                          <td className="px-2.5 py-2 font-mono text-(--text-secondary)">{pass}</td>
                         </tr>
                       ))}
                     </Fragment>
                   ))}
                 </tbody>
               </table>
-              <div className={clsx(
-                "px-2.5 py-1.5 text-[10px] text-[#a39e96]",
-                isDark ? "border-t border-[#3d362c]" : "border-t border-[#f5f3ef]",
-              )}>
+              <div className="px-2.5 py-1.5 text-[10px] border-t border-(--bg-border) text-(--text-muted)">
                 Click any row to auto-fill
               </div>
             </div>
