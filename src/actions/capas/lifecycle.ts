@@ -278,7 +278,9 @@ export async function createCAPA(
           if (linkedFindingId) {
             await tx.finding.update({
               where: { id: linkedFindingId, tenantId: session.user.tenantId },
-              data: { status: "in_progress", linkedCAPAId: created.id },
+              // Canonical Title Case to match FindingStatus + the close path
+              // (findings.ts) — was "in_progress" (snake), which rendered raw.
+              data: { status: "In Progress", linkedCAPAId: created.id },
             });
           }
           if (linkedDeviationId) {

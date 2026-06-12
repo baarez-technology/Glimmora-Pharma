@@ -27,7 +27,7 @@ interface EvidenceRow {
   severity: FindingSeverity;
   findingStatus: string;
   owner: string;
-  linkedCapa?: { id: string; status: string } | undefined;
+  linkedCapa?: { id: string; reference?: string | null; status: string } | undefined;
 }
 
 interface EvidenceArea {
@@ -90,7 +90,7 @@ export function GapEvidenceTab({
         rows.push([
           a.area, row.reference, row.docType, row.name, row.severity,
           row.evidenceLink || "", row.status, ownerName(row.owner),
-          row.linkedCapa ? row.linkedCapa.id : "",
+          row.linkedCapa ? (row.linkedCapa.reference ?? row.linkedCapa.id) : "",
         ]);
       }
     }
