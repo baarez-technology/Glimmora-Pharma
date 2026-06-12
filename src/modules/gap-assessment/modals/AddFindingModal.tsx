@@ -5,7 +5,7 @@ import { z } from "zod";
 import { Plus, Upload, X } from "lucide-react";
 import type { FindingSeverity } from "@/store/findings.slice";
 import type { DocType } from "@/store/evidence.slice";
-import type { UserConfig, SiteConfig } from "@/store/settings.slice";
+import type { SiteConfig } from "@/store/settings.slice";
 import type { GxPSystem } from "@/types/csv-csa";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -28,7 +28,6 @@ const findingSchema = z.object({
   purpose: z.string().optional(),
   framework: z.string().min(1, "Framework required"),
   severity: z.enum(["Critical", "High", "Low"]),
-  owner: z.string().min(1, "Owner required"),
   targetDate: z.string().min(1, "Target date required"),
   evidenceLink: z.string().optional(),
   rootCause: z.string().optional(),
@@ -53,13 +52,15 @@ interface AddFindingModalProps {
   onClose: () => void;
   onSave: (data: AddFindingPayload) => void;
   sites: SiteConfig[];
-  users: UserConfig[];
   systems: GxPSystem[];
   activeFrameworks: string[];
   lockedSiteId?: string | null;
+  /** Creator identity — owner is auto-assigned to the current user (read-only). */
+  currentUserName: string;
+  currentUserRole: string;
 }
 
-export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems, activeFrameworks, lockedSiteId }: AddFindingModalProps) {
+export function AddFindingModal({ isOpen, onClose, onSave, sites, systems, activeFrameworks, lockedSiteId, currentUserName, currentUserRole }: AddFindingModalProps) {
   const { register: reg, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = useForm<FindingForm>({
     resolver: zodResolver(findingSchema),
     defaultValues: { severity: "High", siteId: lockedSiteId ?? "", raiseCapaImmediately: false },
@@ -131,18 +132,27 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
               {errors.siteId && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.siteId.message}</p>}
             </div>
           )}
-          <div>
+          {/* Area + linked CSV system — the system link (shown for CSV/IT &
+              QC Lab) sits beside Area for context. */}
+          <div className={(watchArea === "CSV/IT" || watchArea === "QC Lab") ? "" : "col-span-2"}>
             <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Area <span className="text-(--danger)">*</span></p>
             <Dropdown placeholder="Select area..." value={watch("area") ?? ""} onChange={(v) => setValue("area", v, { shouldValidate: true })} width="w-full"
               options={AREAS.map((a) => ({ value: a, label: a }))} />
             {errors.area && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.area.message}</p>}
           </div>
-          <div>
-            <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Framework <span className="text-(--danger)">*</span></p>
-            <Dropdown placeholder="Select framework..." value={watch("framework") ?? ""} onChange={(v) => setValue("framework", v, { shouldValidate: true })} width="w-full"
-              options={activeFrameworks.map((k) => ({ value: k, label: FRAMEWORK_LABELS[k] ?? k }))} />
-            {errors.framework && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.framework.message}</p>}
-          </div>
+          {(watchArea === "CSV/IT" || watchArea === "QC Lab") && (
+            <div>
+              <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Linked system <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></p>
+              <Dropdown
+                placeholder="Select system..."
+                value={watch("linkedSystemId") ?? ""}
+                onChange={(v) => { setValue("linkedSystemId", v); setValue("linkedSystemName", systems.find((s) => s.id === v)?.name ?? ""); }}
+                width="w-full"
+                options={[{ value: "", label: "— None" }, ...systems.filter((s) => !watchSiteId || s.siteId === watchSiteId).map((s) => ({ value: s.id, label: s.name }))]}
+              />
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>Links this finding to the system&apos;s DI &amp; Audit Trail tab.</p>
+            </div>
+          )}
           <div className="col-span-2">
             <label htmlFor="f-req" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Requirement <span className="text-(--danger)">*</span></label>
             <input id="f-req" type="text" className="input text-[12px]" placeholder="e.g. Annex 11 §11 — Audit trail completeness" {...reg("requirement")} />
@@ -152,7 +162,14 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
             <label htmlFor="f-purpose" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Purpose <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></label>
             <textarea id="f-purpose" rows={2} className="input text-[12px] resize-none" placeholder="Why this gap matters / what closing it achieves" {...reg("purpose")} />
           </div>
-          <div className="col-span-2">
+          {/* Framework + Severity — classification fields grouped together. */}
+          <div>
+            <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Framework <span className="text-(--danger)">*</span></p>
+            <Dropdown placeholder="Select framework..." value={watch("framework") ?? ""} onChange={(v) => setValue("framework", v, { shouldValidate: true })} width="w-full"
+              options={activeFrameworks.map((k) => ({ value: k, label: FRAMEWORK_LABELS[k] ?? k }))} />
+            {errors.framework && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.framework.message}</p>}
+          </div>
+          <div>
             <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Severity <span className="text-(--danger)">*</span></p>
             <Dropdown value={watch("severity") ?? "High"} onChange={(v) => setValue("severity", v as FindingSeverity)} width="w-full"
               options={[
@@ -161,11 +178,13 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
                 { value: "Low", label: "Low", badge: "L", badgeVariant: "green" as const },
               ]} />
           </div>
+          {/* Target date + Owner (read-only — auto-assigned to the creator). */}
           <div>
-            <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Owner <span className="text-(--danger)">*</span></p>
-            <Dropdown placeholder="Select owner..." value={watch("owner") ?? ""} onChange={(v) => setValue("owner", v, { shouldValidate: true })} width="w-full"
-              options={users.filter((u) => u.status === "Active" && u.role !== "super_admin" && u.role !== "viewer").map((u) => ({ value: u.id, label: `${u.name} — ${roleLabel(u.role)}` }))} />
-            {errors.owner && <p role="alert" className="text-[11px] text-(--danger) mt-1">{errors.owner.message}</p>}
+            <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Owner</p>
+            <div className="text-[12px] rounded-lg px-3 py-2.5" style={{ background: "var(--bg-elevated)", border: "1px solid var(--bg-border)", color: "var(--text-secondary)" }}>
+              {currentUserName || "You"}{currentUserRole ? ` (${roleLabel(currentUserRole)})` : ""}
+            </div>
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>Auto-assigned to you as the creator.</p>
           </div>
           <div>
             <DatePicker id="f-target" label="Target date" required
@@ -212,30 +231,6 @@ export function AddFindingModal({ isOpen, onClose, onSave, sites, users, systems
               )}
             </div>
           </div>
-          {/* Linked system — shown only for CSV/IT or QC Lab areas where systems are relevant */}
-          {(watch("area") === "CSV/IT" || watch("area") === "QC Lab") && (
-            <div className="col-span-2">
-              <p className="text-[11px] font-medium text-(--text-secondary) mb-1.5">Linked system <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></p>
-              <Dropdown
-                placeholder="Select system..."
-                value={watch("linkedSystemId") ?? ""}
-                onChange={(v) => {
-                  setValue("linkedSystemId", v);
-                  setValue("linkedSystemName", systems.find((s) => s.id === v)?.name ?? "");
-                }}
-                width="w-full"
-                options={[
-                  { value: "", label: "\u2014 None" },
-                  ...systems
-                    .filter((s) => !watchSiteId || s.siteId === watchSiteId)
-                    .map((s) => ({ value: s.id, label: s.name })),
-                ]}
-              />
-              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
-                Linking to a system makes the finding appear in that system&apos;s DI &amp; Audit Trail tab.
-              </p>
-            </div>
-          )}
           <div className="col-span-2">
             <label htmlFor="f-rootcause" className="text-[11px] font-medium text-(--text-secondary) block mb-1.5">Root Cause Analysis <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></label>
             <textarea id="f-rootcause" rows={3} className="input text-[12px] resize-none" placeholder="What is the likely root cause of this gap?&#10;Can be updated later in CAPA Tracker." {...reg("rootCause")} />

@@ -39,7 +39,9 @@ const CreateFindingSchema = z.object({
   area: z.string().min(1, "Area is required"),
   framework: z.string().optional(),
   severity: z.enum(["Critical", "High", "Low"]),
-  owner: z.string().min(1, "Owner is required"),
+  // Owner is server-stamped to the creator (session) — accepted but ignored if
+  // sent, so it can't be spoofed from the client. Optional for that reason.
+  owner: z.string().optional(),
   targetDate: z.string().min(1, "Target date is required"),
   siteId: z.string().optional(),
   evidenceLink: z.string().optional(),
@@ -141,6 +143,9 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
             ...parsed.data,
             reference,
             tenantId: session.user.tenantId,
+            // Owner = the creator, stamped from the session (never the client
+            // payload) so it can't be spoofed. Overrides any sent `owner`.
+            owner: session.user.id,
             // RUNG 3H — canonical Title Case (matches the schema default, the
             // updateFinding enum, the FindingStatus type, and all read sites).
             status: "Open",

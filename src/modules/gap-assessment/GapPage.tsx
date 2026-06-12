@@ -15,7 +15,6 @@ import { useRole } from "@/hooks/useRole";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useTenantData } from "@/hooks/useTenantData";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
-import { useComplianceUsers } from "@/hooks/useComplianceUsers";
 import {
   setFindings,
   type Finding,
@@ -166,12 +165,12 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
 
   const { findings, capas, systems } = useTenantData();
   const { org, sites, users } = useTenantConfig();
-  const complianceUsers = useComplianceUsers();
   const timezone = org.timezone;
   const dateFormat = org.dateFormat;
   const frameworks = useAppSelector((s) => s.settings.frameworks);
   const agiMode = useAppSelector((s) => s.settings.agi.mode);
   const selectedSiteId = useAppSelector((s) => s.auth.selectedSiteId);
+  const authUser = useAppSelector((s) => s.auth.user);
   const agiCapa = useAppSelector((s) => s.settings.agi.agents.capa);
 
   const activeFrameworks = useMemo(
@@ -356,7 +355,7 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
       area: rest.area,
       framework: rest.framework,
       severity: rest.severity,
-      owner: rest.owner,
+      // owner is server-stamped to the creator (session); not sent from the form.
       targetDate: rest.targetDate,
       siteId: rest.siteId || undefined,
       evidenceLink: evidenceReference || undefined,
@@ -461,6 +460,7 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
           renderFilters={renderFilters}
           onAddOpen={() => setAddOpen(true)} onRaiseCapa={handleRaiseCapa}
           onNavigateCapa={() => router.push("/capa")}
+          onManageEvidence={(fid, link) => { setEvidenceFindingId(fid); setEvidenceCurrentLink(link); setEvidenceModalOpen(true); }}
         />
       )}
 
@@ -478,8 +478,9 @@ export function GapPage({ findings: serverFindings, evidenceDocFindingIds }: Gap
       {/* Modals */}
       <AddFindingModal
         isOpen={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddFinding}
-        sites={sites} users={complianceUsers} systems={systems} activeFrameworks={activeFrameworks as string[]}
+        sites={sites} systems={systems} activeFrameworks={activeFrameworks as string[]}
         lockedSiteId={selectedSiteId}
+        currentUserName={authUser?.name ?? ""} currentUserRole={authUser?.role ?? ""}
       />
 
       <EvidenceLinkModal

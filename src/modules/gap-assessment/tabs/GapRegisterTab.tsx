@@ -2,7 +2,7 @@ import { useState, useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import {
-  ClipboardList, Plus, Search, ChevronRight, Link2, Bot, Pencil, Save, History,
+  ClipboardList, Plus, Search, ChevronRight, Link2, Bot, Pencil, Save, History, Paperclip,
 } from "lucide-react";
 import clsx from "clsx";
 import dayjs from "@/lib/dayjs";
@@ -18,7 +18,6 @@ import { STATUS_LABEL as CAPA_STATUS_LABEL } from "@/types/capa";
 import type { UserConfig } from "@/store/settings.slice";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
 import { Popup } from "@/components/ui/Popup";
 import { getSeverityVariant, normalizeSeverityForDisplay } from "@/lib/badgeVariants";
@@ -37,9 +36,23 @@ const FRAMEWORK_LABELS: Record<string, string> = {
 function severityBadge(s: FindingSeverity) {
   return <Badge variant={getSeverityVariant(s, "generic")}>{normalizeSeverityForDisplay(s, "generic") ?? s}</Badge>;
 }
+// Defensive: normalize casing/underscores so the badge never prints a raw
+// value (e.g. legacy "in_progress") — mirrors capaStatusBadge's LABEL ?? s.
+const FINDING_STATUS_LABEL: Record<string, string> = {
+  open: "Open",
+  "in progress": "In Progress",
+  closed: "Closed",
+};
+const FINDING_STATUS_CLASS: Record<string, string> = {
+  open: "badge badge-blue",
+  "in progress": "badge badge-amber",
+  closed: "badge badge-green",
+};
 function statusBadge(s: FindingStatus) {
-  const m: Record<string, string> = { Open: "badge badge-blue", "In Progress": "badge badge-amber", Closed: "badge badge-green" };
-  return <span className={m[s]}>{s}</span>;
+  const key = String(s).toLowerCase().replace(/_/g, " ");
+  const label = FINDING_STATUS_LABEL[key] ?? s;
+  const cls = FINDING_STATUS_CLASS[key] ?? "badge badge-gray";
+  return <span className={cls}>{label}</span>;
 }
 function capaStatusBadge(s: string) {
   const m: Record<string, string> = { open: "badge badge-blue", in_progress: "badge badge-amber", pending_qa_review: "badge badge-purple", closed: "badge badge-green", rejected: "badge badge-red" };
@@ -57,6 +70,7 @@ interface EditForm {
   owner: string;
   targetDate: string;
   evidenceLink: string;
+  rootCause: string;
 }
 
 /* ── Props ── */
@@ -77,13 +91,15 @@ interface GapRegisterTabProps {
   onAddOpen: () => void;
   onRaiseCapa: (finding: Finding) => void;
   onNavigateCapa: (capaId: string) => void;
+  /** Opens the shared evidence modal (link + file upload + current doc). */
+  onManageEvidence: (findingId: string, currentLink: string) => void;
 }
 
 export function GapRegisterTab({
   filteredFindings, findingsTotal, selectedFinding, onSelectFinding,
   isViewOnly, users, timezone, dateFormat, capas,
   agiMode, agiCapa, isAnyFilterActive, renderFilters,
-  onAddOpen, onRaiseCapa, onNavigateCapa,
+  onAddOpen, onRaiseCapa, onNavigateCapa, onManageEvidence,
 }: GapRegisterTabProps) {
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
   const router = useRouter();
@@ -122,6 +138,7 @@ export function GapRegisterTab({
       owner: "",
       targetDate: "",
       evidenceLink: "",
+      rootCause: "",
     },
   });
 
@@ -134,6 +151,7 @@ export function GapRegisterTab({
         owner: selectedFinding.owner,
         targetDate: selectedFinding.targetDate ? dayjs.utc(selectedFinding.targetDate).format("YYYY-MM-DD") : "",
         evidenceLink: selectedFinding.evidenceLink ?? "",
+        rootCause: selectedFinding.rootCause ?? "",
       });
     }
     // Reset edit form when the selected finding changes.
@@ -208,7 +226,8 @@ export function GapRegisterTab({
       (data.purpose ?? "") === (selectedFinding.purpose ?? "") &&
       data.owner === selectedFinding.owner &&
       targetDateISO === selectedFinding.targetDate &&
-      data.evidenceLink === (selectedFinding.evidenceLink ?? "");
+      data.evidenceLink === (selectedFinding.evidenceLink ?? "") &&
+      (data.rootCause ?? "") === (selectedFinding.rootCause ?? "");
 
     if (noChange) {
       setIsEditing(false);
@@ -221,6 +240,7 @@ export function GapRegisterTab({
       owner: data.owner,
       targetDate: targetDateISO,
       evidenceLink: data.evidenceLink,
+      rootCause: data.rootCause,
       reason: editReason,
     });
 
@@ -290,7 +310,7 @@ export function GapRegisterTab({
                 <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
                   className="w-3.5 h-3.5 cursor-pointer accent-(--brand)" aria-label="Select all findings" />
               </th>
-              <th scope="col">ID</th>
+              <th scope="col" className="whitespace-nowrap">ID</th>
               {showSiteColumn && <th scope="col">Site</th>}
               <th scope="col">Area</th><th scope="col">Requirement</th><th scope="col">Purpose</th>
               <th scope="col">Framework</th><th scope="col">Severity</th><th scope="col">Status</th>
@@ -309,8 +329,8 @@ export function GapRegisterTab({
                     <input type="checkbox" checked={selectedIds.has(f.id)} onChange={() => toggleSelect(f.id)}
                       className="w-3.5 h-3.5 cursor-pointer accent-(--brand)" aria-label={`Select ${findingRef(f)}`} />
                   </td>
-                  <th scope="row">
-                    <div className="font-mono text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>{findingRef(f)}</div>
+                  <th scope="row" className="whitespace-nowrap">
+                    <div className="font-mono text-[11px] font-semibold whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{findingRef(f)}</div>
                   </th>
                   {showSiteColumn && <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{siteName(f.siteId)}</td>}
                   <td className="text-[12px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{f.area}</td>
@@ -325,10 +345,10 @@ export function GapRegisterTab({
                         type="button"
                         onClick={(e) => { e.stopPropagation(); onNavigateCapa(linkedCapa.id); }}
                         className="flex items-center gap-1.5 bg-transparent border-none p-0 cursor-pointer hover:underline"
-                        aria-label={`Open ${linkedCapa.id}`}
+                        aria-label={`Open ${linkedCapa.reference ?? linkedCapa.id}`}
                       >
                         <Link2 className="w-3 h-3 text-[#0ea5e9]" aria-hidden="true" />
-                        <span className="font-mono text-[11px] font-semibold text-[#0ea5e9]">{linkedCapa.id}</span>
+                        <span className="font-mono text-[11px] font-semibold text-[#0ea5e9]">{linkedCapa.reference ?? linkedCapa.id}</span>
                         {capaStatusBadge(linkedCapa.status)}
                       </button>
                     ) : (
@@ -355,26 +375,25 @@ export function GapRegisterTab({
         open={!!selectedFinding}
         onClose={() => { setIsEditing(false); onSelectFinding(null); }}
         title={selectedFinding ? findingRef(selectedFinding) : "Finding Detail"}
-        footer={selectedFinding ? (
+        footer={selectedFinding && isEditing ? (
           <div className="flex justify-end gap-2">
-            {isEditing ? (
-              <>
-                <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); setEditReason(""); setSaveError(""); form.reset(); }}>Cancel</Button>
-                <Button variant="primary" size="sm" icon={Save} onClick={form.handleSubmit(onSave)}>Save</Button>
-              </>
-            ) : (
-              <>
-                {canEdit && <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setIsEditing(true)}>Edit</Button>}
-                <Button variant="primary" size="sm" onClick={() => { setIsEditing(false); onSelectFinding(null); }}>Close</Button>
-              </>
-            )}
+            {/* Edit-mode actions only; the modal's ✕ handles closing (no
+                redundant bottom Close). Edit lives in the header. */}
+            <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); setEditReason(""); setSaveError(""); form.reset(); }}>Cancel</Button>
+            <Button variant="primary" size="sm" icon={Save} onClick={form.handleSubmit(onSave)}>Save</Button>
           </div>
         ) : undefined}
       >
         {selectedFinding && (
           <div className="space-y-4">
-            {/* Header: severity + status badges (actions live in the sticky footer). */}
-            <div className="flex gap-2 flex-wrap">{severityBadge(selectedFinding.severity)}{statusBadge(selectedFinding.status)}</div>
+            {/* Header: severity + status badges, with the Edit action on the
+                right (header action; ✕ closes; Save/Cancel in footer on edit). */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex gap-2 flex-wrap">{severityBadge(selectedFinding.severity)}{statusBadge(selectedFinding.status)}</div>
+              {canEdit && !isEditing && (
+                <Button variant="secondary" size="sm" icon={Pencil} onClick={() => setIsEditing(true)}>Edit</Button>
+              )}
+            </div>
 
             {/* ── Requirement ── */}
             {isEditing ? (
@@ -444,24 +463,13 @@ export function GapRegisterTab({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <h3 className={LABEL}>Owner</h3>
-                {isEditing ? (
-                  <Controller
-                    name="owner"
-                    control={form.control}
-                    rules={{ required: "Owner required" }}
-                    render={({ field }) => (
-                      <Dropdown
-                        value={field.value}
-                        onChange={field.onChange}
-                        options={users.filter((u) => u.status === "Active" && u.role !== "super_admin" && u.role !== "viewer").map((u) => ({ value: u.id, label: `${u.name} — ${roleLabel(u.role)}` }))}
-                        placeholder="Select owner..."
-                        width="w-full"
-                      />
-                    )}
-                  />
-                ) : (
-                  <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{ownerName(selectedFinding.owner)}</p>
-                )}
+                {/* Owner is auto-assigned to the creator and read-only (both
+                    view and edit) — no longer a selectable field. */}
+                <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                  {ownerName(selectedFinding.owner)}
+                  {(() => { const u = users.find((x) => x.id === selectedFinding.owner); return u ? ` (${roleLabel(u.role)})` : ""; })()}
+                </p>
+                {isEditing && <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>Set to the creator — not editable.</p>}
               </div>
 
               {/* ── Target date ── */}
@@ -500,11 +508,36 @@ export function GapRegisterTab({
                   className="w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-all duration-150 bg-(--bg-elevated) border border-(--bg-border) text-(--text-primary) placeholder:text-(--text-muted) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
                   placeholder="Document reference or URL"
                 />
+                {/* Reuse the shared evidence modal (upload a file + see the
+                    current document) — same flow as the register table. */}
+                <Button variant="secondary" size="sm" icon={Paperclip} className="mt-2"
+                  onClick={() => onManageEvidence(selectedFinding.id, selectedFinding.evidenceLink ?? "")}>
+                  Upload / manage evidence document
+                </Button>
               </div>
             ) : selectedFinding.evidenceLink ? (
               <div>
                 <h3 className={LABEL}>Evidence</h3>
                 <span className="text-[12px] text-[#0ea5e9]">{selectedFinding.evidenceLink}</span>
+              </div>
+            ) : null}
+
+            {/* ── Root cause analysis (free-text); prefills from stored value ── */}
+            {isEditing ? (
+              <div>
+                <label className={LABEL} htmlFor="edit-rootcause">Root cause analysis <span className="text-[10px] font-normal italic">(optional)</span></label>
+                <textarea
+                  id="edit-rootcause"
+                  rows={3}
+                  {...form.register("rootCause")}
+                  className="w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-all duration-150 resize-none bg-(--bg-elevated) border border-(--bg-border) text-(--text-primary) placeholder:text-(--text-muted) focus:border-(--brand) focus:ring-[3px] focus:ring-(--brand-muted)"
+                  placeholder="What is the likely root cause of this gap?"
+                />
+              </div>
+            ) : selectedFinding.rootCause ? (
+              <div>
+                <h3 className={LABEL}>Root cause analysis</h3>
+                <p className="text-[12px] whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>{selectedFinding.rootCause}</p>
               </div>
             ) : null}
 
@@ -590,7 +623,7 @@ export function GapRegisterTab({
                       <div className="flex items-start gap-2">
                         <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: "#f59e0b" }} />
                         <div>
-                          <p className="font-medium" style={{ color: "var(--text-primary)" }}>CAPA raised &mdash; {linkedCapa.id}</p>
+                          <p className="font-medium" style={{ color: "var(--text-primary)" }}>CAPA raised &mdash; {linkedCapa.reference ?? linkedCapa.id}</p>
                           <p style={{ color: "var(--text-muted)" }}>
                             {ownerName(linkedCapa.owner)} &mdash; {linkedCapa.createdAt ? dayjs.utc(linkedCapa.createdAt).tz(timezone).format("DD/MM/YYYY hh:mm A") : "\u2014"}
                           </p>
