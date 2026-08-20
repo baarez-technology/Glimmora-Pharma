@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveCreateSiteId, resolveUserFk, requireGxPAuthor, COMPLIANCE_AUTHOR_ROLES, ADMIN_DELETE_ROLES } from "@/lib/auth";
 import { CAPA_DI_GATE_ROLES, CAPA_REJECT_ROLES, CAPA_REOPEN_ROLES, CAPA_CREATE_ROLES, DEVIATION_QA_ROLES, isAssignedToTask, canExecuteCAPA } from "@/lib/permissions/roleSets";
+import { computeAuditDiff, auditDiffPayload, normalizeDate, type AuditDiffField } from "@/lib/auditDiff";
 import { syncCorrectiveActions } from "./action-items";
 import { getCAPAReadiness } from "@/lib/capa-readiness";
 import { tenantSodOverrideOn } from "./sod-override";
@@ -82,6 +83,28 @@ const CreateCAPASchema = z.object({
   // an action item. Destructured out of `...rest` below — it is not a CAPA column.
   carryAssignment: z.boolean().optional(),
 });
+
+// Fields diffed into the CAPA_UPDATED audit row (§11.10(e)). `status` is absent
+// because updateCAPA does not accept it — transitions go through the guarded
+// actions, each of which writes its own event. `correctiveActions` is absent
+// because direct writes to it are refused (the structured CAPAActionItem rows
+// are the only path, and they carry their own audit events). `owner` IS diffed
+// here for completeness, and additionally gets its own CAPA_REASSIGNED row.
+const CAPA_DIFF_FIELDS: readonly AuditDiffField[] = [
+  { key: "title", label: "Title" },
+  { key: "description", label: "Description" },
+  { key: "source", label: "Source" },
+  { key: "risk", label: "Risk" },
+  { key: "owner", label: "Owner" },
+  { key: "dueDate", label: "Due date", normalize: normalizeDate },
+  { key: "rca", label: "Root cause analysis" },
+  { key: "rcaMethod", label: "RCA method" },
+  { key: "rcaDetail", label: "RCA detail" },
+  { key: "diGate", label: "Data-integrity gate" },
+  { key: "diGateStatus", label: "DI gate status" },
+  { key: "diGateReviewedBy", label: "DI gate reviewed by" },
+  { key: "diGateNotes", label: "DI gate notes" },
+];
 
 const UpdateCAPASchema = z.object({
   // Phase A — editable short title (written via ...parsed.data spread).
@@ -1133,6 +1156,20 @@ export async function updateCAPA(
         // Phase 3 — source lock: a gap-raised CAPA's source IS that gap.
         findingId: true,
         source: true,
+        // §11.10(e) pre-image — the remaining editable fields, read so the
+        // CAPA_UPDATED audit row can carry the previously recorded value.
+        // Selected (not a bare findFirst) to keep the existing narrow-read
+        // intent: this adds the diffable columns and nothing else.
+        title: true,
+        description: true,
+        risk: true,
+        owner: true,
+        dueDate: true,
+        rcaDetail: true,
+        diGate: true,
+        diGateStatus: true,
+        diGateReviewedBy: true,
+        diGateNotes: true,
       },
     });
     if (!before) return { success: false, error: "CAPA not found" };
@@ -1294,6 +1331,15 @@ export async function updateCAPA(
     // in submitForReview / rejectCAPA / signAndCloseCAPA; the unlock-on-reopen
     // happens in reopenCAPA.
 
+    // §11.10(e) — the previously recorded value rides on the audit row. Computed
+    // from the pre-image read above against the incoming payload, so a partial
+    // update reports only what actually moved.
+    const capaChanges = computeAuditDiff(
+      before as unknown as Record<string, unknown>,
+      parsed.data as Record<string, unknown>,
+      CAPA_DIFF_FIELDS,
+    );
+    const capaDiff = auditDiffPayload(capaChanges);
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -1303,12 +1349,62 @@ export async function updateCAPA(
         module: "CAPA",
         action: "CAPA_UPDATED",
         recordId: id,
+        recordTitle: (before.reference ?? id).slice(0, 80),
+        ...(capaDiff ?? {}),
       },
     });
 
     // Notify the NEW assignee when ownership actually changed (fault-isolated;
     // notify() skips the actor + null FKs).
     if (parsed.data.owner !== undefined && ownerIdUpdate && ownerIdUpdate !== before.ownerId) {
+      // CAPA_REASSIGNED — a DEDICATED audit row, not just a field inside the
+      // CAPA_UPDATED diff. Transfer of CAPA ownership is the event an auditor
+      // filters the trail for; burying it in a generic "updated" row means it
+      // can only be found by reading every edit. Before this, ownership change
+      // produced a NOTIFICATION and no audit row at all — the `CAPA_ASSIGNED`
+      // label in src/lib/labels/auditEvents.ts had no writer behind it.
+      // Fault-isolated: a failed audit write must not roll back an accepted edit
+      // that has already been committed above.
+      try {
+        const [prevOwner, nextOwner] = await Promise.all([
+          before.ownerId
+            ? prisma.user.findFirst({
+                where: { id: before.ownerId, tenantId: session.user.tenantId },
+                select: { name: true, role: true },
+              })
+            : Promise.resolve(null),
+          prisma.user.findFirst({
+            where: { id: ownerIdUpdate, tenantId: session.user.tenantId },
+            select: { name: true, role: true },
+          }),
+        ]);
+        await prisma.auditLog.create({
+          data: {
+            tenantId: session.user.tenantId,
+            userId: actor.userId,
+            userName: actor.displayName,
+            userRole: actor.role,
+            module: "CAPA",
+            action: before.ownerId ? "CAPA_REASSIGNED" : "CAPA_ASSIGNED",
+            recordId: id,
+            recordTitle: (before.reference ?? id).slice(0, 80),
+            // Denormalised names — a trail of bare ids goes unreadable as soon
+            // as a user is renamed or deactivated.
+            oldValue: prevOwner?.name ?? before.owner ?? "—",
+            newValue: JSON.stringify({
+              previousOwnerId: before.ownerId,
+              previousOwnerName: prevOwner?.name ?? null,
+              previousOwnerRole: prevOwner?.role ?? null,
+              newOwnerId: ownerIdUpdate,
+              newOwnerName: nextOwner?.name ?? parsed.data.owner ?? null,
+              newOwnerRole: nextOwner?.role ?? null,
+            }),
+          },
+        });
+      } catch (err) {
+        console.error("[action] failed to write CAPA_REASSIGNED audit:", err);
+      }
+
       await notify({
         tenantId: session.user.tenantId,
         recipientUserId: ownerIdUpdate,

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   AlertTriangle, CheckCircle2, Wrench, Clock, ListChecks, CalendarClock, ListTodo,
-  MoreVertical, ExternalLink,
+  MoreVertical, ExternalLink, GraduationCap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import dayjs from "@/lib/dayjs";
@@ -18,6 +18,7 @@ import { useTenantConfig } from "@/hooks/useTenantConfig";
 import { getSeverityVariant } from "@/lib/badgeVariants";
 import type { Worklist, WorklistStageTask } from "@/lib/queries/worklist";
 import { WorkItemModal } from "./WorkItemModal";
+import { TrainingPanel } from "./TrainingPanel";
 import { findingToWorkItem, actionToWorkItem, deviationToWorkItem, type WorkItem, type WorkSource } from "./workItem";
 
 /** Source chip tone — Finding / CAPA / Deviation get distinct accents. */
@@ -64,14 +65,25 @@ export function WorklistPage({
   const selected = workItems.find((w) => w.key === selectedKey) ?? null;
 
   // ── KPIs — derived from the SAME unified list the strips consume (no new
-  //    query). "Total" also counts the CSV stage tasks (a 4th read-only strip);
-  //    the due-based metrics are over the actionable WorkItems only. ──
-  const totalCount = workItems.length + worklist.stageTasks.length;
-  const overdueCount = workItems.filter(isOverdue).length;
-  const dueSoonCount = workItems.filter(isDueSoon).length;
+  //    query). "Total" also counts the CSV stage tasks and the training records
+  //    (two read-only-ish strips outside the unified WorkItem shape); the
+  //    due-based metrics are over the actionable WorkItems plus training, which
+  //    is the other source that carries a real due date. ──
+  const openTraining = worklist.trainingRecords.filter((t) => t.status !== "completed");
+  const totalCount = workItems.length + worklist.stageTasks.length + openTraining.length;
+  // Training overdue is DERIVED server-side (isTrainingOverdue) rather than
+  // recomputed here — one definition of overdue, not two that can disagree.
+  const overdueCount = workItems.filter(isOverdue).length + openTraining.filter((t) => t.isOverdue).length;
+  const dueSoonCount =
+    workItems.filter(isDueSoon).length +
+    openTraining.filter((t) => {
+      if (!t.dueDate || t.isOverdue) return false;
+      const d = dayjs.utc(t.dueDate);
+      return d.isAfter(dayjs()) && d.isBefore(dayjs().add(7, "day"));
+    }).length;
   // "Awaiting me" — open AND the worker can act on it (excludes Submitted, which
   // is awaiting QA, and Done/Closed).
-  const awaitingCount = workItems.filter((i) => i.isOpen && i.canWork).length;
+  const awaitingCount = workItems.filter((i) => i.isOpen && i.canWork).length + openTraining.length;
 
   // Rework first, then open before done, then soonest due.
   const sorted = useMemo(
@@ -161,6 +173,29 @@ export function WorklistPage({
           <MotionListItem>
             <GroupSection title="My work" count={myWorkItems.length} icon={ListChecks}>
               <WorkTable ariaLabel="My assigned work" items={myWorkItems} columns={workColumns} onOpen={setSelectedKey} />
+            </GroupSection>
+          </MotionListItem>
+        )}
+
+        {/* My training — Module 9. The trainee's OWN records, with the Start /
+            Complete-and-acknowledge controls. Sits above the validation tasks
+            because an overdue SOP read blocks the work below it. Rendered
+            outside the unified work-item surface for the reasons in
+            TrainingPanel's header. */}
+        {worklist.trainingRecords.length > 0 && (
+          <MotionListItem>
+            <GroupSection
+              title="My training"
+              count={worklist.trainingRecords.filter((t) => t.status !== "completed").length}
+              icon={GraduationCap}
+              tone={worklist.trainingRecords.some((t) => t.isOverdue) ? "blocked" : undefined}
+            >
+              <TrainingPanel
+                records={worklist.trainingRecords}
+                timezone={timezone}
+                dateFormat={dateFormat}
+                onChanged={() => router.refresh()}
+              />
             </GroupSection>
           </MotionListItem>
         )}

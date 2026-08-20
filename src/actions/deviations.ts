@@ -25,6 +25,7 @@ import {
   type DeviationSODOverrideRow,
 } from "@/lib/queries/deviations";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
+import { computeAuditDiff, auditDiffPayload, normalizeDate, type AuditDiffField } from "@/lib/auditDiff";
 import { FDA_SEVERITY, coerceSeverityCasing, normalizeSeverityForDisplay } from "@/lib/severity";
 import { INVESTIGATION_RCA_METHODS } from "@/constants/rcaMethods";
 import { sanitizeServerError } from "@/lib/errors";
@@ -174,7 +175,34 @@ const CreateDeviationSchema = z.object({
 const UpdateDeviationSchema = CreateDeviationSchema.partial().extend({
   rootCause: z.string().optional(),
   rcaMethod: z.string().optional(),
+  // Part 11 §11.10(e) / ALCOA+ — reason-for-change on a GxP record edit.
+  // Optional at the schema layer so existing callers that predate the field keep
+  // working; the audit row records "" rather than dropping the key, so a reader
+  // can tell the difference between "no reason given" and "field not captured".
+  reason: z.string().max(500).optional(),
 });
+
+// Fields diffed into the audit trail on edit. Deliberately excludes `status`
+// (updateDeviation does not accept it — status moves through the guarded
+// transitions) and `previousCAPAId` (which has its own dedicated
+// DEVIATION_LINKED_TO_PRIOR_CAPA_AS_RECURRENCE event). Labels are what an
+// auditor reads, so they are human text, not column names.
+const DEVIATION_DIFF_FIELDS: readonly AuditDiffField[] = [
+  { key: "title", label: "Title" },
+  { key: "description", label: "Description" },
+  { key: "type", label: "Type" },
+  { key: "category", label: "Category" },
+  { key: "severity", label: "Severity" },
+  { key: "area", label: "Area" },
+  { key: "immediateAction", label: "Immediate action" },
+  { key: "priority", label: "Priority" },
+  { key: "dueDate", label: "Due date", normalize: normalizeDate },
+  { key: "detectedDate", label: "Detected date", normalize: normalizeDate },
+  { key: "batchesAffected", label: "Batches affected" },
+  { key: "rootCause", label: "Root cause" },
+  { key: "rcaMethod", label: "RCA method" },
+  { key: "siteId", label: "Site" },
+];
 
 const RejectSchema = z.object({
   reason: z.string().min(5, "A rejection message (at least 5 characters) is required"),
@@ -381,26 +409,52 @@ export async function updateDeviation(
     return { success: false, error: "Viewers cannot perform this action." };
   }
   try {
-    const { dueDate, detectedDate, ...rest } = parsed.data;
-    const deviation = await prisma.deviation.update({
-      where: { id, tenantId: session.user.tenantId },
-      data: {
-        ...rest,
-        ...(dueDate ? { dueDate: new Date(dueDate) } : {}),
-        ...(detectedDate ? { detectedDate: new Date(detectedDate) } : {}),
-      },
+    const { reason, dueDate, detectedDate, ...rest } = parsed.data;
+
+    // §11.10(e) — read the PRE-IMAGE before writing. Without it the audit row
+    // cannot carry the previously recorded value, which is exactly what the
+    // regulation says a change must not obscure. Soft-deleted rows are excluded
+    // (a deleted deviation is immutable, same rule as every other action here).
+    const before = await prisma.deviation.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
     });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userId: actor.userId,
-        userName: actor.displayName,
-        userRole: actor.role,
-        module: "Deviation Management",
-        action: "DEVIATION_UPDATED",
-        recordId: id,
-      },
+    if (!before) return { success: false, error: "Deviation not found" };
+
+    // Pure — computed from the pre-image + the incoming updates, before any write.
+    const changes = computeAuditDiff(
+      before as unknown as Record<string, unknown>,
+      parsed.data as Record<string, unknown>,
+      DEVIATION_DIFF_FIELDS,
+    );
+
+    // Mutation + audit row in ONE transaction so an edit can never land without
+    // its paired trail (ALCOA+), matching updateFinding's shape.
+    const deviation = await prisma.$transaction(async (tx) => {
+      const updated = await tx.deviation.update({
+        where: { id, tenantId: session.user.tenantId },
+        data: {
+          ...rest,
+          ...(dueDate ? { dueDate: new Date(dueDate) } : {}),
+          ...(detectedDate ? { detectedDate: new Date(detectedDate) } : {}),
+        },
+      });
+      const diff = auditDiffPayload(changes, { reason: reason?.trim() ?? "" });
+      await tx.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
+          module: "Deviation Management",
+          action: "DEVIATION_UPDATED",
+          recordId: id,
+          recordTitle: before.reference ?? before.title.slice(0, 80),
+          ...(diff ?? {}),
+        },
+      });
+      return updated;
     });
+
     revalidatePath("/deviation");
     return { success: true, data: deviation };
   } catch (err) {
@@ -1361,3 +1415,209 @@ export async function restoreDeviation(id: string): Promise<ActionResult> {
   }
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * REASSIGNMENT + REOPEN
+ *
+ * Both close audit-trail gaps called out in the Module 3 documentation review:
+ * "Deviation assigned or reassigned" and "Deviation reopened" were events the
+ * manual was asked to describe but which the app had no way to produce.
+ *
+ * Ownership model note: `Deviation.owner` is set to the REPORTER at creation
+ * (createDeviation:309) and, before this, could never change — delegated work
+ * happened through DeviationTask assignment instead. That is still the normal
+ * path for splitting up investigation work. reassignDeviation covers the case
+ * the task model does not: transferring responsibility for the deviation ITSELF
+ * (reporter leaves, wrong area, QA redirects the investigation).
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+const ReassignDeviationSchema = z.object({
+  newOwnerId: z.string().min(1, "A new owner is required"),
+  // Reason-for-change is MANDATORY here (unlike updateDeviation, where it is
+  // optional for back-compatibility): a transfer of GxP responsibility with no
+  // recorded rationale is exactly the kind of unexplained change ALCOA+ exists
+  // to prevent.
+  reason: z.string().min(5, "A reason for the reassignment (at least 5 characters) is required").max(500),
+});
+
+export async function reassignDeviation(
+  id: string,
+  input: z.input<typeof ReassignDeviationSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = ReassignDeviationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  // QA authority owns redirection of an investigation. A reporter may correct
+  // what they wrote (updateDeviation) but must not hand their deviation to
+  // someone else — that is a QA judgement, same posture as CAPA assignment.
+  if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only QA Head can reassign a deviation." };
+  }
+  try {
+    const before = await prisma.deviation.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true, owner: true, reference: true, title: true, status: true },
+    });
+    if (!before) return { success: false, error: "Deviation not found" };
+    // A closed or rejected deviation is terminal — reopen it first. Silently
+    // reassigning a closed record would let ownership drift after the signature
+    // that closed it.
+    if (before.status === "closed" || before.status === "rejected") {
+      return { success: false, error: "A closed or rejected deviation cannot be reassigned — reopen it first." };
+    }
+    if (before.owner === parsed.data.newOwnerId) {
+      return { success: false, error: "That user already owns this deviation." };
+    }
+    // The new owner must be a real, active, non-viewer user in THIS tenant —
+    // resolved server-side so a crafted client payload cannot park a GxP record
+    // on a cross-tenant id or a deactivated account.
+    const newOwner = await prisma.user.findFirst({
+      where: { id: parsed.data.newOwnerId, tenantId: session.user.tenantId },
+      select: { id: true, name: true, role: true, isActive: true },
+    });
+    if (!newOwner) return { success: false, error: "That user is not in this organisation." };
+    if (!newOwner.isActive) {
+      return { success: false, error: "That user is not active." };
+    }
+    if (!canReportDeviation(newOwner.role)) {
+      return { success: false, error: `A user with role ${newOwner.role} cannot own a deviation.` };
+    }
+    const previousOwner = before.owner
+      ? await prisma.user.findFirst({
+          where: { id: before.owner, tenantId: session.user.tenantId },
+          select: { name: true },
+        })
+      : null;
+
+    const deviation = await prisma.$transaction(async (tx) => {
+      const updated = await tx.deviation.update({
+        where: { id, tenantId: session.user.tenantId },
+        data: { owner: parsed.data.newOwnerId },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
+          module: "Deviation Management",
+          action: "DEVIATION_REASSIGNED",
+          recordId: id,
+          recordTitle: before.reference ?? before.title.slice(0, 80),
+          // Names are DENORMALISED at the event, like userName beside userId on
+          // every audit row: a trail that stores only ids goes unreadable the
+          // moment a user is deactivated or renamed.
+          oldValue: previousOwner?.name ?? before.owner ?? "—",
+          newValue: JSON.stringify({
+            reason: parsed.data.reason.trim(),
+            previousOwnerId: before.owner,
+            previousOwnerName: previousOwner?.name ?? null,
+            newOwnerId: newOwner.id,
+            newOwnerName: newOwner.name,
+            newOwnerRole: newOwner.role,
+          }),
+        },
+      });
+      return updated;
+    });
+    revalidatePath("/deviation");
+    return { success: true, data: deviation };
+  } catch (err) {
+    console.error("[action] reassignDeviation failed:", err);
+    return { success: false, error: "Failed to reassign deviation" };
+  }
+}
+
+const ReopenDeviationSchema = z.object({
+  reason: z.string().min(5, "A reason for reopening (at least 5 characters) is required").max(500),
+});
+
+/**
+ * Reopen a closed or rejected deviation.
+ *
+ * Lands it back in `under_investigation` rather than `open`: the record already
+ * carries an investigation, and dropping it to `open` would misrepresent the
+ * work as never started. Closure fields are cleared so the reopened record does
+ * not display a stale closure date — but `closureSignatureId` is deliberately
+ * LEFT INTACT. The signature that closed it was a true statement at the time it
+ * was made; deleting it would erase evidence, which is the opposite of what
+ * §11.10(e) requires. The next closure creates its own signature.
+ */
+export async function reopenDeviation(
+  id: string,
+  input: z.input<typeof ReopenDeviationSchema>,
+): Promise<ActionResult> {
+  const session = await requireAuth();
+  const parsed = ReopenDeviationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  // Mirrors CAPA_REOPEN_ROLES — reopening a signed-closed record is QA authority.
+  if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only QA Head can reopen a deviation." };
+  }
+  try {
+    const before = await prisma.deviation.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true, status: true, reference: true, title: true, closedBy: true, closedDate: true },
+    });
+    if (!before) return { success: false, error: "Deviation not found" };
+    if (before.status !== "closed" && before.status !== "rejected") {
+      return { success: false, error: "Only a closed or rejected deviation can be reopened." };
+    }
+    const deviation = await prisma.$transaction(async (tx) => {
+      const updated = await tx.deviation.update({
+        where: { id, tenantId: session.user.tenantId },
+        data: {
+          status: "under_investigation",
+          closedBy: null,
+          closedDate: null,
+          closureNotes: null,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
+          module: "Deviation Management",
+          action: "DEVIATION_REOPENED",
+          recordId: id,
+          recordTitle: before.reference ?? before.title.slice(0, 80),
+          oldValue: before.status,
+          newValue: JSON.stringify({
+            reason: parsed.data.reason.trim(),
+            previousStatus: before.status,
+            newStatus: "under_investigation",
+            previouslyClosedBy: before.closedBy,
+            previouslyClosedDate: before.closedDate?.toISOString() ?? null,
+            // The closure signature is retained, not revoked — recorded here so
+            // a reader knows the earlier signature still stands on the record.
+            closureSignatureRetained: true,
+          }),
+        },
+      });
+      return updated;
+    });
+    revalidatePath("/deviation");
+    return { success: true, data: deviation };
+  } catch (err) {
+    console.error("[action] reopenDeviation failed:", err);
+    return { success: false, error: "Failed to reopen deviation" };
+  }
+}

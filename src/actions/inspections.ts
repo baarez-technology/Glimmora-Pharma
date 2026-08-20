@@ -248,143 +248,19 @@ export async function completeInspection(
 }
 
 /* ══════════════════════════════════════
- * TRAINING RECORDS
- * (requires `prisma migrate dev` for the
- * TrainingRecord model added in turn-N)
+ * TRAINING RECORDS — MOVED
+ *
+ * createTrainingRecord / completeTrainingRecord used to live here. They now live
+ * in src/actions/training.ts as a full lifecycle (assign / reassign / update /
+ * start / complete+acknowledge / reopen / archive), for two reasons the old pair
+ * could not satisfy:
+ *   - their audit rows were tagged module "Inspection Readiness", so filtering
+ *     the Audit Trail for training returned nothing;
+ *   - only QA could mark a record complete, so a training record could never
+ *     carry the trainee's own acknowledgement.
+ * Neither had a single UI caller. Nothing imported them, so this is a move, not
+ * a breaking change.
  * ══════════════════════════════════════ */
-
-const CreateTrainingSchema = z.object({
-  inspectionId: z.string().min(1),
-  userId: z.string().min(1),
-  userName: z.string().min(1),
-  userRole: z.string().min(1),
-  module: z.string().min(1),
-});
-
-export async function createTrainingRecord(
-  input: z.input<typeof CreateTrainingSchema>,
-): Promise<ActionResult> {
-  const session = await requireAuth();
-  const parsed = CreateTrainingSchema.safeParse(input);
-  if (!parsed.success) {
-    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
-  }
-  // IDOR guard — verify the caller's tenant owns the parent inspection.
-  // TrainingRecord HAS its own tenantId column, so we must set it from
-  // parent.tenantId (NOT session.user.tenantId) to keep child/parent
-  // tenant consistent even under super_admin cross-tenant writes.
-  const parent = await assertTenantOwnsParent<{
-    id: string;
-    tenantId: string;
-  }>(session, "inspection", parsed.data.inspectionId);
-  if (!parent) return { success: false, error: "FORBIDDEN" };
-  const actor = await resolveUserFk(
-    session.user.id,
-    session.user.tenantId,
-    session.user.role,
-  );
-  try {
-    requireGxPAuthor(actor);
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
-  }
-  // Readiness/Training WRITE gate (canWriteReadiness = qa_head; super_admin is
-  // additionally blocked by requireGxPAuthor on the GxP-authoring paths). This
-  // replaced a bare viewer block that also admitted customer_admin — read-only
-  // outside Settings — and every seat role that can no longer see the module.
-  if (!canWriteReadiness(session.user.role)) {
-    return { success: false, error: "Your role does not permit this action." };
-  }
-  try {
-    const record = await prisma.trainingRecord.create({
-      data: {
-        ...parsed.data,
-        tenantId: parent.tenantId,
-        status: "pending",
-      },
-    });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: parent.tenantId,
-        userId: actor.userId,
-        userName: actor.displayName,
-        userRole: actor.role,
-        module: "Inspection Readiness",
-        action: "TRAINING_RECORD_CREATED",
-        recordId: record.id,
-        recordTitle: `${parsed.data.userName} — ${parsed.data.module}`,
-      },
-    });
-    revalidatePath("/readiness");
-    return { success: true, data: record };
-  } catch (err) {
-    console.error("[action] createTrainingRecord failed:", err);
-    return { success: false, error: "Failed to create training record" };
-  }
-}
-
-export async function completeTrainingRecord(
-  id: string,
-  score?: number,
-  notes?: string,
-): Promise<ActionResult> {
-  const session = await requireAuth();
-  // Tenant scope check — prevents IDOR (audit finding 1.1)
-  // Rung 3A-bis.1 — explicit viewer block (the super_admin-IDOR-bypass below
-  // does not restrict viewers).
-  // Readiness/Training WRITE gate (canWriteReadiness = qa_head; super_admin is
-  // additionally blocked by requireGxPAuthor on the GxP-authoring paths). This
-  // replaced a bare viewer block that also admitted customer_admin — read-only
-  // outside Settings — and every seat role that can no longer see the module.
-  if (!canWriteReadiness(session.user.role)) {
-    return { success: false, error: "Your role does not permit this action." };
-  }
-  if (session.user.role !== "super_admin") {
-    const owned = await prisma.trainingRecord.findFirst({
-      where: { id, tenantId: session.user.tenantId },
-      select: { id: true },
-    });
-    if (!owned) return { success: false, error: "FORBIDDEN" };
-  }
-  const actor = await resolveUserFk(
-    session.user.id,
-    session.user.tenantId,
-    session.user.role,
-  );
-  try {
-    requireGxPAuthor(actor);
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
-  }
-  try {
-    const record = await prisma.trainingRecord.update({
-      where: { id },
-      data: {
-        status: "completed",
-        completedAt: new Date(),
-        score: score ?? null,
-        notes: notes ?? null,
-      },
-    });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userId: actor.userId,
-        userName: actor.displayName,
-        userRole: actor.role,
-        module: "Inspection Readiness",
-        action: "TRAINING_COMPLETED",
-        recordId: id,
-        newValue: typeof score === "number" ? `Score: ${score}%` : "Completed",
-      },
-    });
-    revalidatePath("/readiness");
-    return { success: true, data: record };
-  } catch (err) {
-    console.error("[action] completeTrainingRecord failed:", err);
-    return { success: false, error: "Failed to complete training" };
-  }
-}
 
 /* ══════════════════════════════════════
  * SIMULATIONS

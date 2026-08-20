@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
+import { isTrainingOverdue } from "@/lib/training";
 
 /**
  * Phase 5 — the Worklist data loader (read-only). Aggregates everything assigned
@@ -167,6 +168,34 @@ export interface WorklistFinding {
   messages: WorklistTaskMessage[];
 }
 
+/**
+ * A TRAINING record assigned to the user (TrainingRecord.userId == userId).
+ *
+ * Rendered as its own section rather than mapped into the unified WorkItem
+ * shape: training carries no evidence uploads, no QA↔worker message thread and
+ * no rework loop, so forcing it through the WorkItem adapter would mean a dozen
+ * null fields and a modal full of surfaces that do not apply. The Worklist is
+ * where a trainee lives, though — it is the only page a non-QA role reaches — so
+ * this is where the trainee's own acknowledgement has to happen.
+ */
+export interface WorklistTraining {
+  id: string;
+  module: string;
+  status: string;
+  dueDate: string | null;
+  /** Derived, never stored — see isTrainingOverdue in src/lib/training.ts. */
+  isOverdue: boolean;
+  assignedByName: string | null;
+  trainer: string | null;
+  sopReference: string | null;
+  sopVersion: string | null;
+  completedAt: string | null;
+  acknowledgedAt: string | null;
+  notes: string | null;
+  /** True when this record replaces an earlier one (retraining). */
+  isRetraining: boolean;
+}
+
 export interface Worklist {
   /** Assigned CAPA action items (CAPAActionItem.ownerId == userId), rendered as
    *  Finding-style cards. Replaces the old per-CAPA readiness `groups`. */
@@ -177,6 +206,8 @@ export interface Worklist {
   stageTasks: WorklistStageTask[];
   /** Gap Step 2 — gap-assessment findings assigned to the user (owner == userId). */
   assignedFindings: WorklistFinding[];
+  /** Module 9 — training assigned to the user (TrainingRecord.userId == userId). */
+  trainingRecords: WorklistTraining[];
   openCount: number;
   reworkCount: number;
 }
@@ -189,7 +220,7 @@ const DEV_TASK_ACTIVE_STATUSES = ["pending", "in_progress", "submitted", "rework
 const FINDING_ACTIVE_STATUSES = ["Open", "In Progress", "Submitted", "Rework"];
 
 export const getWorklist = cache(async (userId: string, tenantId: string): Promise<Worklist> => {
-  const [items, devTasks, stageTaskRows, assignedFindingRows] = await Promise.all([
+  const [items, devTasks, stageTaskRows, assignedFindingRows, trainingRows] = await Promise.all([
     prisma.cAPAActionItem.findMany({
       // Exclude soft-deleted items and items whose parent CAPA was soft-deleted.
       where: { ownerId: userId, tenantId, deletedAt: null, capa: { deletedAt: null } },
@@ -258,6 +289,20 @@ export const getWorklist = cache(async (userId: string, tenantId: string): Promi
         id: true, reference: true, requirement: true, framework: true, area: true, severity: true,
         status: true, targetDate: true, completionNotes: true, reworkReason: true,
         messages: { orderBy: { createdAt: "asc" }, select: { id: true, authorId: true, authorName: true, authorRole: true, body: true, createdAt: true } },
+      },
+    }),
+    // Module 9 — training assigned to this user. Completed records are KEPT
+    // (unlike the other sources, which drop off once done): a trainee's own
+    // completed training is the record they are asked to produce at an
+    // inspection, and there is no other page a non-QA role can see it on.
+    // Archived records are excluded — they are retired, not outstanding.
+    prisma.trainingRecord.findMany({
+      where: { userId, tenantId, deletedAt: null },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+      select: {
+        id: true, module: true, status: true, dueDate: true, assignedByName: true,
+        trainer: true, sopReference: true, sopVersion: true, completedAt: true,
+        acknowledgedAt: true, notes: true, supersedesId: true,
       },
     }),
   ]);
@@ -558,6 +603,22 @@ export const getWorklist = cache(async (userId: string, tenantId: string): Promi
     })),
   }));
 
+  const trainingRecords: WorklistTraining[] = trainingRows.map((t) => ({
+    id: t.id,
+    module: t.module,
+    status: t.status,
+    dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+    isOverdue: isTrainingOverdue(t),
+    assignedByName: t.assignedByName,
+    trainer: t.trainer,
+    sopReference: t.sopReference,
+    sopVersion: t.sopVersion,
+    completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+    acknowledgedAt: t.acknowledgedAt ? t.acknowledgedAt.toISOString() : null,
+    notes: t.notes,
+    isRetraining: t.supersedesId !== null,
+  }));
+
   const openItems = items.filter((i) => OPEN_ITEM_STATUSES.has(i.status));
   // Open deviation tasks count toward the worklist totals (submitted ones are
   // awaiting QA, so they're excluded from "open" like complete CAPA items).
@@ -572,12 +633,18 @@ export const getWorklist = cache(async (userId: string, tenantId: string): Promi
     stageTasks.filter((t) => t.status === "rework").length +
     assignedFindings.filter((f) => f.status === "Rework").length;
 
+  // Outstanding training counts as open work — an overdue SOP read is exactly the
+  // kind of item the "Total items" card exists to stop someone from missing.
+  const openTraining = trainingRecords.filter((t) => t.status !== "completed");
+
   return {
     assignedActions,
     deviationTasks,
     stageTasks,
     assignedFindings,
-    openCount: openItems.length + openDevTasks.length + openStageTasks.length + openFindings.length,
+    trainingRecords,
+    openCount:
+      openItems.length + openDevTasks.length + openStageTasks.length + openFindings.length + openTraining.length,
     reworkCount,
   };
 });

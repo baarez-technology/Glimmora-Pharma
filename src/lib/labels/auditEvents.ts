@@ -88,6 +88,16 @@ export const AUDIT_EVENT_LABELS: Record<string, string> = {
   CAPA_CREATED: "CAPA created",
   CAPA_UPDATED: "CAPA updated",
   CAPA_ASSIGNED: "CAPA assigned",
+  CAPA_REASSIGNED: "CAPA reassigned",
+  CAPA_MARKED_IMPLEMENTED: "CAPA implementation completed",
+  CAPA_PROGRESS_STARTED: "CAPA implementation started",
+  CAPA_WORK_SENT_BACK: "CAPA work returned for correction",
+  CAPA_WORK_ACCEPTED: "CAPA work accepted",
+  CAPA_CLOSURE_SIGNED: "CAPA closure signed",
+  CAPA_VERIFICATION_SIGNED: "CAPA verification signed",
+  CAPA_EFFECTIVENESS_REVIEW_SIGNED: "CAPA effectiveness review signed",
+  ACTION_ASSIGNED: "CAPA action item assigned",
+  CAPA_TASK_REASSIGNED: "CAPA action item reassigned",
   CAPA_SUBMITTED_FOR_REVIEW: "CAPA submitted for review",
   CAPA_APPROVED: "CAPA approved",
   CAPA_REJECTED: "CAPA rejected",
@@ -105,9 +115,23 @@ export const AUDIT_EVENT_LABELS: Record<string, string> = {
   DEVIATION_UPDATED: "Deviation updated",
   DEVIATION_SUBMITTED_FOR_REVIEW: "Deviation submitted for review",
   DEVIATION_CLOSED: "Deviation closed",
+  DEVIATION_CLOSED_AND_SIGNED: "Deviation closed & signed",
   DEVIATION_REJECTED: "Deviation rejected",
   DEVIATION_DELETED: "Deviation deleted",
   DEVIATION_RESTORED: "Deviation restored",
+  DEVIATION_ASSIGNED: "Deviation assigned",
+  DEVIATION_REASSIGNED: "Deviation reassigned",
+  DEVIATION_REOPENED: "Deviation reopened",
+  DEVIATION_INVESTIGATION_STARTED: "Deviation investigation started",
+  DEVIATION_INVESTIGATION_SAVED: "Deviation investigation saved",
+  DEVIATION_INVESTIGATION_COMPLETED: "Deviation investigation completed",
+  DEVIATION_CAPA_DECISION_MADE: "CAPA decision recorded",
+  DEVIATION_CAPA_DECISION_UPDATED: "CAPA decision updated",
+  DEVIATION_TASK_ASSIGNED: "Deviation task assigned",
+  DEVIATION_TASK_SUBMITTED: "Deviation task submitted for review",
+  DEVIATION_TASK_REWORK: "Deviation task returned for rework",
+  DEVIATION_EVIDENCE_ATTACHED: "Deviation evidence attached",
+  DEVIATION_LINKED_TO_PRIOR_CAPA_AS_RECURRENCE: "Deviation linked to prior CAPA as recurrence",
 
   // FDA 483
   FDA483_EVENT_CREATED: "FDA 483 event created",
@@ -149,6 +173,23 @@ export const AUDIT_EVENT_LABELS: Record<string, string> = {
   USER_DELETED: "User deleted",
   USER_SIGNATORY_GRANTED: "Signatory rights granted",
   USER_SIGNATORY_REVOKED: "Signatory rights revoked",
+
+  // Training & Awareness (src/actions/training.ts). Written with module
+  // "Training & Awareness" — before the Module 9 rebuild these were filed under
+  // "Inspection Readiness", so a training filter on the Audit Trail found nothing.
+  TRAINING_ASSIGNED: "Training assigned",
+  TRAINING_REASSIGNED: "Training reassigned",
+  TRAINING_UPDATED: "Training record updated",
+  TRAINING_STARTED: "Training started",
+  TRAINING_COMPLETED: "Training completed",
+  TRAINING_ACKNOWLEDGED: "Training acknowledged by trainee",
+  TRAINING_OVERDUE_RECORDED: "Training completed overdue",
+  TRAINING_RETRAINING_ASSIGNED: "Retraining assigned",
+  TRAINING_REOPENED: "Training record reopened",
+  TRAINING_ARCHIVED: "Training record archived",
+  // Legacy code from the pre-rebuild pair — retained so historical rows still
+  // render a label instead of falling back to a humanised slug.
+  TRAINING_RECORD_CREATED: "Training record created",
 
   // Support tickets
   TICKET_CREATED: "Ticket raised",

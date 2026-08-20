@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Calendar, Users, Clock, CheckCircle2, X } from "lucide-react";
+import { Plus, Calendar, Users, Clock, CheckCircle2, X, GraduationCap, UserCog, RotateCcw, Archive } from "lucide-react";
 import type { Inspection, Simulation, TrainingRecord } from "@prisma/client";
 import dayjs from "@/lib/dayjs";
 import { createSimulation, completeSimulation } from "@/actions/inspections";
+import { assignTraining, reassignTraining, completeTraining, reopenTraining, archiveTrainingRecord } from "@/actions/training";
+import { trainingDisplayStatus, isTrainingOverdue } from "@/lib/training";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
@@ -50,6 +52,26 @@ interface SimForm {
   participantIds: string[];
 }
 
+interface TrainingForm {
+  userId: string;
+  module: string;
+  dueDate: string;
+  trainer: string;
+  sopReference: string;
+  sopVersion: string;
+  notes: string;
+}
+
+const EMPTY_TRAINING_FORM: TrainingForm = {
+  userId: "",
+  module: "",
+  dueDate: "",
+  trainer: "",
+  sopReference: "",
+  sopVersion: "",
+  notes: "",
+};
+
 const EMPTY_SIM_FORM: SimForm = {
   title: "",
   type: "Mock Inspection",
@@ -64,6 +86,21 @@ export function TrainingPrismaTab({ inspection, isAdmin, teamMembers }: Training
   const [simForm, setSimForm] = useState<SimForm>(EMPTY_SIM_FORM);
   const [scheduling, setScheduling] = useState(false);
 
+  // ── Training & Awareness (Module 9) ────────────────────────────────────────
+  // Before this the Training Records section was DISPLAY-ONLY: the server
+  // actions existed but nothing rendered a control that called them, so no
+  // training record could be created or completed from the app at all.
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [trainForm, setTrainForm] = useState<TrainingForm>(EMPTY_TRAINING_FORM);
+  const [assigning, setAssigning] = useState(false);
+  /** The record a row-level action is acting on, plus which action. */
+  const [trainingAction, setTrainingAction] = useState<
+    { record: TrainingRecord; kind: "reassign" | "reopen" | "archive" | "retrain" } | null
+  >(null);
+  const [trainingReason, setTrainingReason] = useState("");
+  const [reassignTo, setReassignTo] = useState("");
+  const [trainingBusy, setTrainingBusy] = useState(false);
+
   const [completeTarget, setCompleteTarget] = useState<Simulation | null>(null);
   const [completeScore, setCompleteScore] = useState("");
   const [completeNotes, setCompleteNotes] = useState("");
@@ -76,6 +113,90 @@ export function TrainingPrismaTab({ inspection, isAdmin, teamMembers }: Training
   const trainings = inspection.trainingRecords;
 
   const participantOptions = teamMembers.map((m) => ({ value: m.id, label: `${m.name} — ${m.role}` }));
+
+  // ── Training handlers ──────────────────────────────────────────────────────
+  async function handleAssignTraining() {
+    if (!trainForm.userId || !trainForm.module.trim()) {
+      setError("Pick a trainee and name the training module.");
+      return;
+    }
+    setAssigning(true);
+    try {
+      const res = await assignTraining({
+        // Inspection-linked when raised from an inspection's tab. The action
+        // also accepts a null inspectionId for standing awareness records — that
+        // path is reached from the Readiness overview, not from here.
+        inspectionId: inspection.id,
+        userId: trainForm.userId,
+        module: trainForm.module.trim(),
+        dueDate: trainForm.dueDate || undefined,
+        trainer: trainForm.trainer.trim() || undefined,
+        sopReference: trainForm.sopReference.trim() || undefined,
+        sopVersion: trainForm.sopVersion.trim() || undefined,
+        notes: trainForm.notes.trim() || undefined,
+        // Retraining carries the superseded record forward so the chain is
+        // walkable; a plain assignment leaves it unset.
+        supersedesId: trainingAction?.kind === "retrain" ? trainingAction.record.id : undefined,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setAssignOpen(false);
+      setTrainingAction(null);
+      setTrainForm(EMPTY_TRAINING_FORM);
+      router.refresh();
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  /** QA completing a record on a trainee's behalf. This does NOT set
+   *  acknowledgedAt — only the trainee's own completion does (see
+   *  src/actions/training.ts). The button label says so. */
+  async function handleCompleteOnBehalf(record: TrainingRecord) {
+    setTrainingBusy(true);
+    try {
+      const res = await completeTraining(record.id, {});
+      if (!res.success) setError(res.error);
+      else router.refresh();
+    } finally {
+      setTrainingBusy(false);
+    }
+  }
+
+  async function handleTrainingAction() {
+    if (!trainingAction) return;
+    const { record, kind } = trainingAction;
+    if (kind === "reassign" && !reassignTo) {
+      setError("Pick who the training should move to.");
+      return;
+    }
+    if (trainingReason.trim().length < 5) {
+      setError("A reason of at least 5 characters is required.");
+      return;
+    }
+    setTrainingBusy(true);
+    try {
+      const res =
+        kind === "reassign"
+          ? await reassignTraining(record.id, { newUserId: reassignTo, reason: trainingReason.trim() })
+          : kind === "reopen"
+            ? await reopenTraining(record.id, { reason: trainingReason.trim() })
+            : await archiveTrainingRecord(record.id, { reason: trainingReason.trim() });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setTrainingAction(null);
+      setTrainingReason("");
+      setReassignTo("");
+      router.refresh();
+    } finally {
+      setTrainingBusy(false);
+    }
+  }
+
   const nameById = (id: string) => teamMembers.find((m) => m.id === id)?.name ?? "";
 
   async function handleSchedule() {
@@ -228,13 +349,28 @@ export function TrainingPrismaTab({ inspection, isAdmin, teamMembers }: Training
 
       {/* ── Training Records ── */}
       <section aria-label="Training records">
-        <div className="mb-4">
-          <p className="text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
-            Training Records
-          </p>
-          <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-            Inspection-specific competency records
-          </p>
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
+              Training Records
+            </p>
+            <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+              Inspection-specific competency records
+            </p>
+          </div>
+          {isAdmin && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setTrainForm(EMPTY_TRAINING_FORM);
+                setTrainingAction(null);
+                setAssignOpen(true);
+              }}
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+              Assign training
+            </Button>
+          )}
         </div>
         {trainings.length === 0 ? (
           <div
@@ -247,27 +383,110 @@ export function TrainingPrismaTab({ inspection, isAdmin, teamMembers }: Training
           <div className="space-y-2">
             {trainings.map((t) => {
               const done = t.status === "completed";
+              const overdue = isTrainingOverdue(t);
               return (
                 <article
                   key={t.id}
-                  className="flex items-center justify-between gap-4 p-3 rounded-lg border"
+                  className="flex flex-wrap items-center justify-between gap-4 p-3 rounded-lg border"
                   style={{
-                    borderColor: "var(--bg-border)",
+                    borderColor: overdue ? "var(--danger)" : "var(--bg-border)",
                     background: done ? "var(--success-bg)" : "var(--bg-surface)",
                   }}
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>
                       {t.userName}
                     </p>
                     <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                      {t.userRole} · {t.module}
+                      {/* Curriculum identity + due date. "Trained on module X"
+                          alone cannot answer an inspector's "which version of
+                          the SOP", which is why sopReference/sopVersion exist. */}
+                      {[
+                        t.userRole,
+                        t.module,
+                        t.sopReference ? `${t.sopReference}${t.sopVersion ? ` ${t.sopVersion}` : ""}` : null,
+                        t.trainer ? `Trainer: ${t.trainer}` : null,
+                        t.dueDate ? `Due ${dayjs(t.dueDate).format("DD MMM YYYY")}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
+                    {done && (
+                      <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                        {/* The claim the record actually supports. QA-recorded
+                            completion is not the trainee's attestation, and an
+                            inspector reads those two differently. */}
+                        {t.acknowledgedAt
+                          ? `Acknowledged by ${t.userName} on ${dayjs(t.acknowledgedAt).format("DD MMM YYYY")}`
+                          : "Recorded by QA — not acknowledged by the trainee"}
+                      </p>
+                    )}
                   </div>
-                  <div className="shrink-0 flex flex-col items-end gap-1">
-                    <StatusBadge taxonomy={TRAINING_RECORD_STATUSES} status={t.status} />
-                    {done && typeof t.score === "number" && (
-                      <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{t.score}%</p>
+                  <div className="shrink-0 flex flex-col items-end gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      {overdue && <StatusBadge taxonomy={TRAINING_RECORD_STATUSES} status="overdue" />}
+                      <span className="text-[11px] px-2 py-0.5 rounded-full border" style={{ borderColor: "var(--bg-border)", color: "var(--text-secondary)" }}>
+                        {trainingDisplayStatus(t)}
+                      </span>
+                      {done && typeof t.score === "number" && (
+                        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{t.score}%</p>
+                      )}
+                    </div>
+                    {isAdmin && (
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        {!done && (
+                          <Button size="sm" variant="secondary" disabled={trainingBusy} onClick={() => handleCompleteOnBehalf(t)}>
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+                            Record completion
+                          </Button>
+                        )}
+                        {!done && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={trainingBusy}
+                            onClick={() => { setTrainingAction({ record: t, kind: "reassign" }); setTrainingReason(""); setReassignTo(""); }}
+                          >
+                            <UserCog className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+                            Reassign
+                          </Button>
+                        )}
+                        {done && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={trainingBusy}
+                            onClick={() => { setTrainingAction({ record: t, kind: "reopen" }); setTrainingReason(""); }}
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+                            Reopen
+                          </Button>
+                        )}
+                        {done && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={trainingBusy}
+                            onClick={() => {
+                              setTrainingAction({ record: t, kind: "retrain" });
+                              setTrainForm({ ...EMPTY_TRAINING_FORM, userId: t.userId, module: t.module, trainer: t.trainer ?? "", sopReference: t.sopReference ?? "" });
+                              setAssignOpen(true);
+                            }}
+                          >
+                            <GraduationCap className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+                            Retrain
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={trainingBusy}
+                          onClick={() => { setTrainingAction({ record: t, kind: "archive" }); setTrainingReason(""); }}
+                        >
+                          <Archive className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+                          Archive
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </article>
@@ -276,6 +495,155 @@ export function TrainingPrismaTab({ inspection, isAdmin, teamMembers }: Training
           </div>
         )}
       </section>
+
+      {/* ── Assign / retrain training modal ── */}
+      <Modal
+        open={assignOpen}
+        onClose={() => {
+          setAssignOpen(false);
+          setTrainingAction(null);
+          setTrainForm(EMPTY_TRAINING_FORM);
+        }}
+        title={trainingAction?.kind === "retrain" ? "Assign retraining" : "Assign training"}
+      >
+        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+          {trainingAction?.kind === "retrain" && (
+            <p className="text-[12px] rounded-lg p-2.5 border" style={{ borderColor: "var(--bg-border)", background: "var(--bg-elevated)", color: "var(--text-secondary)" }}>
+              This supersedes {trainingAction.record.userName}&apos;s completed record for{" "}
+              <strong>{trainingAction.record.module}</strong>. The original stays on file — retraining
+              adds a new record and links back to it rather than overwriting the history.
+            </p>
+          )}
+          <div>
+            <label className="block text-[11px] font-medium text-(--text-secondary) mb-1.5">Trainee</label>
+            <Dropdown
+              value={trainForm.userId}
+              onChange={(v) => setTrainForm((p) => ({ ...p, userId: v }))}
+              width="w-full"
+              size="sm"
+              options={participantOptions}
+            />
+          </div>
+          <Input
+            id="train-module"
+            label="Training module"
+            required
+            value={trainForm.module}
+            onChange={(e) => setTrainForm((p) => ({ ...p, module: e.target.value }))}
+            placeholder="Data Integrity — ALCOA+"
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              id="train-sop"
+              label="SOP reference"
+              value={trainForm.sopReference}
+              onChange={(e) => setTrainForm((p) => ({ ...p, sopReference: e.target.value }))}
+              placeholder="SOP-QA-014"
+            />
+            <Input
+              id="train-sopver"
+              label="SOP version"
+              value={trainForm.sopVersion}
+              onChange={(e) => setTrainForm((p) => ({ ...p, sopVersion: e.target.value }))}
+              placeholder="v3.0"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              id="train-trainer"
+              label="Trainer"
+              value={trainForm.trainer}
+              onChange={(e) => setTrainForm((p) => ({ ...p, trainer: e.target.value }))}
+              placeholder="Name of the person delivering the training"
+            />
+            <div>
+              <label htmlFor="train-due" className="block text-[11px] font-medium text-(--text-secondary) mb-1.5">
+                Due date
+              </label>
+              <input
+                id="train-due"
+                type="date"
+                className="input w-full"
+                value={trainForm.dueDate}
+                onChange={(e) => setTrainForm((p) => ({ ...p, dueDate: e.target.value }))}
+              />
+            </div>
+          </div>
+          <Textarea
+            id="train-notes"
+            label="Notes"
+            rows={3}
+            value={trainForm.notes}
+            onChange={(e) => setTrainForm((p) => ({ ...p, notes: e.target.value }))}
+          />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="secondary" onClick={() => { setAssignOpen(false); setTrainingAction(null); }}>Cancel</Button>
+            <Button loading={assigning} onClick={handleAssignTraining}>
+              {trainingAction?.kind === "retrain" ? "Assign retraining" : "Assign"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Reassign / reopen / archive modal — all three take a mandatory
+             reason, so they share one surface. ── */}
+      <Modal
+        open={trainingAction !== null && trainingAction.kind !== "retrain"}
+        onClose={() => { setTrainingAction(null); setTrainingReason(""); setReassignTo(""); }}
+        title={
+          trainingAction?.kind === "reassign"
+            ? "Reassign training"
+            : trainingAction?.kind === "reopen"
+              ? "Reopen training record"
+              : "Archive training record"
+        }
+      >
+        <div className="space-y-4">
+          {trainingAction?.kind === "reassign" && (
+            <>
+              <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                Currently assigned to <strong>{trainingAction.record.userName}</strong>. Any progress
+                resets — it belonged to the previous trainee.
+              </p>
+              <div>
+                <label className="block text-[11px] font-medium text-(--text-secondary) mb-1.5">Move to</label>
+                <Dropdown
+                  value={reassignTo}
+                  onChange={setReassignTo}
+                  width="w-full"
+                  size="sm"
+                  options={participantOptions.filter((o) => o.value !== trainingAction.record.userId)}
+                />
+              </div>
+            </>
+          )}
+          {trainingAction?.kind === "reopen" && (
+            <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+              This clears the completion and the trainee&apos;s acknowledgement. Both stay in the audit
+              trail — reopening records a new event, it does not erase the earlier one.
+            </p>
+          )}
+          {trainingAction?.kind === "archive" && (
+            <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+              The record is retired, not deleted. It stops appearing in the training position and on the
+              trainee&apos;s worklist, and stays retrievable as evidence.
+            </p>
+          )}
+          <Textarea
+            id="train-reason"
+            label="Reason"
+            required
+            rows={3}
+            value={trainingReason}
+            onChange={(e) => setTrainingReason(e.target.value)}
+            placeholder="Recorded on the audit trail against this change."
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => { setTrainingAction(null); setTrainingReason(""); }}>Cancel</Button>
+            <Button loading={trainingBusy} onClick={handleTrainingAction}>Confirm</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── Schedule simulation modal ── */}
       <Modal

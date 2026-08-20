@@ -223,8 +223,13 @@ export const SIMULATION_STATUSES: Record<string, StatusDef> = {
 /* ── TRAINING & AWARENESS — Training-record statuses ── */
 
 export const TRAINING_RECORD_STATUSES: Record<string, StatusDef> = {
-  pending: { value: "pending", label: "Pending", color: "#4B5563", bg: "#F3F4F6", description: "Competency not yet recorded for this module", nextActions: ["Complete the training"] },
-  completed: { value: "completed", label: "Completed", color: "#0F6E56", bg: "#E8F5F1", description: "Competency recorded for this module", nextActions: [] },
+  pending: { value: "pending", label: "Assigned", color: "#4B5563", bg: "#F3F4F6", description: "Training assigned to the trainee, not yet started", nextActions: ["Start the training", "Reassign", "Change the due date"] },
+  in_progress: { value: "in_progress", label: "In Progress", color: "#B45309", bg: "#FFFBEB", description: "The trainee has started but not completed this training", nextActions: ["Complete & acknowledge"] },
+  completed: { value: "completed", label: "Completed", color: "#0F6E56", bg: "#E8F5F1", description: "Training completed. An acknowledged record was confirmed by the trainee; one without an acknowledgement was recorded by QA on their behalf", nextActions: ["Reopen if the completion was recorded in error", "Assign retraining"] },
+  // DERIVED, never stored — computed from dueDate vs now by isTrainingOverdue()
+  // in src/lib/training.ts, so it cannot go stale when a due date is extended.
+  // Listed here so the StatusGuide explains a badge users will actually see.
+  overdue: { value: "overdue", label: "Overdue", color: "#B91C1C", bg: "#FEF2F2", description: "Past its due date and not yet complete. A derived state, not a stored one — extending the due date clears it", nextActions: ["Complete the training", "Extend the due date with a recorded reason"] },
 };
 
 /* ── Helper: look up any status ── */
