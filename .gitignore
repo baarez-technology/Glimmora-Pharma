@@ -79,6 +79,13 @@ backend/*.db-journal
 backend/.env
 backend/uploads/
 
+# Dev-login credential panel. The seeded passwords live ONLY in the .local.json,
+# which never leaves the machine; dev-credentials.example.json is the tracked
+# template with placeholders. app/login/page.tsx reads the local file at request
+# time in development builds and falls back to an empty panel when it is absent.
+dev-credentials.local.json
+*.local.json
+
 # Local-only exploratory docs (never committed)
 CLAUDE.draft.md
 CLAUDE.legacy.md

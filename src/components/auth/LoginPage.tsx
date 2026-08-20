@@ -22,6 +22,7 @@ import { login as nextAuthLogin, fetchCurrentUser } from "@/lib/authClient";
 import { flushPersist } from "@/store/persistence";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import type { DevCredGroup } from "@/components/auth/devCredentials";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { PillWithBubbles } from "@/components/animations/PillWithBubbles";
@@ -54,33 +55,15 @@ type FormValues = z.infer<typeof schema>;
 
 // Every row below must correspond to a real seeded account in prisma/seed.ts.
 // Two tables back this: Tenant (super_admin, customer_admin) and User (site users).
-const CRED_ROWS: { org: string; rows: [string, string, string, string][] }[] = [
-  {
-    org: "Platform (bootstrap)",
-    rows: [
-      // Single Super Admin row using email format for UX consistency with the
-      // PGI rows below. The NextAuth Credentials provider accepts both
-      // "superadmin" and "superadmin@glimmora.com" (Tenant.username and
-      // Tenant.email are both @@unique on the same seeded row).
-      ["Super Admin", "superadmin@glimmora.com", "1", "#ef4444"],
-    ],
-  },
-  {
-    org: "Pharma Glimmora International",
-    rows: [
-      ["Customer Admin", "admin@pharmaglimmora.com", "Admin@123", "#8b6914"],
-      ["QA Head", "qa@pharmaglimmora.com", "Demo@123", "#a78bfa"],
-      ["Quality Assurance", "qa.exec@pharmaglimmora.com", "Demo@123", "#818cf8"],
-      ["Regulatory Affairs", "ra@pharmaglimmora.com", "Demo@123", "#fb923c"],
-      ["CSV/Val Lead", "csv@pharmaglimmora.com", "Demo@123", "#38bdf8"],
-      ["QC/Lab Director", "qc@pharmaglimmora.com", "Demo@123", "#10b981"],
-      ["IT/CDO", "it@pharmaglimmora.com", "Demo@123", "#06b6d4"],
-      ["Operations Head", "ops@pharmaglimmora.com", "Demo@123", "#84cc16"],
-    ],
-  },
-];
 
-export function LoginPage() {
+/**
+ * `devCredentials` is supplied by app/login/page.tsx, which reads the gitignored
+ * dev-credentials.local.json at request time. It is ALWAYS an empty array in a
+ * non-development build (the server guards on NODE_ENV before reading), and the
+ * panel below is independently gated the same way — so no seed password can
+ * reach a production bundle even if the file were present on the server.
+ */
+export function LoginPage({ devCredentials = [] }: { devCredentials?: DevCredGroup[] } = {}) {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const toast = useToast();
@@ -551,33 +534,71 @@ export function LoginPage() {
             }
           >
             <div className="rounded-2xl overflow-hidden border border-(--bg-border) bg-(--bg-surface)">
-              <table className="w-full border-collapse text-[11px]">
-                <thead>
-                  <tr className="border-b border-(--bg-border)">
-                    <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Role</th>
-                    <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Email</th>
-                    <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Password</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {CRED_ROWS.map((group) => (
-                    <Fragment key={group.org}>
-                      <tr><td colSpan={3} className="px-2.5 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-(--brand)">{group.org}</td></tr>
-                      {group.rows.map(([role, email, pass, colour], i) => (
-                        <tr key={i} onClick={() => { setValue("email", email); setValue("password", pass); setShowCreds(false); }}
-                          className={clsx("cursor-pointer transition-colors hover:bg-(--bg-elevated)", i < group.rows.length - 1 && "border-b border-(--bg-border)")}>
-                          <td className="px-2.5 py-2"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: colour + "1a", color: colour }}>{role}</span></td>
-                          <td className="px-2.5 py-2 font-mono text-(--text-secondary)">{email}</td>
-                          <td className="px-2.5 py-2 font-mono text-(--text-secondary)">{pass}</td>
-                        </tr>
+              {devCredentials.length === 0 ? (
+                /* The local file is missing, unreadable or empty. Say what to do
+                   about it rather than showing a blank table. */
+                <div className="px-3.5 py-5 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  <p className="font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>No local credentials file</p>
+                  <p className="mb-2">
+                    Copy <span className="font-mono">dev-credentials.example.json</span> to{" "}
+                    <span className="font-mono">dev-credentials.local.json</span> at the repo root and fill in
+                    the passwords from <span className="font-mono">prisma/seed.ts</span>, then reload.
+                  </p>
+                  <p style={{ color: "var(--text-muted)" }}>
+                    The local file is gitignored, so the passwords stay on this machine.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <table className="w-full border-collapse text-[11px]">
+                    <thead>
+                      <tr className="border-b border-(--bg-border)">
+                        <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Role</th>
+                        <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Email</th>
+                        <th className="px-2.5 py-2 text-left font-semibold text-(--text-muted)">Password</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {devCredentials.map((group) => (
+                        <Fragment key={group.org}>
+                          <tr>
+                            <td colSpan={3} className="px-2.5 pt-3 pb-1">
+                              <span className="block text-[10px] font-semibold uppercase tracking-wider text-(--brand)">{group.org}</span>
+                              {group.note && (
+                                <span className="block text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{group.note}</span>
+                              )}
+                            </td>
+                          </tr>
+                          {group.rows.map((row, i) => (
+                            <tr
+                              key={`${group.org}-${row.email}`}
+                              onClick={() => { setValue("email", row.email); setValue("password", row.password); setShowCreds(false); }}
+                              className={clsx("cursor-pointer transition-colors hover:bg-(--bg-elevated)", i < group.rows.length - 1 && "border-b border-(--bg-border)")}
+                            >
+                              <td className="px-2.5 py-2 align-top">
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: row.colour + "1a", color: row.colour }}>{row.role}</span>
+                                {/* Person + site. Two QA Heads per tenant look
+                                    identical without it, and picking the RIGHT
+                                    second signer is the whole point of having
+                                    two — segregation of duties blocks the same
+                                    person signing both sides of a review. */}
+                                {row.who && (
+                                  <span className="block text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>{row.who}</span>
+                                )}
+                              </td>
+                              <td className="px-2.5 py-2 font-mono align-top text-(--text-secondary)">{row.email}</td>
+                              <td className="px-2.5 py-2 font-mono align-top text-(--text-secondary)">{row.password}</td>
+                            </tr>
+                          ))}
+                        </Fragment>
                       ))}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
-              <div className="px-2.5 py-1.5 text-[10px] border-t border-(--bg-border) text-(--text-muted)">
-                Click any row to auto-fill
-              </div>
+                    </tbody>
+                  </table>
+                  <div className="px-2.5 py-1.5 text-[10px] border-t border-(--bg-border) text-(--text-muted)">
+                    Click any row to auto-fill · local file, never committed
+                  </div>
+                </>
+              )}
             </div>
           </Modal>
         </div>
