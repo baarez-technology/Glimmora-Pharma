@@ -16,14 +16,20 @@
  */
 
 export interface DevCredRow {
-  /** Role label shown on the chip, e.g. "QA Head". */
+  /**
+   * The STORED role slug — "qa_head", not "QA Head". The panel renders it
+   * through roleLabel() from src/lib/labels/roles.ts, so the chip always says
+   * exactly what the rest of the app says for that role. Holding a display
+   * string here is what let the panel drift out of step in the first place.
+   */
   role: string;
   /** Who this account is — person and site, e.g. "Dr. Priya Sharma · CHN". */
   who?: string;
   /** Identifier to autofill. Email or bare username both authenticate. */
   email: string;
   password: string;
-  /** Chip colour, a hex string. Used at 10% alpha for the chip background. */
+  /** Chip colour, a hex string. Used at 10% alpha for the chip background.
+   *  Assigned per role slug by scripts/gen-dev-credentials.ts. */
   colour: string;
 }
 

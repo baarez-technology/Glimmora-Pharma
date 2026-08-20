@@ -23,6 +23,7 @@ import { flushPersist } from "@/store/persistence";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import type { DevCredGroup } from "@/components/auth/devCredentials";
+import { roleLabel } from "@/lib/labels/roles";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { PillWithBubbles } from "@/components/animations/PillWithBubbles";
@@ -576,7 +577,14 @@ export function LoginPage({ devCredentials = [] }: { devCredentials?: DevCredGro
                               className={clsx("cursor-pointer transition-colors hover:bg-(--bg-elevated)", i < group.rows.length - 1 && "border-b border-(--bg-border)")}
                             >
                               <td className="px-2.5 py-2 align-top">
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: row.colour + "1a", color: row.colour }}>{row.role}</span>
+                                {/* roleLabel(), not a hand-written string. The
+                                    panel previously carried its own labels and
+                                    drifted: it said "Super Admin" where the app
+                                    says "Platform Admin", and "CSV/Val Lead"
+                                    where the app says "CSV / Val Lead". Reading
+                                    the same function the rest of the UI reads
+                                    makes that class of bug impossible. */}
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: row.colour + "1a", color: row.colour }}>{roleLabel(row.role)}</span>
                                 {/* Person + site. Two QA Heads per tenant look
                                     identical without it, and picking the RIGHT
                                     second signer is the whole point of having
