@@ -54,7 +54,7 @@ import { DataTable, type DataColumn, type DataFilter } from "@/components/table/
 import { PageLayout, type PageAction } from "@/components/layout/PageLayout";
 import { Drawer } from "@/components/ui/Drawer";
 import { RecordAuditTrail } from "@/components/shared";
-import { getDeviationAuditTrail } from "@/actions/deviations";
+import { getDeviationAuditTrail, reassignDeviation, reopenDeviation } from "@/actions/deviations";
 import type { RecordAuditRow } from "@/lib/queries/recordAudit";
 import { MotionList, MotionListItem } from "@/components/motion/Motion";
 import { DEVIATION_STATUSES } from "@/constants/statusTaxonomy";
@@ -258,6 +258,52 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
       .catch(() => { if (!cancelled) setAuditRows([]); });
     return () => { cancelled = true; };
   }, [selectedId]);
+
+  // Reassign / reopen — QA authority. Both take a mandatory reason: a transfer of
+  // GxP responsibility, or the re-opening of a signed-closed record, with no
+  // recorded rationale is the kind of unexplained change ALCOA+ exists to catch.
+  const [devAction, setDevAction] = useState<"reassign" | "reopen" | null>(null);
+  const [devActionReason, setDevActionReason] = useState("");
+  const [devActionOwner, setDevActionOwner] = useState("");
+  const [devActionBusy, setDevActionBusy] = useState(false);
+
+  async function handleDeviationAction() {
+    if (!selected || !devAction) return;
+    if (devAction === "reassign" && !devActionOwner) {
+      setErrorMsg("Pick who the deviation should move to.");
+      setErrorPopup(true);
+      return;
+    }
+    if (devActionReason.trim().length < 5) {
+      setErrorMsg("A reason of at least 5 characters is required.");
+      setErrorPopup(true);
+      return;
+    }
+    setDevActionBusy(true);
+    try {
+      const res =
+        devAction === "reassign"
+          ? await reassignDeviation(selected.id, { newOwnerId: devActionOwner, reason: devActionReason.trim() })
+          : await reopenDeviation(selected.id, { reason: devActionReason.trim() });
+      if (!res.success) {
+        setErrorMsg(res.error);
+        setErrorPopup(true);
+        return;
+      }
+      setDevAction(null);
+      setDevActionReason("");
+      setDevActionOwner("");
+      setSuccessMsg(
+        devAction === "reassign"
+          ? `${selected.reference ?? selected.id.slice(0, 8)} reassigned`
+          : `${selected.reference ?? selected.id.slice(0, 8)} reopened — back in investigation`,
+      );
+      setSuccessPopup(true);
+      router.refresh();
+    } finally {
+      setDevActionBusy(false);
+    }
+  }
 
   const [rejectReason, setRejectReason] = useState("");
   // Part 11 — reject is now an e-signature (password + message). Eye toggles for
@@ -707,8 +753,24 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
           }
           footer={
             ((selected.status === "open" && isQAHead) ||
-              (selected.status === "pending_qa_review" && isQAHead && !selected.activeTask)) ? (
+              (selected.status === "pending_qa_review" && isQAHead && !selected.activeTask) ||
+              // Reassign is available across every live status; reopen only on a
+              // terminal one. Either alone is enough to render the footer.
+              (isQAHead && selected.status !== "closed" && selected.status !== "rejected") ||
+              (isQAHead && (selected.status === "closed" || selected.status === "rejected"))) ? (
               <div className="flex justify-end gap-2">
+                {/* Reassign — transfer ownership of the deviation itself. Distinct
+                    from assigning a task: this moves responsibility for the
+                    record, which is why it is QA-only and reason-gated. */}
+                {isQAHead && selected.status !== "closed" && selected.status !== "rejected" && (
+                  <Button variant="ghost" size="sm" onClick={() => { setDevAction("reassign"); setDevActionReason(""); setDevActionOwner(""); }}>Reassign</Button>
+                )}
+                {/* Reopen — the closure signature is RETAINED, not revoked: it was
+                    a true statement when made, and deleting it would erase
+                    evidence. The next closure mints its own. */}
+                {isQAHead && (selected.status === "closed" || selected.status === "rejected") && (
+                  <Button variant="ghost" size="sm" onClick={() => { setDevAction("reopen"); setDevActionReason(""); }}>Reopen</Button>
+                )}
                 {selected.status === "open" && isQAHead && (
                   <Button variant="primary" size="sm" icon={Search} loading={startingInv} disabled={startingInv} onClick={handleStartInvestigation}>Start Investigation</Button>
                 )}
@@ -1220,6 +1282,65 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
       </Modal>
 
       {/* ═══ REJECT MODAL ═══ */}
+      {/* Reassign / reopen — one surface, both reason-gated. */}
+      <Modal
+        open={devAction !== null}
+        onClose={devActionBusy ? () => undefined : () => { setDevAction(null); setDevActionReason(""); setDevActionOwner(""); }}
+        title={devAction === "reassign" ? "Reassign deviation" : "Reopen deviation"}
+      >
+        <div className="space-y-4">
+          {devAction === "reassign" && (
+            <>
+              <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                Currently owned by <strong>{selected ? ownerName(selected.owner) : ""}</strong>. This transfers
+                responsibility for the deviation itself — it does not move any tasks already assigned from it.
+              </p>
+              <div>
+                <label className="block text-[11px] font-medium text-(--text-secondary) mb-1.5">Transfer to</label>
+                <Dropdown
+                  value={devActionOwner}
+                  onChange={setDevActionOwner}
+                  width="w-full"
+                  size="sm"
+                  options={complianceUsers
+                    .filter((u) => u.id !== selected?.owner)
+                    .map((u) => ({ value: u.id, label: `${u.name} (${roleLabel(u.role)})` }))}
+                />
+              </div>
+            </>
+          )}
+          {devAction === "reopen" && (
+            <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+              This returns the deviation to <strong>Under Investigation</strong> and clears the closure record.
+              The closure signature is <strong>kept</strong> — it was a true statement when it was made, and the
+              audit trail records the reopen as its own event rather than erasing what came before.
+            </p>
+          )}
+          <div>
+            <label htmlFor="dev-action-reason" className="block text-[11px] font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+              Reason *
+            </label>
+            <textarea
+              id="dev-action-reason"
+              rows={3}
+              className="input w-full resize-none"
+              value={devActionReason}
+              onChange={(e) => setDevActionReason(e.target.value)}
+              placeholder="Recorded on the audit trail against this change."
+            />
+            <p className="text-[10px] text-right mt-0.5" style={{ color: devActionReason.trim().length < 5 ? "var(--danger)" : "var(--text-muted)" }}>
+              {devActionReason.trim().length} characters{devActionReason.trim().length < 5 ? " · min 5" : ""}
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" disabled={devActionBusy} onClick={() => { setDevAction(null); setDevActionReason(""); }}>Cancel</Button>
+            <Button variant="primary" size="sm" loading={devActionBusy} onClick={handleDeviationAction}>
+              {devAction === "reassign" ? "Reassign" : "Reopen"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal open={rejectModal} onClose={() => setRejectModal(false)} title="Reject Deviation">
         <div className="space-y-4">
           <p className="alert alert-info text-[12px]">This is a GxP electronic signature under 21 CFR Part 11. Your identity, the meaning of this signature (Rejected), and the message are recorded; your password is verified on the server.</p>
