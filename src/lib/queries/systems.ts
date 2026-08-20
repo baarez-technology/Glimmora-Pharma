@@ -1,4 +1,6 @@
 import { cache } from "react";
+import { getRecordAuditRows, type RecordAuditRow } from "@/lib/queries/recordAudit";
+import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AuthSession } from "@/lib/auth";
@@ -120,21 +122,33 @@ export const getLinkableFindings = cache(async (tenantId: string) => {
 });
 
 /** 3 most-recent audit entries for a system + its child records. */
-export const getSystemRecentActivity = cache(async (systemId: string, tenantId: string) => {
-  const sys = await prisma.gxPSystem.findFirst({
-    where: { id: systemId, tenantId },
-    select: { id: true, validationStages: { select: { id: true } }, rtmEntries: { select: { id: true } } },
-  });
-  if (!sys) return [];
-  const ids = [sys.id, ...sys.validationStages.map((s) => s.id), ...sys.rtmEntries.map((r) => r.id)];
-  return prisma.auditLog.findMany({
+/**
+ * Per-system audit history (system + its validation stages + its RTM entries).
+ *
+ * Was a 3-row "Recent activity" teaser that showed a lowercased action slug and
+ * no previous value. The CSV/CSA documentation review asked the manual to
+ * describe a validation audit trail, so this now returns the shared
+ * RecordAuditRow shape — with userRole and oldValue — and enough rows to be an
+ * actual history rather than a preview. The "full audit trail" link on the card
+ * still goes to the tenant-wide module for filtering and export.
+ *
+ * SIGNING_AUDIT_MODULE is included alongside "CSV/CSA": a validation sign-off
+ * mints its signature row under the signing tag, and a validation history that
+ * omitted the signature would be the one thing an inspector came to see.
+ */
+export const getSystemRecentActivity = cache(
+  async (systemId: string, tenantId: string, limit = 50): Promise<RecordAuditRow[]> => {
+    const sys = await prisma.gxPSystem.findFirst({
+      where: { id: systemId, tenantId },
+      select: { id: true, validationStages: { select: { id: true } }, rtmEntries: { select: { id: true } } },
+    });
+    if (!sys) return [];
+    const ids = [sys.id, ...sys.validationStages.map((s) => s.id), ...sys.rtmEntries.map((r) => r.id)];
     // RUNG 3C — module string unified to "CSV/CSA" (the legacy "CSV / Validation"
-    // split is backfilled away). Single value now matches all CSV/CSA entries.
-    where: { tenantId, recordId: { in: ids }, module: "CSV/CSA" },
-    orderBy: { createdAt: "desc" },
-    take: 3,
-  });
-});
+    // split is backfilled away).
+    return getRecordAuditRows(tenantId, ["CSV/CSA", SIGNING_AUDIT_MODULE], ids, limit);
+  },
+);
 
 /**
  * Headline stats for the CSV/CSA module.

@@ -26,6 +26,7 @@ import {
 } from "@/lib/queries/deviations";
 import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/lib/reference";
 import { computeAuditDiff, auditDiffPayload, normalizeDate, type AuditDiffField } from "@/lib/auditDiff";
+import { getDeviationAuditRows, type RecordAuditRow } from "@/lib/queries/recordAudit";
 import { FDA_SEVERITY, coerceSeverityCasing, normalizeSeverityForDisplay } from "@/lib/severity";
 import { INVESTIGATION_RCA_METHODS } from "@/constants/rcaMethods";
 import { sanitizeServerError } from "@/lib/errors";
@@ -1620,4 +1621,25 @@ export async function reopenDeviation(
     console.error("[action] reopenDeviation failed:", err);
     return { success: false, error: "Failed to reopen deviation" };
   }
+}
+
+/**
+ * Per-deviation audit history, for the detail modal's Audit trail panel.
+ *
+ * A read-only loader exposed as a server action because Deviations have no
+ * per-id route — the detail IS a modal on the list page, so there is no server
+ * component to fetch this during render. Mirrors getDeviationCloseSodContext,
+ * which is fetched the same way on the same selection.
+ *
+ * Tenant scoping is re-checked here, not inherited from the list: a client can
+ * call a server action with any id.
+ */
+export async function getDeviationAuditTrail(deviationId: string): Promise<RecordAuditRow[]> {
+  const session = await requireAuth();
+  const owned = await prisma.deviation.findFirst({
+    where: { id: deviationId, tenantId: session.user.tenantId },
+    select: { id: true },
+  });
+  if (!owned) return [];
+  return getDeviationAuditRows(session.user.tenantId, deviationId);
 }

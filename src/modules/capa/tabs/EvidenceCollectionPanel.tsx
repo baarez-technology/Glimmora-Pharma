@@ -33,6 +33,7 @@ import {
   addEvidenceFile,
   addEvidenceFileToCategory,
   rejectEvidenceCategory,
+  approveEvidenceCategory,
   loadEvidenceForCAPA,
   loadEvidenceNoteHistory,
   removeEvidenceFile,
@@ -121,6 +122,9 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
   const [rejectReason, setRejectReason] = useState("");
   const [rejectError, setRejectError] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState(false);
+  // Which category is mid-approve — a per-row id, not a boolean, so approving
+  // one category does not disable the control on every other row.
+  const [approvingId, setApprovingId] = useState<string | null>(null);
 
   // Per-category expanded state. Categories with any activity (status not
   // Pending OR files OR notes) seed expanded on first load; truly empty
@@ -203,6 +207,22 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
     setRejectItem(null);
     setRejectReason("");
     panelToast.success("Evidence rejected — returned to the assignee for rework (CAPA stays in QA review).");
+    await refresh();
+  }
+
+  // QA approves ONE evidence category in place — the positive counterpart to
+  // reject. Records WHO reviewed this category and WHEN as a first-class event,
+  // instead of leaving per-category review implicit in the whole-CAPA approval.
+  // No reason field: a clean approval needs no justification, unlike a rejection.
+  async function handleApproveEvidence(item: EvidenceItemSummary) {
+    setApprovingId(item.id);
+    const res = await approveEvidenceCategory(item.id, {});
+    setApprovingId(null);
+    if (!res.success) {
+      panelToast.error(res.error || "Could not approve evidence.");
+      return;
+    }
+    panelToast.success(`"${CATEGORY_LABEL[item.category]}" evidence approved.`);
     await refresh();
   }
 
@@ -315,6 +335,9 @@ export function EvidenceCollectionPanel({ capaId, readOnly = false, onCountsChan
           canReject={canReject}
           assigneeMode={assigneeMode}
           onReject={() => { setRejectItem(item); setRejectReason(""); setRejectError(null); }}
+          canApprove={canReject}
+          approving={approvingId === item.id}
+          onApprove={() => handleApproveEvidence(item)}
         />
       ))}
 
@@ -415,9 +438,14 @@ interface CardProps {
    *  hide file-remove. Upload stays enabled (server allows the assignee). */
   assigneeMode?: boolean;
   onReject?: () => void;
+  /** QA reviewer may approve this evidence item. Same gate as canReject —
+   *  approve and reject are two halves of one disposition. */
+  canApprove?: boolean;
+  approving?: boolean;
+  onApprove?: () => void;
 }
 
-function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded, canReject = false, assigneeMode = false, onReject }: CardProps) {
+function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded, canReject = false, assigneeMode = false, onReject, canApprove = false, approving = false, onApprove }: CardProps) {
   const toast = useToast();
   const Icon = CATEGORY_ICON[item.category];
   const locked = item.isLocked;
@@ -647,10 +675,21 @@ function EvidenceCard({ item, readOnly, onChange, isExpanded, onToggleExpanded, 
         </div>
       )}
 
-      {/* QA reviewer reject control (qa_head @ pending_qa_review only — SoD). */}
-      {canReject && item.status !== "REJECTED" && (
-        <div className="mb-2">
-          <Button variant="danger" size="xs" onClick={onReject}>Reject this evidence</Button>
+      {/* QA reviewer disposition (qa_head @ pending_qa_review only — SoD).
+          Approve sits beside Reject so the reviewer has a positive action, not
+          only a negative one: previously the ONLY per-category verdict QA could
+          record was a rejection. Approve is offered only once the driver has
+          finished the category — approving PENDING/IN_PROGRESS evidence would
+          attest to something that is not there yet (the server enforces this
+          too; the UI just doesn't offer an action that would be refused). */}
+      {(canReject || canApprove) && item.status !== "REJECTED" && (
+        <div className="mb-2 flex items-center gap-2">
+          {canApprove && (item.status === "COMPLETE" || item.status === "NOT_APPLICABLE") && (
+            <Button variant="primary" size="xs" loading={approving} onClick={onApprove}>
+              {item.reviewedAt ? "Re-approve" : "Approve this evidence"}
+            </Button>
+          )}
+          {canReject && <Button variant="danger" size="xs" onClick={onReject}>Reject this evidence</Button>}
         </div>
       )}
 

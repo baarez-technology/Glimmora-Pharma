@@ -614,6 +614,107 @@ export async function rejectEvidenceCategory(
   }
 }
 
+/* -- ACTION 3b: APPROVE an evidence category ---------------------------------
+ *
+ * The positive counterpart to rejectEvidenceCategory. Before this the review
+ * surface was asymmetric: QA could record a rejection as a first-class,
+ * attributable event, but "I reviewed this category and it is acceptable" was
+ * implicit in approving the whole CAPA and left no per-category trace. An
+ * auditor asking "who reviewed the batch records for this CAPA, and when" had
+ * an answer only if the answer was "they were rejected".
+ *
+ * Deliberately does NOT introduce an "APPROVED" status value. The category is
+ * already COMPLETE; approval is a REVIEW fact about it, and it is recorded
+ * where reject records its own -- reviewedById / reviewedAt -- plus a discrete
+ * audit event. Adding a fifth status would have rippled into every readiness
+ * calculation, the lock rules and the UI badge maps for no gain.
+ * -------------------------------------------------------------------------- */
+
+const ApproveEvidenceCategorySchema = z.object({
+  // Optional: a clean approval needs no words. Captured when given.
+  comment: z.string().max(2000).optional(),
+});
+
+export async function approveEvidenceCategory(
+  evidenceItemId: string,
+  input: z.input<typeof ApproveEvidenceCategorySchema> = {},
+): Promise<ActionResult> {
+  const parsed = ApproveEvidenceCategorySchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+
+  const { session, item } = await loadEvidenceItemScoped(evidenceItemId);
+  if (!item) return { success: false, error: "Evidence item not found" };
+
+  // Same QA-only gate as reject -- approving and rejecting are the two halves of
+  // one disposition and must not have different authority.
+  if (!CAPA_REJECT_ROLES.includes(session.user.role)) {
+    return { success: false, error: "Only QA Head can approve evidence." };
+  }
+  if (item.capa.status !== "pending_qa_review") {
+    return { success: false, error: "Only evidence on a CAPA awaiting QA review can be approved." };
+  }
+  // Nothing to approve unless the driver has actually finished the category.
+  // Approving a PENDING or IN_PROGRESS category would attest to evidence that
+  // is not there.
+  if (item.status !== "COMPLETE" && item.status !== "NOT_APPLICABLE") {
+    return { success: false, error: "Only a completed (or not-applicable) evidence category can be approved." };
+  }
+
+  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
+  try {
+    requireGxPAuthor(actor);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+  }
+  const now = new Date();
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.evidenceItem.update({
+        where: { id: evidenceItemId },
+        data: {
+          reviewedById: actor.userId,
+          reviewedAt: now,
+          // An approval supersedes any earlier rejection on the same category.
+          rejectionReason: null,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: item.capa.tenantId,
+          userId: actor.userId,
+          userName: actor.displayName,
+          userRole: actor.role,
+          module: AUDIT_MODULE,
+          action: "EVIDENCE_APPROVED",
+          recordId: evidenceItemId,
+          recordTitle: item.capa.description.slice(0, 80),
+          oldValue: item.rejectionReason ? "REJECTED" : item.status,
+          newValue: JSON.stringify({
+            capaId: item.capa.id,
+            category: item.category,
+            statusAtApproval: item.status,
+            // Explicit: approving a category the driver marked N/A attests to
+            // the N/A JUDGEMENT, not to uploaded evidence. Those are different
+            // claims and the trail should not flatten them.
+            approvedAsNotApplicable: item.status === "NOT_APPLICABLE",
+            supersededRejection: item.rejectionReason !== null,
+            ...(parsed.data.comment ? { comment: parsed.data.comment.trim() } : {}),
+          }),
+        },
+      });
+    });
+
+    revalidatePath(`/capa/${item.capa.id}`);
+    revalidatePath("/capa");
+    return { success: true, data: null };
+  } catch (err) {
+    console.error("[action] approveEvidenceCategory failed:", err);
+    return { success: false, error: sanitizeServerError(err, "Failed to approve evidence") };
+  }
+}
+
 // â”€â”€ ACTION 4: soft-delete a file â”€â”€
 
 export async function removeEvidenceFile(

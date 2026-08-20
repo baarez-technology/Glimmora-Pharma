@@ -48,7 +48,7 @@ export default async function SystemDetailRoute({ params }: PageProps) {
       <SystemDetailPage
         system={system}
         availableFindings={availableFindings.map((f) => ({ id: f.id, reference: f.reference ?? undefined, requirement: f.requirement, status: f.status }))}
-        recentActivity={recentActivity.map((a) => ({ id: a.id, action: a.action, userName: a.userName, createdAt: a.createdAt.toISOString(), newValue: a.newValue ?? undefined }))}
+        recentActivity={recentActivity}
         defaultTab={defaultTab}
       />
     </ErrorBoundary>

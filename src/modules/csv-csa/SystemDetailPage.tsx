@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { RecordAuditTrail } from "@/components/shared";
+import type { RecordAuditRow } from "@/lib/queries/recordAudit";
 import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { Clock, AlertTriangle } from "lucide-react";
-import dayjs from "@/lib/dayjs";
 import { displayUserName, displaySiteName } from "@/lib/identity-display";
 import { useRole } from "@/hooks/useRole";
 import { useTenantConfig } from "@/hooks/useTenantConfig";
@@ -24,7 +25,9 @@ import { SignOffTab } from "@/modules/csv-csa/detail/SignOffTab";
 import { EditSystemModal, type SystemForm as EditSystemForm } from "@/modules/csv-csa/modals/EditSystemModal";
 import { WORKFLOW_TABS, type WorkflowTab } from "@/modules/csv-csa/detail/workflow";
 
-interface RecentActivityRow { id: string; action: string; userName: string; createdAt: string; newValue?: string; }
+// The per-record audit shape, shared with Deviation and the RecordAuditTrail
+// panel — see src/lib/queries/recordAudit.ts.
+type RecentActivityRow = RecordAuditRow;
 
 export interface SystemDetailPageProps {
   system: SystemFromPrisma;
@@ -181,18 +184,18 @@ export function SystemDetailPage({ system: prismaSystem, availableFindings, rece
             showPart11={hasFramework("p11")} showAnnex11={hasFramework("annex11")} showGAMP5={hasFramework("gamp5")}
             availableFindings={availableFindings} onError={setErrorMsg} onOk={setOkMsg} sections={["di", "remediation", "findings", "capas"]}
           />
-          {/* Recent activity */}
-          <div className="card"><div className="card-header"><div className="flex items-center gap-2"><Clock className="w-4 h-4" style={{ color: "#64748b" }} aria-hidden="true" /><span className="card-title">Recent activity</span></div></div><div className="card-body">
-            {recentActivity.length === 0 ? <p className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>No recent activity.</p> : (
-              <ul className="space-y-1.5">
-                {recentActivity.map((a) => (
-                  <li key={a.id} className="text-[11px] flex items-center justify-between gap-2">
-                    <span style={{ color: "var(--text-secondary)" }}>{a.action.replace(/_/g, " ").toLowerCase()}{a.newValue ? ` · ${a.newValue.slice(0, 40)}` : ""}</span>
-                    <span className="shrink-0" style={{ color: "var(--text-muted)" }}>{a.userName} · {dayjs.utc(a.createdAt).tz(org.timezone).format(org.dateFormat)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+          {/* Validation audit trail — the system, its stages and its RTM entries,
+              with the previously-recorded value where the writer captured one.
+              Open by default: on a validated system this is the panel an
+              inspector is being walked through, so it should not need a click. */}
+          <div className="card"><div className="card-header"><div className="flex items-center gap-2"><Clock className="w-4 h-4" style={{ color: "#64748b" }} aria-hidden="true" /><span className="card-title">Validation audit trail</span></div></div><div className="card-body">
+            <RecordAuditTrail
+              rows={recentActivity}
+              timezone={org.timezone}
+              dateFormat={org.dateFormat}
+              title="Activity on this system"
+              defaultOpen
+            />
             <button type="button" onClick={() => router.push(`/audit-trail?module=CSV/CSA&systemId=${system.id}`)} className="mt-2 text-[11px] text-[#0ea5e9] hover:underline border-none bg-transparent cursor-pointer p-0">→ Full audit trail for this system</button>
           </div></div>
         </div>

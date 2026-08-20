@@ -53,6 +53,9 @@ import { StatCard, StatusGuide } from "@/components/shared";
 import { DataTable, type DataColumn, type DataFilter } from "@/components/table/DataTable";
 import { PageLayout, type PageAction } from "@/components/layout/PageLayout";
 import { Drawer } from "@/components/ui/Drawer";
+import { RecordAuditTrail } from "@/components/shared";
+import { getDeviationAuditTrail } from "@/actions/deviations";
+import type { RecordAuditRow } from "@/lib/queries/recordAudit";
 import { MotionList, MotionListItem } from "@/components/motion/Motion";
 import { DEVIATION_STATUSES } from "@/constants/statusTaxonomy";
 import {
@@ -242,6 +245,20 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
       .catch(() => { if (!cancelled) setSodContext(null); });
     return () => { cancelled = true; };
   }, [selectedId]);
+  // Per-record audit trail for the detail modal. Fetched on selection, like the
+  // SoD context above — there is no per-deviation route to load it server-side.
+  const [auditRows, setAuditRows] = useState<RecordAuditRow[]>([]);
+  useEffect(() => {
+    if (!selectedId) { setAuditRows([]); return; }
+    let cancelled = false;
+    void getDeviationAuditTrail(selectedId)
+      .then((rows) => { if (!cancelled) setAuditRows(rows); })
+      // A failed audit read must never break the detail view: the panel shows
+      // an empty state rather than taking the modal down with it.
+      .catch(() => { if (!cancelled) setAuditRows([]); });
+    return () => { cancelled = true; };
+  }, [selectedId]);
+
   const [rejectReason, setRejectReason] = useState("");
   // Part 11 — reject is now an e-signature (password + message). Eye toggles for
   // both signature password fields.
@@ -822,6 +839,18 @@ export function DeviationPage({ deviations: serverDeviations }: DeviationPagePro
                 </div>
               );
             })()}
+
+            {/* Audit trail — this deviation and its tasks, including the closure /
+                reject signature rows. Collapsed by default: it is reference
+                material during normal work and the thing you open on demand
+                during an inspection. The tenant-wide Audit Trail module remains
+                the authoritative, exportable record. */}
+            <RecordAuditTrail
+              rows={auditRows}
+              timezone={timezone}
+              dateFormat={dateFormat}
+              title="Audit trail for this deviation"
+            />
 
             {/* Owner + Due */}
             <div className="grid grid-cols-2 gap-3 text-[11px] pt-2 border-t" style={{ borderColor: isDark ? "#1e3a5a" : "#e2e8f0" }}>

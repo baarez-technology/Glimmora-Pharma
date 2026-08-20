@@ -15,3 +15,4 @@ export { StagedDocumentUpload, revokeStagedFiles, type StagedFile } from "./Stag
 export { StatusBadge } from "./StatusBadge";
 export { RegulatoryRegionBadges } from "./RegulatoryRegionBadges";
 export { StatusGuide } from "./StatusGuide";
+export { RecordAuditTrail } from "./RecordAuditTrail";
