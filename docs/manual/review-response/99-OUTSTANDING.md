@@ -35,16 +35,26 @@ Note that this migration stacks on an **already-unapplied lineage** — the
 migrations before it have not been deployed either. That backlog has to be worked
 through in order.
 
-### 2. Fix the CAPA auto-close in the AI backend
+### 2. ~~Fix the CAPA auto-close in the AI backend~~ — already fixed
 
-`pharma_glimmora_ai_backend/app/routers/effectiveness_router.py:237` closes CAPAs
-**without an electronic signature**, per this workspace's own
-`docs/PRODUCTION-ISSUES-REPORT.md`. It is in the other repository and out of scope
-for this branch.
+**This gate is cleared.** An earlier draft of this file repeated the finding from
+`docs/PRODUCTION-ISSUES-REPORT.md` (dated 9 July) that the AI backend's
+effectiveness route auto-closes CAPAs without a signature. It no longer does.
 
-**Module 4's audit section states that a CAPA closes under signature.** While that
-route is live, that statement is not reliably true. Either fix the route or
-disable it before publishing Module 4.
+`pharma_glimmora_ai_backend/app/routers/effectiveness_router.py` now sets the
+CAPA to *"Pending Closure — Effectiveness Passed"* and returns a message stating
+that QA Head must review and electronically sign to close it, citing §11.50. The
+effectiveness check recommends closure; it cannot execute it.
+
+**Module 4's statement that a CAPA closes under signature is therefore accurate**
+and needs no gate.
+
+Treat the July issues report as **stale** generally, not just on this point — the
+`SECURITY_FIXES_DEPLOYED.md` and `CRITICAL_SECURITY_FIXES.md` work in August
+closed much of it. Re-verify any finding from it against the code before acting.
+Two things that were open in July and are now confirmed closed: no `.env` file
+and no API key is tracked in the backend repository, and 22 of its 25 routers now
+require authentication.
 
 ### 3. Re-shoot the screenshots
 
