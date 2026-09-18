@@ -79,6 +79,12 @@ backend/*.db-journal
 backend/.env
 backend/uploads/
 
+# Local-only seeded dev credentials. Holds real seed passwords for the login
+# page's Developer Credentials panel and must never reach version control —
+# without this rule a `git add -A` commits them.
+dev-credentials.local.json
+*.local.json
+
 # Local-only exploratory docs (never committed)
 CLAUDE.draft.md
 CLAUDE.legacy.md
