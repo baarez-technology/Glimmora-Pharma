@@ -1,13 +1,56 @@
 # Glimmora Pharma Refactoring Analysis (Verified)
 
 - **Date:** 25 September 2026
-- **Revision:** 28 September 2026 - re-verified against source by static audit
-- **Scope:** `Glimmora-Pharma/` (Next.js) and `pharma_glimmora_ai_backend/` (FastAPI)
-- **Related plan:** `2026-09-25-refactor-pharma-stack.md` (same directory)
+- **Revision:** 29 September 2026 - re-verified against source by static audit; repository
+  ownership, the phase integration contract, and seven corrected claims added
+- **Related plan:** `docs/refactor-pharma-stack.md` (same directory)
 - **Audience:** Developers taking part in the refactoring work
 - **Method:** Read-only static audit of both working trees. Every finding below cites
   `file:line`. No claim in this document is carried over from the previous pass without
   re-verification; section 9 lists the claims that changed.
+
+## 0. Repository ownership
+
+Two sibling repositories, one direction of dependency. This is fixed and is not reopened in
+review.
+
+| Concern | Repository | Local path | Deployed as |
+|---|---|---|---|
+| Frontend, interface, identity, session, Server Actions, Prisma schema, billing UI | `Glimmora-Pharma` | `.\Glimmora-Pharma` | DigitalOcean `web` service, and the `migrate` job |
+| AI service, advisory endpoints, audit trail, billing service | `pharma_glimmora_ai_backend` | `.\pharma_glimmora_ai_backend` | DigitalOcean `api` service |
+| Deployment topology for both | `Glimmora-Pharma` | `.do/app.yaml` | DigitalOcean App Platform |
+
+Rules that follow from that separation, and that every finding and every phase must respect:
+
+1. **A concern lives in exactly one repository.** Backend logic goes in
+   `pharma_glimmora_ai_backend`. Frontend code goes in `Glimmora-Pharma`. A change that
+   spans both is two changes, in two commits, reviewed together - not one change that
+   half-lives in each.
+2. **The backend is never vendored into the frontend.** There is no `backend/` folder
+   inside `Glimmora-Pharma`, and one must not be created. `.do/app.yaml:31-35` records
+   what happened last time: a `source_dir: /backend` snapshot drifted months behind
+   `ai_develop` and carried 12 of 24 routers, so every newer AI endpoint 404'd in
+   production while working locally. Several documents in the frontend repository still
+   describe a vendored `backend/` folder; see section 9.
+3. **Backend changes modify existing files in place.** New modules are created only where
+   the plan calls for a new responsibility - `app/core/`, `app/models/audit_model.py`,
+   `app/middleware/`. Files are not renamed, split, or relocated for tidiness, and no
+   service is moved between the flat and `app/services/` conventions before the phase that
+   decides which convention is correct. Restructuring is sequenced, never incidental.
+4. **Frontend integration uses the existing structures.** The AI backend-for-frontend at
+   `app/api/ai-proxy/[...path]/route.ts`, the NextAuth session, and the Server Actions in
+   `src/actions/` are the integration seams. A new frontend integration does not introduce
+   a new client library, a new state pattern, or a new proxy. Analysis 7.1 is the strongest
+   engineering in the codebase and is the template.
+5. **The dependency direction is one-way.** Next.js calls FastAPI. FastAPI never calls
+   Next.js. `.do/app.yaml:140-142` points `BACKEND_URL` at `${api.PRIVATE_URL}` so browser
+   and Next.js server reach the AI service over the private network and never over the
+   public internet.
+6. **Every phase ends by wiring the two together, and is confirmed before the next
+   begins.** A phase that leaves the frontend unable to talk to the backend is not
+   finished, regardless of how green its own tests are. See section 10, invariants 11 and
+   12.
+
 
 ## 1. Purpose
 
@@ -590,9 +633,17 @@ const ALLOWED_PREFIXES = ["api/ai/", "api/v1/"];
 const BLOCKED_PATHS = [/^api\/v1\/auth\//i];
 ```
 
-There is one flaw: `BACKEND_URL` falls back to `NEXT_PUBLIC_API_URL` and then to
-`"http://localhost:8000"` (`:9-12`). A production deploy missing `BACKEND_URL` proxies to
-localhost silently. The 503-on-missing-secret path fails closed; this one does not.
+There is one flaw, and it is a **P1 fail-open** rather than a footnote: `BACKEND_URL` falls
+back to `NEXT_PUBLIC_API_URL` and then to `"http://localhost:8000"` (`:9-12`). A production
+deploy missing `BACKEND_URL` proxies to localhost silently. The 503-on-missing-secret path
+fails closed; this one does not, and the two sit twelve lines apart in the same file, which
+is the worst place for them to disagree. `safeEqual` is exported at `:119-123` for inbound
+service-token validation and has no callers; it is the correct primitive and is unused.
+
+Fix it in the stabilise phase, alongside the webhook unblock: in a non-development
+environment, a missing `BACKEND_URL` must return 503 naming the variable, exactly as the
+missing signing key does. The same rule, the same failure mode, the same answer.
+
 
 `safeEqual` is exported from `aiToken.server.ts:119-123` for callers validating inbound
 service tokens. It has no callers.
@@ -699,6 +750,22 @@ Unchanged in intent from the previous pass, and the plan implements it in this o
 | "Rate limiting and login lockout are kept in process memory" | **Confirmed and understated.** It also covers 3 of roughly 21 billable endpoints, login has no rate limit, and both stores grow without bound |
 | "Plan to move billing into FastAPI" | Direction correct. The previous phase order was not - it migrated a flow that could not run, which would have carried the IDOR, the dead account and the missing audit trail into the new service |
 
+### 9.1 Second-pass corrections, 29 September 2026
+
+A second verification pass, again against source in both working trees, changed seven
+further claims. The plan in the same directory implements the corrected position.
+
+| Previous claim | Verified position |
+|---|---|
+| Plan §5.0.7 "Rate limit `POST /api/v1/auth/login`" | **Contradicts plan §5.0.5**, which deletes that endpoint in the same phase. After the deletion the only login surface is NextAuth's credentials provider at `app/api/auth/[...nextauth]/route.ts`, which has **no rate limiting at all**. Login limiting belongs there, and keyed by IP as well as identifier - a username-keyed limit alone reproduces the third-party lockout that 5.6 describes |
+| Plan §5.0.8 untracks `venv/`, `__pycache__/`, `glimmora.db`, `*.pyc` | **Already done.** All four are correctly ignored in both repositories; `git ls-files` returns zero for every one. What is actually tracked is different: `prisma/dev.db.bak` and `prisma/dev.db.pre-agi-push.bak` (SQLite database backups), `docs/manual/Glimmora-Docs-REVIEW-COPY.pdf.bak` (13 MB), 52 generated screenshots, and - in the backend - `app/rag/.embedding_cache.json` at 1,054,821 bytes |
+| 5.1: the replay attack sets `planId` **and** `billingCycle: "yearly"` | **Narrower.** `billingCycle` is never persisted; it only computes `expiryDate` at `verify-renewal/route.ts:94`. Only `planId` mutates the subscription (`:131`). The attack is "pay the cheapest monthly, replay with the priciest `planId`" - one wrong `maxAccounts` and the wrong expiry, for one monthly payment. Still P1, still closed by binding the order server-side |
+| 5.2: `SubscriptionTab.tsx:22-25` restricts the settings view to `super_admin` | **Wrong line, wrong conclusion.** `:22-25` is a doc comment, not a guard. The real gate is `SettingsPage.tsx:137` on `SETTINGS_MANAGE_ROLES` = `["super_admin", "customer_admin"]` (`roleSets.ts:347`). The core finding stands regardless: the login gate at `route.ts:412-415` and `useTenantConfig.ts:42,59-60` both read `tenant.plan`, so a tenant with no `Plan` row cannot log in |
+| - | **New finding, not in any prior pass.** `app/services/assistant_pipeline.py:46` does `from app.routers.auth_router import CurrentUser` - a service importing from a router, the same inversion the AI audit trail has at `drift_detection_router.py:36`. Belongs to the structural phase, not to a security one |
+| `.do/app.yaml` cited throughout as if it were backend configuration | It lives in the **frontend** repository (191 lines), not the backend. Every line citation in this document is correct. It deploys the frontend from `main` and the backend from `ai_develop`; local branches are `dinkar-frontend` and `dinkar-backend`. The branch mismatch is a real deployment risk and belongs to the delivery phase |
+| The plan's related-analysis path, `docs/superpowers/plans/2026-09-25-refactor-analysis.md` | Does not exist; that directory is empty. This file is `docs/refactor-analysis.md`. The first pass flagged this and the fix was never applied to the plan |
+
+
 ## 10. Constraints and invariants
 
 1. **Prisma is the schema authority.** SQLAlchemy changes must not alter the shared
@@ -721,7 +788,28 @@ Unchanged in intent from the previous pass, and the plan implements it in this o
 8. **Each phase leaves both applications runnable** and is independently reviewable and
    revertible.
 9. **Deployment is DigitalOcean App Platform only**, with the `api` service built from the
-   backend repository on its own branch.
+   backend repository on its own branch, and `.do/app.yaml` owned by the frontend
+   repository.
+10. **The backend is never vendored into the frontend.** No `Glimmora-Pharma/backend/`
+    directory, ever. The two repositories are siblings and the dependency is one-way.
+11. **Every phase ends with the frontend wired to the backend, working end to end.** A
+    phase that leaves the two unable to talk is not finished, however green its own tests
+    are. For a backend-only phase that means the frontend's existing calls are verified
+    unchanged against the new backend; for a frontend-only phase, the same in reverse; for
+    the billing migration, that a prospect can pay and reach a working account. The wiring
+    uses the existing structures - the AI proxy at `app/api/ai-proxy/[...path]/route.ts`,
+    the NextAuth session, and `src/actions/` - and introduces no new client, state pattern
+    or proxy.
+12. **Each phase is confirmed by a named human before the next begins.** The phase
+    completion report states, in the client's terms: what a person can now do that they
+    could not before, what is still broken on purpose, and what was verified rather than
+    assumed. Confirmation is per phase, not at the end of the programme. A phase that is
+    not confirmed is not closed, and the next phase does not start.
+13. **Backend work modifies existing files in place.** New modules appear only where a new
+    responsibility requires one. No file is renamed, split or relocated for tidiness, and
+    no service moves between the flat and `app/services/` conventions before the phase that
+    decides which convention is correct.
+
 
 ## 11. Open decisions
 
@@ -744,9 +832,11 @@ Unchanged in intent from the previous pass, and the plan implements it in this o
 
 ## 12. Verification
 
-Reproduce these before starting Phase 0 and re-run them at each phase exit.
+Reproduce these before starting Phase 0 and re-run them at each phase exit. The backend
+commands run in `pharma_glimmora_ai_backend`; the frontend commands run in
+`Glimmora-Pharma`. The cross-service block is not optional - see invariant 11.
 
-**Backend**
+**Backend** — from `pharma_glimmora_ai_backend`
 
 ```bash
 python -m venv .venv && . .venv/Scripts/activate   # Windows
@@ -761,7 +851,7 @@ The import must succeed with `OPENAI_API_KEY` unset, and `DATABASE_URL` must res
 against a PostgreSQL server. Run the existing three test modules and record the result
 rather than assuming it passes.
 
-**Frontend**
+**Frontend** — from `Glimmora-Pharma`
 
 ```bash
 npm ci
@@ -797,3 +887,31 @@ grep -rn "os.getenv" app/ | wc -l
 
 The first must return nothing. The second must return only the centralised factory. The
 third is the count the `BaseSettings` migration is measured against.
+
+**Cross-service — the wiring check, and the one most easily skipped**
+
+Both applications running is not the same as the frontend reaching the backend. Start both,
+then:
+
+```bash
+# 1. The backend is actually up and reporting readiness.
+curl localhost:8000/health
+
+# 2. The frontend's proxy reaches it through the private-network path, not a
+#    fallback. A 401 proves the request ARRIVED and the token was rejected.
+#    A 404 or a connection error means the proxy could not route, which is the
+#    BACKEND_URL fail-open of 7.1 and must be fixed, not ignored.
+curl -i localhost:3000/api/ai-proxy/api/ai/health
+
+# 3. An authenticated advisory call round-trips end to end.
+#    Needs a session cookie; run from a browser devtools console on a signed-in page.
+#    fetch('/api/ai-proxy/api/v1/finding-triage/classify', {method:'POST',
+#      headers:{'content-type':'application/json'},
+#      body:JSON.stringify({requirement:'Batch records are not reviewed by QA.',
+#        activeFrameworks:['p210']})})
+```
+
+A phase is not complete until this block passes on the real code, not only in unit tests.
+Report the result to the human partner and wait for confirmation before starting the next
+phase (invariant 12).
+
