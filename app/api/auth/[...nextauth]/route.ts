@@ -6,6 +6,7 @@ import { generateOtp, verifyOtp } from "@/lib/otp";
 import { sendOtpEmail } from "@/lib/mailer";
 import { auditAuthEvent } from "@/lib/auditServer";
 import { isTenantAccessible, roleRequiresSite } from "@/lib/permissions/roleSets";
+import { consume } from "@/lib/rateLimit";
 
 /**
  * Production guard for NEXTAUTH_SECRET (audit findings 3.6 + 11.3).
@@ -118,6 +119,23 @@ export const authOptions: NextAuthOptions = {
         const otp = credentials.otp?.trim() ?? "";
 
         const ipAddress = extractClientIp(req);
+
+        // Rate limit BEFORE the database lookup or bcrypt. Keyed by IP *and*
+        // identifier: a username-keyed limit alone would let anyone lock a known
+        // account out with a handful of bad requests, which is the defect the
+        // FastAPI lockout carried before Phase 0 deleted it. The IP dimension
+        // bounds a flood from one host; the identifier dimension bounds a
+        // distributed one.
+        //
+        // Refusal returns `null`, never throws. NextAuth renders a thrown error as
+        // a 500 and a `null` as a failed sign-in, so `null` keeps a rate-limited
+        // attempt indistinguishable from a wrong password — which is the point.
+        // The deleted code answered 429 for a locked account and 401 for an
+        // invalid one, and that difference was a username-enumeration oracle.
+        const loginQuota = consume(`login:${ipAddress}:${email}`, 10, 15 * 60_000);
+        if (!loginQuota.ok) {
+          return null;
+        }
 
         try {
           // ── Path 1: Tenant table (super_admin / customer_admin) ──

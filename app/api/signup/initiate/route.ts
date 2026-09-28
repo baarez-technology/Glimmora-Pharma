@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { clientIp, consume } from "@/lib/rateLimit";
 
 const initiateSchema = z.object({
   // Company details
@@ -31,6 +32,13 @@ const initiateSchema = z.object({
   password: z
     .string()
     .min(8, "Password must be at least 8 characters")
+    // bcryptjs TRUNCATES at 72 bytes, silently. A longer password is accepted,
+    // hashed in full, and then permanently shortened — so the customer cannot
+    // log in with what they typed, and support has no error to work from. The
+    // 72 is a byte count; a stricter check lives in the Phase 4 schema work,
+    // because zod's `.max` counts characters, and 72 characters of a 3-byte
+    // character is 216 bytes.
+    .max(72, "Password must be at most 72 characters")
     .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
     .regex(/[a-z]/, "Password must contain at least one lowercase letter")
     .regex(/[0-9]/, "Password must contain at least one number"),
@@ -46,6 +54,18 @@ const initiateSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Rate limit BEFORE parsing the body, and long before `bcrypt.hash(password, 12)`
+  // at the bottom of this handler — the most expensive hash cost in the system,
+  // on a route anyone can reach. Keyed by IP: the account does not exist yet, so
+  // an identifier key would be attacker-controlled.
+  const quota = consume(`signup-initiate:${clientIp(request.headers)}`, 5, 60 * 60_000);
+  if (!quota.ok) {
+    return NextResponse.json(
+      { error: "Too many signup attempts. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(quota.retryAfterSeconds) } },
+    );
+  }
+
   try {
     const body = await request.json();
     const data = initiateSchema.parse(body);
