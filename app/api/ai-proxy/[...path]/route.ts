@@ -3,13 +3,7 @@ import { auth } from "@/lib/auth";
 import { mintAiToken, canMintAiToken, AI_TOKEN_MISCONFIGURED } from "@/lib/aiToken.server";
 import { getAgiPolicyForTenant } from "@/actions/agi-policy";
 import { agentForPath } from "@/lib/permissions/agiPolicy";
-
-// In production (DO App Platform) this is the internal private URL of the api
-// service — never leaves DO's private network. In dev it falls back to localhost.
-const AI_BASE =
-  process.env.BACKEND_URL ??
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/api$/, "") ??
-  "http://localhost:8000";
+import { resolveBackendUrl } from "@/lib/backendUrl";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -90,7 +84,30 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
     }
   }
 
-  const target = `${AI_BASE}/${joined}${req.nextUrl.search}`;
+  // The AI service's address. In production (DO App Platform) this is the api
+  // service's internal private URL and never leaves DO's private network.
+  //
+  // Resolved per request, not at module load, so a missing BACKEND_URL answers
+  // 503 here instead of throwing during `next build` — the variable is only
+  // present at runtime, and a build-time throw would fail every CI run and
+  // every preview deploy. This is the same fail-closed shape as the
+  // missing-signing-secret check below; the two used to disagree, and only one
+  // of them failed closed.
+  let aiBase: string;
+  try {
+    aiBase = resolveBackendUrl(process.env);
+  } catch (err) {
+    console.error(
+      "[ai-proxy] refusing to forward: %s",
+      err instanceof Error ? err.message : "the AI service address is unresolved",
+    );
+    return NextResponse.json(
+      { detail: "AI service is not configured" },
+      { status: 503 },
+    );
+  }
+
+  const target = `${aiBase}/${joined}${req.nextUrl.search}`;
 
   // Build a minimal, explicit header set instead of copying req.headers wholesale.
   const headers = new Headers();
