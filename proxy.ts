@@ -86,20 +86,34 @@ export async function proxy(req: NextRequest) {
 }
 
 /**
- * Matcher excludes:
- *   - /login                                      (public sign-in)
- *   - /api/auth/*                                 (NextAuth must be reachable
- *                                                  unauthenticated). Other /api/*
- *                                                  IS matched so the 401 above
- *                                                  applies as defense-in-depth.
- *   - /_next/static, /_next/image, favicon.ico
- *   - manifest.json, robots.txt, sitemap.xml      (browsers fetch unauthenticated)
- *   - any static asset by extension
+ * Matcher.
+ *
+ * The pattern is written out as a LITERAL, and that is not laziness: Next.js
+ * extracts `config.matcher` at build time and only resolves literal values. An
+ * imported constant — including one that compiles perfectly and tests green —
+ * registers NO matcher, the proxy then runs for every request, and every public
+ * route silently returns 401. That is exactly the failure this file had, and no
+ * unit test can see it, because the unit test exercises the module and not the
+ * framework's build-time extraction.
+ *
+ * The tested definition lives in `@/lib/proxyMatcher`, and
+ * `src/lib/proxyMatcher.test.ts` asserts that the string below is byte-identical
+ * to `EDGE_MATCHER_PATTERN` exported from there. One tested definition, one
+ * verified copy, and a failure the moment they drift.
+ *
+ * Excluded: /login, /api/auth/*, /api/webhooks/* (Razorpay authenticates with an
+ * HMAC over the raw body and sends no NextAuth cookie, so it can never satisfy
+ * the session check above), /_next/static, /_next/image, favicon.ico,
+ * manifest.json, robots.txt, sitemap.xml, and any static asset by extension.
+ *
+ * `/api/signup` is deliberately NOT excluded. The public checkout stays gated
+ * until Phase 2 replaces it, because it mutates a subscription from a
+ * client-supplied, unsigned `planId` (analysis 5.1).
  *
  * Everything else — /(app)/*, /(admin)/*, and non-auth /api/* — passes through.
  */
 export const config = {
   matcher: [
-    "/((?!login|api/auth|_next/static|_next/image|favicon.ico|manifest.json|robots.txt|sitemap.xml|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|css|js|map|json|txt|xml)$).*)",
+    "/((?!login(?:/|$)|api/auth(?:/|$)|api/webhooks(?:/|$)|_next/static(?:/|$)|_next/image(?:/|$)|favicon\\.ico(?:/|$)|manifest\\.json(?:/|$)|robots\\.txt(?:/|$)|sitemap\\.xml(?:/|$)|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|css|js|map|json|txt|xml)$).*)",
   ],
 };
