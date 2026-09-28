@@ -188,3 +188,14 @@ If issues persist:
 3. Verify all environment variables are set
 4. Test database connection separately
 5. Contact DigitalOcean support with specific error messages
+## Render deployment (retired)
+
+ender.yaml has been deleted. Its startCommand ran
+
+px prisma db push && npm start against ile:/data/glimmora.db on every
+boot, which would have dropped every table the FastAPI backend owns — the
+production database is shared. DigitalOcean App Platform, described in
+.do/app.yaml, is the only supported topology.
+
+See docs/archive/render-sqlite-topology.md for the topology that was retired
+and the two independent reasons it cannot be used.

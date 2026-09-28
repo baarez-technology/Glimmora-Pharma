@@ -90,3 +90,14 @@ CLAUDE.draft.md
 CLAUDE.legacy.md
 PROJECT_BRIEF.md
 docs/CODE_HEALTH_SCAN.md
+
+# Generated artifacts - enforced by scripts/check-tracked-artifacts.mjs
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.bak
+playwright-report/
+test-results/
