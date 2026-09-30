@@ -2,21 +2,22 @@
  * Browser client for the AI Assistant + AI Voice endpoints.
  *
  *   POST /api/ai/assistant         { message, chat_history? } → routed answer
- *   POST /api/ai/chat              { message, chat_history? } → { reply, intent, customer_id }
- *   GET  /api/ai/health
  *   POST /api/ai/voice/transcribe  multipart audio  → { text }
  *   POST /api/ai/voice/speak       { text, voice }  → audio bytes (audio/mpeg)
  *   POST /api/ai/voice/chat        multipart audio  → audio bytes (one-shot voice round-trip)
- *   GET  /api/ai/voice/health
  *
  * Every call goes to the same-origin /api/ai-proxy route, which authenticates
  * the caller's session and attaches the upstream access token server-side.
  * NOTHING here handles a credential — these functions used to take a `token`
  * argument that the browser read out of Redux; that parameter is gone.
+ *
+ * `POST /api/ai/chat` is not listed because it does not exist. It was a second,
+ * ungrounded answering pipeline on the backend that no UI called, and the
+ * `aiChatSend` wrapper for it had no caller either. See
+ * `app/routers/ai_router.py` in the backend for why it was removed.
  */
 
-export { AI_API_BASE } from "./aiAuth";
-import { AI_API_BASE } from "./aiAuth";
+import { aiApiBase } from "./aiAuth";
 
 export class AiChatError extends Error {
   status: number;
@@ -55,7 +56,7 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   console.info(`${tag} → sending`);
   let res: Response;
   try {
-    res = await fetch(`${AI_API_BASE}${path}`, { ...init, headers, credentials: "same-origin" });
+    res = await fetch(`${aiApiBase()}${path}`, { ...init, headers, credentials: "same-origin" });
   } catch (err) {
     console.error(`${tag} ✗ network error`, err);
     throw err;
@@ -77,16 +78,10 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
 
 export interface ChatMessage { role: "user" | "assistant" | string; content: string }
 
-export interface ChatResponse {
-  reply: string;
-  intent?: string;
-  customer_id?: string;
-}
-
 /* ── GxP Compliance Help Assistant (Feature 1) ─────────────────── */
 // Grounded-only endpoint: answers strictly from approved SOPs/policies,
 // returns citations + a confidence band, and hands off to a support ticket
-// when not confident. See backend app/help_service.py.
+// when not confident. See backend app/services/help_service.py.
 
 export interface HelpSource {
   id: string;
@@ -117,21 +112,6 @@ export interface HelpResponse {
 }
 
 /* ── Endpoints ─────────────────────────────────────────────────── */
-
-export async function aiChatSend(
-  message: string,
-  history: ChatMessage[],
-): Promise<ChatResponse> {
-  const res = await authedFetch(
-    "/api/ai/chat",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, chat_history: history }),
-    },
-  );
-  return (await res.json()) as ChatResponse;
-}
 
 /* ── Plain-English Record Search (Feature 2) ───────────────────── */
 // Translator only — returns a filter spec, never executes it. The list
@@ -401,14 +381,4 @@ export async function aiVoiceSpeak(text: string, voice: string): Promise<Blob> {
     },
   );
   return await res.blob();
-}
-
-export async function aiHealth(): Promise<unknown> {
-  const res = await fetch(`${AI_API_BASE}/api/ai/health`);
-  return res.json();
-}
-
-export async function aiVoiceHealth(): Promise<unknown> {
-  const res = await fetch(`${AI_API_BASE}/api/ai/voice/health`);
-  return res.json();
 }

@@ -20,7 +20,7 @@
  * carries the advisory disclaimer.
  */
 
-import { AI_API_BASE } from "@/lib/aiAuth";
+import { aiApiBase } from "@/lib/aiAuth";
 import { AiChatError, type ChatMessage } from "@/lib/aiChat";
 
 /** Context the overlay passes on every ask — drives the grounding. */
@@ -75,7 +75,7 @@ export async function askRegulatoryAI(
   question: string,
   context: RegulatoryAIContext,
 ): Promise<RegulatoryAIAnswer> {
-  const res = await fetch(`${AI_API_BASE}/api/ai/regulatory-assistant`, {
+  const res = await fetch(`${aiApiBase()}/api/ai/regulatory-assistant`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",

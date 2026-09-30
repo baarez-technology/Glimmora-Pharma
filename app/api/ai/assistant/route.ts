@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDashboardStats } from "@/lib/queries";
-import { aiUpstreamBase } from "@/lib/aiAuth";
+import { resolveUpstreamOrNull } from "@/lib/aiAuth";
 import { mintAiToken, canMintAiToken, AI_TOKEN_MISCONFIGURED } from "@/lib/aiToken.server";
 
 export const dynamic = "force-dynamic";
@@ -102,9 +102,18 @@ export async function POST(req: NextRequest) {
   }
   const headers = new Headers({ "content-type": "application/json", auth: token });
 
+  // Address resolution fails closed outside development. Check it here so a
+  // missing BACKEND_URL is reported as "not configured" rather than surfacing
+  // from the fetch as a connection error against localhost.
+  const upstream = resolveUpstreamOrNull();
+  if (!upstream) {
+    console.error("[api/ai/assistant] refusing to forward: BACKEND_URL is not configured.");
+    return NextResponse.json({ detail: "AI service is not configured" }, { status: 503 });
+  }
+
   let res: Response;
   try {
-    res = await fetch(`${aiUpstreamBase()}/api/ai/assistant`, {
+    res = await fetch(`${upstream}/api/ai/assistant`, {
       method: "POST",
       headers,
       body: JSON.stringify({

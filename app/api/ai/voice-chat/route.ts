@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDashboardStats } from "@/lib/queries";
-import { aiUpstreamBase } from "@/lib/aiAuth";
+import { resolveUpstreamOrNull } from "@/lib/aiAuth";
 import { mintAiToken, canMintAiToken, AI_TOKEN_MISCONFIGURED } from "@/lib/aiToken.server";
 
 export const dynamic = "force-dynamic";
@@ -84,6 +84,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: AI_TOKEN_MISCONFIGURED }, { status: 503 });
   }
 
+  // Address resolution fails closed outside development, same as the proxy.
+  // Named `upstreamBase` because `upstream` below is the outbound FormData.
+  const upstreamBase = resolveUpstreamOrNull();
+  if (!upstreamBase) {
+    console.error("[api/ai/voice-chat] refusing to forward: BACKEND_URL is not configured.");
+    return NextResponse.json({ detail: "AI service is not configured" }, { status: 503 });
+  }
+
   const upstream = new FormData();
   upstream.append("audio", audio, audio.name || "speech.webm");
 
@@ -110,7 +118,7 @@ export async function POST(req: NextRequest) {
 
   let res: Response;
   try {
-    res = await fetch(`${aiUpstreamBase()}/api/ai/voice/chat`, {
+    res = await fetch(`${upstreamBase}/api/ai/voice/chat`, {
       method: "POST",
       headers: { auth: token },
       body: upstream,

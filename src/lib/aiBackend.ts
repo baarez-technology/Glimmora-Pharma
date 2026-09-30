@@ -16,30 +16,22 @@
  */
 
 export {
-  AI_API_BASE,
   AiAuthError,
-  generateCustomerId,
   generateUserId,
-  type AiSignupRequest,
-  type AiAuthResponse,
 } from "./aiAuth";
 
 export {
-  aiChatSend,
   aiAssistantSend,
   aiVoiceChat,
   aiVoiceTranscribe,
   aiVoiceSpeak,
-  aiHealth,
-  aiVoiceHealth,
   AiChatError,
   type ChatMessage,
-  type ChatResponse,
   type AssistantResponse,
   type AssistantRoute,
 } from "./aiChat";
 
-import { AI_API_BASE } from "./aiAuth";
+import { aiApiBase } from "./aiAuth";
 
 // Type-only imports of the gateway result shapes. These are erased at compile
 // time, so they do NOT create a runtime import cycle with ./ai (which imports
@@ -124,7 +116,7 @@ async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
   console.info(`${tag} → sending`);
   let res: Response;
   try {
-    res = await fetch(`${AI_API_BASE}${path}`, { ...rest, headers, body, credentials: "same-origin" });
+    res = await fetch(`${aiApiBase()}${path}`, { ...rest, headers, body, credentials: "same-origin" });
   } catch (err) {
     console.error(`${tag} ✗ network error`, err);
     throw err;

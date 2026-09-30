@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveUserFk, type AuthSession } from "@/lib/auth";
-import { aiUpstreamBase } from "@/lib/aiAuth";
+import { resolveUpstreamOrNull } from "@/lib/aiAuth";
 import { mintAiToken, canMintAiToken } from "@/lib/aiToken.server";
 import { notify, notifyMany } from "@/lib/notify";
 import {
@@ -357,8 +357,13 @@ export async function suggestTriage(
     console.error("[action] suggestTriage: AI_JWT_SECRET is not configured.");
     return { success: false, error: "Triage is not configured on this deployment." };
   }
+  const upstream = resolveUpstreamOrNull();
+  if (!upstream) {
+    console.error("[action] suggestTriage: BACKEND_URL is not configured.");
+    return { success: false, error: "Triage is not configured on this deployment." };
+  }
   try {
-    const res = await fetch(`${aiUpstreamBase()}/api/v1/support-triage/classify`, {
+    const res = await fetch(`${upstream}/api/v1/support-triage/classify`, {
       method: "POST",
       headers: { "content-type": "application/json", auth: token },
       body: JSON.stringify({ subject, description }),

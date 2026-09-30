@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { aiUpstreamBase } from "@/lib/aiAuth";
+import { resolveUpstreamOrNull } from "@/lib/aiAuth";
 import { canAuthorGxP } from "@/lib/permissions/roleSets";
 import { getAgiPolicyForTenant } from "@/actions/agi-policy";
 import { mintAiToken, canMintAiToken, AI_TOKEN_MISCONFIGURED } from "@/lib/aiToken.server";
@@ -182,6 +182,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: AI_TOKEN_MISCONFIGURED }, { status: 503 });
   }
 
+  // Address resolution fails closed outside development, same as the proxy.
+  const upstreamBase = resolveUpstreamOrNull();
+  if (!upstreamBase) {
+    console.error("[api/ai/capa-recurrence] refusing to forward: BACKEND_URL is not configured.");
+    return NextResponse.json({ detail: "AI service is not configured" }, { status: 503 });
+  }
+
   const payload = JSON.stringify({
     problem_statement: problem,
     source: str(body.source, 120),
@@ -198,14 +205,14 @@ export async function POST(req: NextRequest) {
       const fd = new FormData();
       fd.append("payload", payload);
       fd.append("document", document, document.name);
-      res = await fetch(`${aiUpstreamBase()}/api/v1/capa-recurrence/analyze-with-document`, {
+      res = await fetch(`${upstreamBase}/api/v1/capa-recurrence/analyze-with-document`, {
         method: "POST",
         headers: { auth: token },
         body: fd,
         cache: "no-store",
       });
     } else {
-      res = await fetch(`${aiUpstreamBase()}/api/v1/capa-recurrence/analyze`, {
+      res = await fetch(`${upstreamBase}/api/v1/capa-recurrence/analyze`, {
         method: "POST",
         headers: { "content-type": "application/json", auth: token },
         body: payload,
