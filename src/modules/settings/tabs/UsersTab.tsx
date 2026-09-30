@@ -45,7 +45,6 @@ import {
   type TenantUserConfig,
 } from "@/store/auth.slice";
 import { generateUserId } from "@/lib/aiAuth";
-import { provisionAiAccount } from "@/actions/aiAccount";
 import {
   createUser,
   updateUser,
@@ -806,12 +805,13 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
   });
 
   const handleAdd = async (data: UserFormValues) => {
-    // AI backend + our @@unique([tenantId, username]) require username ≥ 3 chars;
-    // pad a short email local-part with a random suffix.
+    // `username` is unique per tenant on the Prisma User row, and the column
+    // wants ≥ 3 characters; the email's local part can be shorter (e.g. "qa@…"
+    // → "qa"), so pad it with a random suffix.
     const localPart = data.email.split("@")[0] ?? "";
-    const aiId = generateUserId();
+    const idSuffix = generateUserId();
     const username =
-      localPart.length >= 3 ? localPart : `${localPart}_${aiId.slice(-4)}`;
+      localPart.length >= 3 ? localPart : `${localPart}_${idSuffix.slice(-4)}`;
 
     // 1) Authoritative DB User row so the account can actually authenticate via
     //    NextAuth (which reads the User table). The hard cap, role-grant ceiling,
@@ -842,34 +842,19 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
     }
     const dbUser = created.data as { id: string };
 
-    // 2) Best-effort AI backend provisioning (unchanged). A failure here is
-    //    non-fatal — the DB user already exists and can log in.
-    // The AI service scopes every tenant query by the `customer_id` claim in
-    // the token the server mints, which is always the tenantId — so provision
-    // under the tenantId. Deriving it from the customer-admin's aiUserId (as
-    // this did) produced an identifier the token never carries, so anything
-    // written under it was unreadable.
-    const customerId = tenantId;
-    // Provisioning runs server-side (src/actions/aiAccount.ts): the password
-    // never leaves the server, and no access token comes back — nothing in the
-    // browser needs one now that /api/ai-proxy mints its own per request.
-    let aiUserId: string | undefined;
-    const provisioned = await provisionAiAccount({
-      userId: aiId,
-      username,
-      email: data.email,
-      password: data.password ?? "",
-      customerId,
-      role: data.role,
-    });
-    if (provisioned.success) {
-      aiUserId = provisioned.data.aiUserId;
-    } else {
-      console.error("[UsersTab] AI provisioning failed — DB user created, AI account deferred:", provisioned.error);
-    }
-
-    // 3) Mirror to Redux using the DB id so #5's status/signatory toggles and
+    // 2) Mirror to Redux using the DB id so #5's status/signatory toggles and
     //    edits operate on the real User row.
+    //
+    //    There is deliberately NO second "provision an AI account" step here.
+    //    It called POST /api/v1/auth/signup on the AI service, which no longer
+    //    exists: NextAuth in this app is the only identity issuer, and the AI
+    //    service registers no auth routes at all (see app/routers/auth_router.py
+    //    in the backend, whose header documents this). The call 404'd on every
+    //    user creation and the failure was swallowed as "best-effort", so
+    //    Settings surfaced a backend outage for a step that had not worked for
+    //    some time and had nothing left to do. The AI service identifies callers
+    //    from the token the BFF mints, which already carries user id, email,
+    //    role and tenant — it holds no user store to keep in step.
     dispatch(
       addTenantUser({
         tenantId,
@@ -884,7 +869,6 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
           assignedSites: data.allSites ? [] : data.assignedSites,
           password: data.password,
           username,
-          aiUserId,
         },
       }),
     );
@@ -946,45 +930,11 @@ export function UsersTab({ readOnly = false }: { readOnly?: boolean }) {
     };
     if (data.password) patch.password = data.password;
 
-    // Retry AI signup only if it never succeeded for this user (missing
-    // aiUserId sentinel). Once aiUserId is set we never re-sign-up — edits
-    // become local + Neon-only.
-    if (!editingUser.aiUserId) {
-      // Same tenantId scoping as the create path above.
-      const customerId = tenantId;
-      // AI backend requires username ≥ 3 chars. The email's local part can
-      // be shorter (e.g. "qa@..." → "qa"), so pad with the user id suffix.
-      const localPart = data.email.split("@")[0] ?? "";
-      const username =
-        localPart.length >= 3 ? localPart : `${localPart}_${editingUser.id.slice(-4)}`;
-      // BEST-EFFORT, and now genuinely so. The `provisioned.success === false`
-      // branch below already treated a failed retry as non-fatal, but a THROWN
-      // rejection was not caught anywhere in this handler — and the three
-      // close/reset statements at the end are the last lines of the function,
-      // so any rejection here skipped them and left the modal open with no
-      // error shown. `provisionAiAccount` self-catches its own body, but its
-      // `requireAuth()` sits OUTSIDE that try (aiAccount.ts:44), and a server
-      // action can also reject on transport. Catching here makes the AI retry
-      // unable to block the edit from completing.
-      try {
-        const provisioned = await provisionAiAccount({
-          userId: editingUser.id,
-          username,
-          email: data.email,
-          password: data.password ?? editingUser.password ?? "",
-          customerId,
-          role: data.role,
-        });
-        if (provisioned.success) {
-          patch.aiUserId = provisioned.data.aiUserId;
-          patch.username = username;
-        } else {
-          console.error("[UsersTab] AI provisioning retry on edit failed:", provisioned.error);
-        }
-      } catch (err) {
-        console.error("[UsersTab] AI provisioning retry on edit threw:", err);
-      }
-    }
+    // No AI-signup retry here either. It targeted the same deleted
+    // POST /api/v1/auth/signup as the create path, keyed off the `aiUserId`
+    // sentinel that path could never set — so the branch always ran, always
+    // 404'd, and always logged a failure before an edit that had in fact
+    // succeeded. An edit is local + Prisma only.
 
     dispatch(updateTenantUser({ tenantId, userId: editingUser.id, patch }));
     setEditModal(false);
