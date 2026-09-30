@@ -33,6 +33,21 @@ services:
   # (it carried 12 of 24 routers and none of the help/draft/search/summary
   # services), so every newer AI endpoint 404'd in production while working
   # locally. Never re-vendor this code — point at the source of truth.
+  #
+  # `ai_develop` is that repo's default branch and the right thing to deploy —
+  # keep deploying it, do NOT repoint this at a contributor's branch name.
+  #
+  # ACTION REQUIRED: `ai_develop` is currently 9 commits BEHIND
+  # `dinkar-backend`, and it is a clean fast-forward (0 behind, 9 ahead), so
+  # bringing it level cannot conflict. Production is therefore missing:
+  #   b4b95ce  the deleted FastAPI identity hole (NextAuth is the sole issuer)
+  #   b3726ec  a host-independent production check, and a key out of the source
+  #   1c86340  lazy OpenAI client construction; /health as a real readiness probe
+  #   0415938  the restored AI audit trail (a Part 11 record)
+  #   13764a6  rate limiting across the whole billable surface
+  # Until it is fast-forwarded, production runs code with a known identity hole
+  # and an unbounded AI spend path. `git push origin dinkar-backend:ai_develop`
+  # from the backend checkout is the whole fix.
   - name: api
     github:
       repo: baarez-technology/pharma_glimmora_ai_backend
