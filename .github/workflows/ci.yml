@@ -9,12 +9,35 @@ jobs:
   check:
     name: Lint, typecheck, build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
-    # Postgres CI deferred to the Phase-4 Postgres migration (schema is sqlite
-    # until then). CI runs against a throwaway SQLite file matching dev.
+    # The schema is postgresql (prisma/schema.prisma, and migration_lock.toml
+    # agrees). The workflow used to set DATABASE_URL to a SQLite file while the
+    # schema said postgresql, so `prisma migrate deploy` failed on the protocol
+    # and BOTH jobs were permanently red — which is the state a red build gets
+    # ignored in. A real Postgres service is the only thing that can validate
+    # postgresql migrations.
+    #
+    # Never `prisma db push` against a shared database: it reconciles the whole
+    # database to schema.prisma and drops the tables the FastAPI service owns.
+    # `migrate deploy` is the only safe command, and it is what runs here.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: glimmora_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
-      DATABASE_URL: "file:./prisma/ci.db"
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/glimmora_ci
       NEXTAUTH_SECRET: "ci-only-secret-32-bytes-long-aaaaaa"
       NEXTAUTH_URL: "http://localhost:3000"
 
@@ -23,7 +46,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Must satisfy engines.node (>=22.12 <25). This was pinned to 20,
+          # below the declared floor, which is a separate way the same job
+          # could not have passed.
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
@@ -32,7 +58,7 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Apply migrations to a fresh SQLite DB
+      - name: Apply migrations
         run: npx prisma migrate deploy
 
       - name: Lint
@@ -41,19 +67,38 @@ jobs:
       - name: TypeScript typecheck
         run: npx tsc --noEmit
 
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Tracked-artifact guard
+        run: npm run check:artifacts
+
       - name: Build
         run: npm run build
 
   smoke:
     name: Playwright smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     needs: check
 
-    # Postgres CI deferred to the Phase-4 Postgres migration (schema is sqlite
-    # until then). CI runs against a throwaway SQLite file matching dev.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: glimmora_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
-      DATABASE_URL: "file:./prisma/ci.db"
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/glimmora_smoke
       NEXTAUTH_SECRET: "ci-only-secret-32-bytes-long-aaaaaa"
       NEXTAUTH_URL: "http://localhost:3000"
       CI: "true"
@@ -63,7 +108,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
