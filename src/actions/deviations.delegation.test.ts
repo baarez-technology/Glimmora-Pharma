@@ -54,6 +54,29 @@ function bodyOf(source: string, name: string): string {
 
 const closeBody = bodyOf(actionsSrc, "closeDeviation");
 const startBody = bodyOf(actionsSrc, "startInvestigation");
+const rejectBody = bodyOf(actionsSrc, "rejectDeviation");
+
+/** Every action that must now execute in FastAPI. */
+const MIGRATED: readonly [string, string][] = [
+  ["closeDeviation", closeBody],
+  ["startInvestigation", startBody],
+  ["rejectDeviation", rejectBody],
+];
+
+test("rejectDeviation delegates to the Deviation service", () => {
+  assert.match(rejectBody, /callDeviationService/, "rejectDeviation must call the service");
+  assert.match(rejectBody, /["'`]reject["'`]/, "must target the reject transition");
+});
+
+test("rejectDeviation still forwards the signing password", () => {
+  // Rejection IS a Part 11 signature. Dropping the credential would turn it into an
+  // unsigned disposition and no other test would notice.
+  assert.match(
+    rejectBody,
+    /signing_password:\s*parsed\.data\.password/,
+    "the signing password must be forwarded - rejection is itself a signature",
+  );
+});
 
 test("closeDeviation delegates to the Deviation service", () => {
   assert.match(closeBody, /callDeviationService/, "closeDeviation must call the service");
@@ -65,11 +88,8 @@ test("startInvestigation delegates to the Deviation service", () => {
   assert.match(startBody, /investigation/, "must target the investigation transition");
 });
 
-test("neither migrated action touches Prisma", () => {
-  for (const [name, body] of [
-    ["closeDeviation", closeBody],
-    ["startInvestigation", startBody],
-  ] as const) {
+test("no migrated action touches Prisma", () => {
+  for (const [name, body] of MIGRATED) {
     assert.ok(
       !body.includes("prisma."),
       `${name} still calls prisma directly — the regulated write must happen inside the service transaction`,
@@ -77,11 +97,8 @@ test("neither migrated action touches Prisma", () => {
   }
 });
 
-test("neither migrated action re-implements the content hash", () => {
-  for (const [name, body] of [
-    ["closeDeviation", closeBody],
-    ["startInvestigation", startBody],
-  ] as const) {
+test("no migrated action re-implements the content hash", () => {
+  for (const [name, body] of MIGRATED) {
     assert.ok(
       !body.includes("canonicalizeDeviationClosureContent"),
       `${name} must not canonicalise; a second implementation of the hash is the exact failure this migration exists to prevent`,
@@ -119,10 +136,7 @@ test("the client-side zod validation is retained as the UX layer", () => {
 });
 
 test("both actions return the ActionResult shape the UI already consumes", () => {
-  for (const [name, body] of [
-    ["closeDeviation", closeBody],
-    ["startInvestigation", startBody],
-  ] as const) {
+  for (const [name, body] of MIGRATED) {
     assert.ok(
       body.includes("success: true") && body.includes("success: false"),
       `${name} must keep returning the ActionResult union`,

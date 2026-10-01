@@ -6,8 +6,6 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveCreateSiteId, resolveUserFk, requireGxPAuthor, ADMIN_DELETE_ROLES } from "@/lib/auth";
 import { DEVIATION_QA_ROLES, canReportDeviation, canWriteQuality } from "@/lib/permissions/roleSets";
 import { createDocument } from "@/actions/documents";
-import { verifyPasswordForSigning } from "@/lib/signing";
-import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 import {
   getDeviationSODOverrides,
   type DeviationCloseSodReveal,
@@ -513,6 +511,13 @@ export async function rejectDeviation(
   id: string,
   input: z.input<typeof RejectSchema>,
 ): Promise<ActionResult> {
+  // MOVED TO FASTAPI. Rejection is itself a Part 11 electronic signature, so it
+  // moves with the same care as closure: the service re-authenticates at the moment
+  // of signing, audits a FAILED attempt, and writes the signature audit row.
+  //
+  // The lifecycle precondition is evaluated before the password, so a doomed
+  // rejection never prompts for a credential - preserved deliberately, because the
+  // ordering is observable in both the prompt and the audit trail.
   const session = await requireAuth();
   if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
     return { success: false, error: "Only QA Head can reject deviations" };
@@ -521,76 +526,27 @@ export async function rejectDeviation(
   if (!parsed.success) {
     return { success: false, error: "Rejection reason must be at least 5 characters" };
   }
-  // Lifecycle precondition (finding #2) — reject is a QA disposition of a
-  // COMPLETED investigation (→ "additional investigation needed"), so it is only
-  // valid from pending_qa_review, matching the sole client trigger
-  // (DeviationPage.tsx:667). Checked BEFORE the signature so a doomed reject never
-  // prompts for a password. Server-enforced, not client-gated.
-  const existing = await prisma.deviation.findFirst({
-    where: { id, tenantId: session.user.tenantId },
-    select: { status: true },
-  });
-  if (!existing) return { success: false, error: "Deviation not found" };
-  if (existing.status !== "pending_qa_review") {
-    return { success: false, error: "A deviation can only be rejected while it is under QA review (pending QA review)." };
-  }
-  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
-  try {
-    requireGxPAuthor(actor);
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
-  }
-
-  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing. Reject is a
-  // Part 11 electronic signature: the password is verified SERVER-SIDE against
-  // the real credential (never compared on the client). A wrong password blocks
-  // the action and is itself audited.
-  const passwordOk = await verifyPasswordForSigning(session.user.id, parsed.data.password);
-  if (!passwordOk) {
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userId: actor.userId,
-        userName: actor.displayName,
-        userRole: actor.role,
-        module: SIGNING_AUDIT_MODULE,
-        action: "SIGNING_PASSWORD_FAILED",
-        recordId: id,
-        newValue: JSON.stringify({ recordType: "DEVIATION_REJECTION", attempt_at: new Date().toISOString() }),
-      },
-    });
-    return { success: false, error: "Password verification failed. The signature was not applied." };
-  }
 
   try {
-    const deviation = await prisma.deviation.update({
-      where: { id, tenantId: session.user.tenantId },
-      data: { status: "rejected" },
-    });
-    // Part 11 SIGNATURE RECORD — who signed (userId/name/role), when (signedAt),
-    // the action (DEVIATION_REJECTED), and the message. This audit row IS the
-    // reject signature record.
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userId: actor.userId,
-        userName: actor.displayName,
-        userRole: actor.role,
-        module: "Deviation Management",
-        action: "DEVIATION_REJECTED",
-        recordId: id,
-        newValue: JSON.stringify({ signed: true, signedAt: new Date().toISOString(), message: parsed.data.reason.slice(0, 500) }),
+    const deviation = await callDeviationService<unknown>({
+      method: "POST",
+      path: [id, "reject"],
+      session,
+      body: {
+        reason: parsed.data.reason,
+        signature_meaning: "Rejected",
+        signing_password: parsed.data.password,
       },
     });
     revalidatePath("/deviation");
+    revalidatePath("/worklist");
     return { success: true, data: deviation };
-  } catch (err) {
-    console.error("[action] rejectDeviation failed:", err);
-    return { success: false, error: "Failed to reject deviation" };
+  } catch (e) {
+    return { success: false, error: deviationErrorMessage(e, "Failed to reject deviation") };
   }
 }
 
-/* ──────────────────────────────────────────────────────────────────────
+/* ----------------------------------------------------------------------
  * Tier 2, Items 3 + 4 — Investigation + CAPA Decision workflow.
  *
  * SoD chain (Separation of Duties), enforced server-side here and mirrored
