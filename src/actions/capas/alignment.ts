@@ -19,7 +19,7 @@ import {
 } from "./_types";
 import { sanitizeServerError } from "@/lib/errors";
 
-/* â”€â”€ Substage 4.7 â€” Action-to-Cause Alignment Review â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* ── Substage 4.7 — Action-to-Cause Alignment Review ──────────────────────
  *
  * Three-action surface (set / override / clear) keyed off the alignment*
  * columns added in migration add_capa_alignment_review. The submission
@@ -29,7 +29,7 @@ import { sanitizeServerError } from "@/lib/errors";
  * "cosmetic" verdict.
  */
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const AlignmentStatusSchema = z.object({
   status: z.enum(ALIGNMENT_STATUSES),
@@ -53,14 +53,14 @@ const AlignmentOverrideSchema = z.object({
 });
 
 // Roles authorised to set / override / clear alignment review. Matches the
-// existing canCloseCapa role gate but does NOT require gxpSignatory â€”
+// existing canCloseCapa role gate but does NOT require gxpSignatory —
 // alignment review is a procedural decision, not an e-signed event.
 // canReviewAlignment is imported from the shared role-set module (see import
 // above) so the server gate and client usePermissions share ONE definition.
 
 /**
  * Record (or update) the reviewer's action-to-cause alignment verdict on
- * a CAPA. A status change always wipes any prior override â€” a fresh review
+ * a CAPA. A status change always wipes any prior override — a fresh review
  * starts a fresh decision.
  */
 export async function setCAPAAlignmentStatus(

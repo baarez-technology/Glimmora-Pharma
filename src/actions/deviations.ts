@@ -169,11 +169,11 @@ const CreateDeviationSchema = z.object({
   detectedDate: z.string().optional(),
   siteId: z.string().optional(),
   batchesAffected: z.string().optional(),
-  // SME Section 1, Stage 6 (FULL) â€” optional recurrence link.
+  // SME Section 1, Stage 6 (FULL) — optional recurrence link.
   // Reporter (or the suggested-matches UI) cites the prior CAPA whose
   // recurrence this Deviation represents. Validated server-side to
   // exist in the caller's tenant. Permissive about the prior CAPA's
-  // status â€” non-closed parents are allowed but flagged in audit.
+  // status — non-closed parents are allowed but flagged in audit.
   previousCAPAId: z.string().optional(),
 });
 
@@ -213,7 +213,7 @@ export async function createDeviation(
   if (!canReportDeviation(session.user.role)) {
     return { success: false, error: "Only a functional role or QA Head can report a deviation." };
   }
-  // SME Section 1, Stage 6 (FULL) â€” if previousCAPAId is supplied,
+  // SME Section 1, Stage 6 (FULL) — if previousCAPAId is supplied,
   // verify it exists in the caller's tenant before persisting the
   // link. Permissive about its status (non-closed parents are allowed,
   // just flagged in the audit row below for the effectiveness
@@ -233,7 +233,7 @@ export async function createDeviation(
     priorCAPAStatus = prior.status;
   }
 
-  // SME final rung â€” site-scoped reference allocation. Same retry-on-
+  // SME final rung — site-scoped reference allocation. Same retry-on-
   // P2002 pattern createCAPA uses; bumps sequence when two concurrent
   // creates compute the same NNN. Site code resolved per call; falls
   // back to legacy "DEV-{year}-{NNN}" format when the deviation has no
@@ -298,11 +298,11 @@ export async function createDeviation(
             detectedBy: session.user.name,
             detectedDate: parsed.data.detectedDate ? new Date(parsed.data.detectedDate) : new Date(),
             dueDate: new Date(parsed.data.dueDate),
-            // SME Section 1, Stage 5 (FULL) â€” dual-write the denormalised
+            // SME Section 1, Stage 5 (FULL) — dual-write the denormalised
             // display-name cache + the authoritative userId FK.
             createdBy: session.user.name,
             createdById: actor.userId,
-            // SME Section 1, Stage 6 (FULL) â€” recurrence link.
+            // SME Section 1, Stage 6 (FULL) — recurrence link.
             previousCAPAId: parsed.data.previousCAPAId ?? null,
           },
         });

@@ -351,7 +351,7 @@ export async function updateTenantLogo(id: string, logoUrl: string | null): Prom
  * every existing session in that tenant is invalidated on its next request
  * (the JWT callback in pages/api/auth/[...nextauth].ts compares token.iat
  * against this timestamp and returns an empty token if older). On true â†’
- * false we leave sessions alone â€” relaxing MFA shouldn't punt people out.
+ * false we leave sessions alone — relaxing MFA shouldn't punt people out.
  */
 export async function toggleTenantMFA(
   id: string,

@@ -21,7 +21,7 @@ import {
 import { readSigningProvenance } from "./_shared";
 import { sanitizeServerError } from "@/lib/errors";
 
-/* â”€â”€ SME Section 1, Stage 6 (FULL) — 90-day Effectiveness Review â”€â”€
+/* ── SME Section 1, Stage 6 (FULL) — 90-day Effectiveness Review ──
  *
  * Manual review (no scheduled trigger — that's a deployment-platform
  * concern parked for post-launch). The reviewer attests that the CAPA
@@ -200,7 +200,7 @@ export async function recordEffectivenessReview(
     sodJustification = d.justification;
   }
 
-  // Password re-verify (Part 11 Â§11.200(a)(1)(ii)).
+  // Password re-verify (Part 11 §11.200(a)(1)(ii)).
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
     parsed.data.password,

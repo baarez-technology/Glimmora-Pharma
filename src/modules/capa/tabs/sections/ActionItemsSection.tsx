@@ -75,13 +75,13 @@ const STATUS_VARIANT: Record<CAPAActionItem["status"], BadgeVariant> = {
 };
 
 export function ActionItemsSection({ capa, ownerFilter }: { capa: CAPA; ownerFilter?: string | null }) {
-  // FIX 3 â€” the action-item mutation server actions (addActionItem /
+  // FIX 3 — the action-item mutation server actions (addActionItem /
   // updateActionItem / deleteActionItem) all gate on
   // COMPLIANCE_AUTHOR_ROLES. capaCan.canEdit mirrors that exact set, so the
   // UI stops advertising controls (status updates + structural edits) to
   // roles the server rejects (e.g. qc_lab_director, operations_head). NOTE:
   // this also hides the controls from action OWNERS who aren't authors today
-  // â€” correct for now (the server already blocks them; owner-access is a
+  // — correct for now (the server already blocks them; owner-access is a
   // later phase). canView stays open so they can still read the plan.
   const capaCan = usePermissions("capa");
   // Phase 3 — assigned-owner access path. An owner who is NOT an author role

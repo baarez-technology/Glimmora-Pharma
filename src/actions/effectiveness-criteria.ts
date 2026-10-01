@@ -9,22 +9,22 @@ import { LOCKED_CAPA_STATUSES } from "@/lib/evidence-lock";
 import { getCAPAEffectivenessCriteria } from "@/lib/queries/capa-criteria";
 import { sanitizeServerError } from "@/lib/errors";
 
-// â”€â”€ Result type â”€â”€
+// ── Result type ──
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
-// â”€â”€ Constants â”€â”€
+// ── Constants ──
 
 const AUDIT_MODULE = "CAPA / Effectiveness";
 
 const LOCKED_CAPA_MESSAGE =
-  "Cannot add criteria â€” CAPA has progressed to QA review. Re-open the CAPA to modify.";
+  "Cannot add criteria — CAPA has progressed to QA review. Re-open the CAPA to modify.";
 const LOCKED_CRITERION_MESSAGE =
-  "Cannot modify a locked criterion â€” CAPA has progressed to QA review. Re-open the CAPA to modify.";
+  "Cannot modify a locked criterion — CAPA has progressed to QA review. Re-open the CAPA to modify.";
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const CriterionSchema = z.object({
   description: z.string().min(5, "Description must be at least 5 characters"),
@@ -41,7 +41,7 @@ const CriterionSchema = z.object({
     .min(3, "Monitoring period must be at least 3 characters"),
 });
 
-// â”€â”€ Actions â”€â”€
+// ── Actions ──
 
 /**
  * Client-callable read wrapper for the criteria panel. Mirrors
@@ -138,7 +138,7 @@ export async function createCriterion(
  * Update an existing criterion. Two-layer lock check: (a) the criterion's
  * own lockedAt (set by lockCriteriaForCAPA when the parent CAPA crosses
  * into a LOCKED_CAPA_STATUSES state); (b) the parent CAPA's status
- * (defence in depth â€” protects against the rare race where a criterion
+ * (defence in depth — protects against the rare race where a criterion
  * was created while the CAPA was in flight to a locked state).
  */
 export async function updateCriterion(
@@ -218,7 +218,7 @@ export async function updateCriterion(
 
 /**
  * Hard-delete a criterion. The audit row's oldValue captures the full
- * pre-delete snapshot â€” no soft-delete column needed for inspection
+ * pre-delete snapshot — no soft-delete column needed for inspection
  * traceability since the deletion event itself is part of the immutable
  * audit log.
  */

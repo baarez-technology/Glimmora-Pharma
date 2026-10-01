@@ -25,7 +25,7 @@ import type { ActionResult } from "./_types";
 import { sanitizeServerError } from "@/lib/errors";
 import { notify, notifyMany } from "@/lib/notify";
 
-/* â”€â”€ CAPA lifecycle actions â”€â”€
+/* ── CAPA lifecycle actions ──
  *
  * Create / update / clearDIGate / submitForReview / rejectCAPA /
  * deleteCAPA. Closure (signAndCloseCAPA) lives in closure.ts because
@@ -34,7 +34,7 @@ import { notify, notifyMany } from "@/lib/notify";
  * can be tree-shaken independently.
  */
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const CreateCAPASchema = z.object({
   // Phase A — short human title (flows into create via ...rest).
@@ -102,7 +102,7 @@ const UpdateCAPASchema = z.object({
   rcaMethod: z.string().optional(),
   // Batch 2 — structured RCA JSON (the readable mirror still lands in `rca`).
   rcaDetail: z.string().optional(),
-  // SME Section 1, Stage 4 (FULL) â€” correctiveActions is now managed
+  // SME Section 1, Stage 4 (FULL) — correctiveActions is now managed
   // via the structured CAPAActionItem rows (addActionItem /
   // updateActionItem / deleteActionItem). The
   // field stays on the CAPA model as a denormalised cache rebuilt by
@@ -141,7 +141,7 @@ const ReopenCAPASchema = z.object({
   reason: z.string().min(10, "A reason of at least 10 characters is required to reopen").max(2000),
 });
 
-// â”€â”€ Actions â”€â”€
+// ── Actions ──
 
 // Roles permitted to create a CAPA (server-side authz; mirrors the Rung 3A
 // SYSTEM_WRITE_ROLES pattern). Every module's "raise CAPA" path funnels
@@ -553,7 +553,7 @@ export async function createCAPA(
           const ownerId = linkedDeviationId ? null : actor.userId;
           const ownerName = linkedDeviationId ? "" : session.user.name;
 
-          // SME Section 1 (last rung) â€” site-scoped reference prefix.
+          // SME Section 1 (last rung) — site-scoped reference prefix.
           // Format is now "CAPA-{siteCode}-{year}-{NNN}". Site code is
           // resolved per call; the startsWith filter the helper feeds
           // back into findLatestForYear scopes naturally to that site's
@@ -571,12 +571,12 @@ export async function createCAPA(
           const referencePrefix = buildReferencePrefix("CAPA", siteCode);
           // Reference lookup is intentionally GLOBAL (no tenantId filter).
           // CAPA.reference has a global @unique index, not @@unique on
-          // [tenantId, reference] â€” so two tenants each computing their
+          // [tenantId, reference] — so two tenants each computing their
           // per-tenant max would both produce "CAPA-CHN-2026-001" and the
           // second insert would hit P2002 every retry. Reading the
           // global max for the prefix-year guarantees strictly greater.
           // Tenants may see gaps when two tenants share a site code AND
-          // collide on sequence â€” documented trade-off of the global
+          // collide on sequence — documented trade-off of the global
           // unique design.
           const reference = await generateReference(
             referencePrefix,
@@ -634,7 +634,7 @@ export async function createCAPA(
               createdById: actor.userId,
               dueDate: new Date(dueDate),
               findingId: linkedFindingId ?? null,
-              // SME Section 1, Stage 2 (FULL) â€” write the new bidirectional
+              // SME Section 1, Stage 2 (FULL) — write the new bidirectional
               // FK on the CAPA row at creation time. Keeps both sides
               // (CAPA.deviationId + Deviation.linkedCAPAId) atomic via the
               // surrounding $transaction below.
@@ -1084,7 +1084,7 @@ export async function updateCAPA(
     return { success: false, error: "Your role does not permit this action." };
   }
 
-  // SME Section 1, Stage 4 (FULL) â€” block direct writes to correctiveActions.
+  // SME Section 1, Stage 4 (FULL) — block direct writes to correctiveActions.
   // The field stays on the CAPA row as a denormalised cache rebuilt by
   // syncCorrectiveActions inside the action-items mutation paths, but the
   // only path to mutate it is now addActionItem / updateActionItem / etc.
@@ -1417,7 +1417,7 @@ export async function submitForReview(id: string): Promise<ActionResult> {
     }
     const submitBasis: "authorRole" | "capaDriver" = isAuthorRole ? "authorRole" : "capaDriver";
 
-    // FIX 2 â€” status invariant. Only a CAPA still under investigation
+    // FIX 2 — status invariant. Only a CAPA still under investigation
     // (in_progress) may be submitted for QA review. Without this a direct
     // API call could "submit" a CAPA already in review / verification /
     // closed / rejected. Enforced again optimistically on the write below.
@@ -1428,11 +1428,11 @@ export async function submitForReview(id: string): Promise<ActionResult> {
       };
     }
 
-    // Phase 4 â€” ONE readiness gate, shared verbatim with the client checklist
+    // Phase 4 — ONE readiness gate, shared verbatim with the client checklist
     // (src/lib/capa-readiness.ts). Loads the same inputs the UI shows: action
     // items, the 7 evidence categories, and effectiveness criteria. a-c (RCA /
     // alignment / DI) were the old server set; d-f (actions complete / evidence
-    // resolved / >=1 criterion) are now REAL conditions too â€” a deliberate
+    // resolved / >=1 criterion) are now REAL conditions too — a deliberate
     // tightening of submit so client and server can never disagree.
     const [actionItems, evidenceItems, criteria] = await Promise.all([
       prisma.cAPAActionItem.findMany({
@@ -1491,14 +1491,14 @@ export async function submitForReview(id: string): Promise<ActionResult> {
 
     // Lock evidence + effectiveness criteria FIRST so the CAPA never sits in
     // pending_qa_review with editable artifacts. Both helpers inside
-    // lockCAPAArtifacts are idempotent â€” re-runs are safe.
+    // lockCAPAArtifacts are idempotent — re-runs are safe.
     await lockCAPAArtifacts(id, session.user.tenantId, {
       userId: actor.userId,
       name: actor.displayName,
       role: actor.role,
     });
 
-    // Optimistic lock â€” re-assert status="in_progress" in the WHERE so a
+    // Optimistic lock — re-assert status="in_progress" in the WHERE so a
     // concurrent transition can't double-fire. count===0 means the status
     // moved between the read above and this write.
     const updated = await prisma.cAPA.updateMany({

@@ -22,7 +22,7 @@ type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
-// â”€â”€ Constants / config â”€â”€
+// ── Constants / config ──
 
 const MAX_FILE_MB = Number(process.env.EVIDENCE_MAX_FILE_MB ?? "10");
 const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
@@ -41,7 +41,7 @@ const RETENTION_YEARS = 7;
 
 const AUDIT_MODULE = "CAPA / Evidence";
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const StatusUpdateSchema = z.object({
   // Driver/author-settable statuses only — "REJECTED" is a QA-only disposition
@@ -58,7 +58,7 @@ const RemoveFileSchema = z.object({
   reason: z.string().min(10, "Deletion reason must be at least 10 characters"),
 });
 
-// â”€â”€ Internal helpers â”€â”€
+// ── Internal helpers ──
 
 /**
  * Tenant-scope guard: returns the EvidenceItem joined to its CAPA's tenantId,
@@ -87,7 +87,7 @@ function nowPlusYears(years: number): Date {
   return d;
 }
 
-// â”€â”€ ACTION 1: initialise the 7 evidence rows for a CAPA â”€â”€
+// ── ACTION 1: initialise the 7 evidence rows for a CAPA ──
 
 export async function initializeEvidenceForCAPA(
   capaId: string,
@@ -116,7 +116,7 @@ export async function initializeEvidenceForCAPA(
 
   let created = 0;
   try {
-    // Idempotent â€” skipDuplicates means re-running is a no-op once rows exist.
+    // Idempotent — skipDuplicates means re-running is a no-op once rows exist.
     const result = await prisma.evidenceItem.createMany({
       data: EVIDENCE_CATEGORIES.map((category) => ({
         capaId,
@@ -145,11 +145,11 @@ export async function initializeEvidenceForCAPA(
         });
         created += 1;
       } catch {
-        // P2002 on (capaId, category) â€” already exists, skip.
+        // P2002 on (capaId, category) — already exists, skip.
       }
     }
     if (created === 0) {
-      // Genuine error â€” re-throw the original.
+      // Genuine error — re-throw the original.
       console.error("[action] initializeEvidenceForCAPA failed:", err);
       return { success: false, error: "Failed to initialize evidence categories" };
     }
@@ -173,7 +173,7 @@ export async function initializeEvidenceForCAPA(
   return { success: true, data: { created } };
 }
 
-// â”€â”€ ACTION 2: update status / notes (with note-version snapshot) â”€â”€
+// ── ACTION 2: update status / notes (with note-version snapshot) ──
 
 export async function updateEvidenceStatus(
   evidenceItemId: string,
@@ -322,7 +322,7 @@ export async function updateEvidenceStatus(
   }
 }
 
-// â”€â”€ ACTION 3: upload a file â”€â”€
+// ── ACTION 3: upload a file ──
 
 export async function addEvidenceFile(
   evidenceItemId: string,
@@ -614,7 +614,7 @@ export async function rejectEvidenceCategory(
   }
 }
 
-// â”€â”€ ACTION 4: soft-delete a file â”€â”€
+// ── ACTION 4: soft-delete a file ──
 
 export async function removeEvidenceFile(
   fileId: string,
@@ -657,7 +657,7 @@ export async function removeEvidenceFile(
   }
   // Retention applies to destroying the file bytes, not to this soft-delete:
   // the row stays (deletedAt + reason + audit row), and fileStorage.delete()
-  // is intentionally not called below â€” bytes survive on disk for the full
+  // is intentionally not called below — bytes survive on disk for the full
   // retainUntil window. A future hard-delete/purge job is where the
   // retainUntil check belongs.
 
@@ -709,7 +709,7 @@ export async function removeEvidenceFile(
       });
     });
 
-    // The actual file on disk is preserved â€” ALCOA+ Enduring. fileStorage
+    // The actual file on disk is preserved — ALCOA+ Enduring. fileStorage
     // .delete() is a no-op for the local backend.
     revalidatePath(`/capa/${file.evidenceItem.capa.id}`);
     return { success: true, data: null };
@@ -719,7 +719,7 @@ export async function removeEvidenceFile(
   }
 }
 
-// â”€â”€ ACTION 5: read note-version history â”€â”€
+// ── ACTION 5: read note-version history ──
 
 export async function loadEvidenceNoteHistory(
   evidenceItemId: string,
@@ -749,7 +749,7 @@ export async function loadEvidenceNoteHistory(
   };
 }
 
-// â”€â”€ Client-callable read wrapper for the Evidence panel â”€â”€
+// ── Client-callable read wrapper for the Evidence panel ──
 
 export async function loadEvidenceForCAPA(capaId: string): Promise<ActionResult> {
   const session = await requireAuth();

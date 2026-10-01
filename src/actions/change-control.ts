@@ -21,7 +21,7 @@ import { readSigningProvenance } from "@/actions/capas/_shared";
 import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
 import { sanitizeServerError } from "@/lib/errors";
 
-/** Substage 5.4 â€” only these transitions require a Part 11 e-signature.
+/** Substage 5.4 — only these transitions require a Part 11 e-signature.
  *  The rest (Draftâ†”In Review, Approvedâ†’In Implementation, In Implementation
  *  â†’Implemented) are administrative and stay unsigned. */
 const SIGNED_TRANSITION_TARGETS: ReadonlySet<ChangeControlStatus> = new Set([
@@ -31,7 +31,7 @@ const SIGNED_TRANSITION_TARGETS: ReadonlySet<ChangeControlStatus> = new Set([
 ]);
 
 /**
- * Substage 4.8 â€” Change Control Linkage.
+ * Substage 4.8 — Change Control Linkage.
  *
  * Six server actions: create / update / transition status / soft-delete on
  * the ChangeControl entity, plus link / unlink between CAPA â†” ChangeControl.
@@ -53,7 +53,7 @@ const AUDIT_MODULE_LINK = "CAPA / Change Control";
 
 // Constants + types live in src/lib/change-control-constants.ts so this
 // "use server" file only exports async functions (Next 16 enforces this
-// at runtime â€” re-exporting non-functions from a "use server" file
+// at runtime — re-exporting non-functions from a "use server" file
 // crashes the app).
 
 /** Status transitions allowed by the state machine. Each entry maps the
@@ -69,7 +69,7 @@ const ALLOWED_TRANSITIONS: Record<ChangeControlStatus, ChangeControlStatus[]> = 
   Rejected: [],
 };
 
-/** Roles allowed to approve / reject / close â€” mirrors the QA-tier role
+/** Roles allowed to approve / reject / close — mirrors the QA-tier role
  *  set used elsewhere in the codebase. */
 // customer_admin REMOVED: approving/rejecting/closing a change control is a
 // quality judgment, and the tenant admin is read-only outside Settings
@@ -92,13 +92,13 @@ const FINALIZED_STATUSES: ReadonlySet<string> = new Set([
 const LINK_BLOCKED_CC_STATUSES = FINALIZED_STATUSES;
 
 /** CAPA statuses that block new CC links (a closed CAPA shouldn't gain
- *  new corrective-implementation linkages â€” those belong on a fresh CAPA). */
+ *  new corrective-implementation linkages — those belong on a fresh CAPA). */
 const LINK_BLOCKED_CAPA_STATUSES: ReadonlySet<string> = new Set([
   "closed",
   "rejected",
 ]);
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const CreateChangeControlSchema = z.object({
   title: z.string().min(5).max(200),
@@ -124,7 +124,7 @@ const TransitionStatusSchema = z.object({
   comment: z.string().max(2000).optional(),
   // Required when transitioning In Implementation â†’ Implemented.
   actualImplementationDate: z.string().optional(),
-  // Substage 5.4 â€” required only when newStatus âˆˆ {Approved, Rejected,
+  // Substage 5.4 — required only when newStatus âˆˆ {Approved, Rejected,
   // Closed}. Optional in the schema; the action enforces presence based
   // on the target status and writes a SignedRecord row + paired audit
   // event when the transition is consequential.
@@ -146,7 +146,7 @@ const UnlinkSchema = z.object({
   reason: z.string().min(10).max(2000),
 });
 
-// â”€â”€ Read wrappers (client-callable) â”€â”€
+// ── Read wrappers (client-callable) ──
 
 /** Returns CCs the user can see (tenant-scoped, non-deleted by default).
  *  super_admin sees rows from any tenant. */
@@ -253,7 +253,7 @@ export async function loadChangeControlStatusHistory(
   return { success: true, data: rows };
 }
 
-/** Returns CAPAs the caller can link to â€” used by the CC-detail "Link a
+/** Returns CAPAs the caller can link to — used by the CC-detail "Link a
  *  CAPA" picker. Excludes closed/rejected CAPAs (per LINK_BLOCKED_CAPA_STATUSES)
  *  and CAPAs already linked to the given CC. */
 export async function loadLinkableCAPAs(ccId: string): Promise<ActionResult> {
@@ -327,7 +327,7 @@ export async function loadLinkableChangeControls(
   return { success: true, data: candidates };
 }
 
-// â”€â”€ 1. createChangeControl â”€â”€
+// ── 1. createChangeControl ──
 
 export async function createChangeControl(
   input: z.input<typeof CreateChangeControlSchema>,
@@ -427,7 +427,7 @@ export async function createChangeControl(
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_CREATED",
         recordId: cc.id,
-        recordTitle: `${cc.reference ?? cc.id} â€” ${cc.title.slice(0, 60)}`,
+        recordTitle: `${cc.reference ?? cc.id} — ${cc.title.slice(0, 60)}`,
         newValue: JSON.stringify({
           changeType: cc.changeType,
           risk: cc.risk,
@@ -443,7 +443,7 @@ export async function createChangeControl(
   }
 }
 
-// â”€â”€ 2. updateChangeControl â”€â”€
+// ── 2. updateChangeControl ──
 
 export async function updateChangeControl(
   id: string,
@@ -469,7 +469,7 @@ export async function updateChangeControl(
   if (FINALIZED_STATUSES.has(existing.status)) {
     return {
       success: false,
-      error: `Cannot edit a Change Control in '${existing.status}' status â€” it is locked.`,
+      error: `Cannot edit a Change Control in '${existing.status}' status — it is locked.`,
     };
   }
   if (existing.status !== "Draft" && existing.status !== "In Review") {
@@ -531,7 +531,7 @@ export async function updateChangeControl(
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_UPDATED",
         recordId: id,
-        recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
+        recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
         oldValue: JSON.stringify(before),
         newValue: JSON.stringify({
           description: updated.description,
@@ -552,7 +552,7 @@ export async function updateChangeControl(
   }
 }
 
-// â”€â”€ 3. transitionChangeControlStatus â”€â”€
+// ── 3. transitionChangeControlStatus ──
 
 export async function transitionChangeControlStatus(
   id: string,
@@ -639,7 +639,7 @@ export async function transitionChangeControlStatus(
     }
   }
 
-  // Substage 5.4 â€” consequential transitions (Approved / Rejected / Closed)
+  // Substage 5.4 — consequential transitions (Approved / Rejected / Closed)
   // require a Part 11 e-signature. Administrative transitions stay
   // unsigned. The signing block runs BEFORE the state change so a wrong
   // password yields zero side effects beyond the failed-attempt audit row.
@@ -677,7 +677,7 @@ export async function transitionChangeControlStatus(
           module: SIGNING_AUDIT_MODULE,
           action: "SIGNING_PASSWORD_FAILED",
           recordId: id,
-          recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
+          recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
           newValue: JSON.stringify({
             recordType: "CHANGE_CONTROL_TRANSITION",
             toStatus,
@@ -758,7 +758,7 @@ export async function transitionChangeControlStatus(
           data: { ...baseUpdateData, latestSignedTransitionId: sig.id },
         });
         if (updateRes.count === 0) {
-          // Roll back the SignedRecord â€” the transition we signed for did
+          // Roll back the SignedRecord — the transition we signed for did
           // not commit. The tx-throw triggers the outer catch's STATE_CONFLICT
           // mapping.
           throw new Error("STATE_CONFLICT");
@@ -795,7 +795,7 @@ export async function transitionChangeControlStatus(
           module: AUDIT_MODULE_CC,
           action: "CHANGE_CONTROL_STATUS_CHANGED",
           recordId: id,
-          recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
+          recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
           oldValue: fromStatus,
           newValue: JSON.stringify({
             status: toStatus,
@@ -823,7 +823,7 @@ export async function transitionChangeControlStatus(
             module: SIGNING_AUDIT_MODULE,
             action: "CHANGE_CONTROL_TRANSITION_SIGNED",
             recordId: signedRecordId,
-            recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
+            recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
             newValue: JSON.stringify({
               signerId: session.user.id,
               contentHashPrefix: contentHash!.slice(0, 16),
@@ -856,7 +856,7 @@ export async function transitionChangeControlStatus(
   }
 }
 
-// â”€â”€ 4. softDeleteChangeControl â”€â”€
+// ── 4. softDeleteChangeControl ──
 
 export async function softDeleteChangeControl(
   id: string,
@@ -925,7 +925,7 @@ export async function softDeleteChangeControl(
         module: AUDIT_MODULE_CC,
         action: "CHANGE_CONTROL_SOFT_DELETED",
         recordId: id,
-        recordTitle: `${existing.reference ?? id} â€” ${existing.title.slice(0, 60)}`,
+        recordTitle: `${existing.reference ?? id} — ${existing.title.slice(0, 60)}`,
         newValue: JSON.stringify({ reason: parsed.data.reason }),
       },
     });
@@ -937,7 +937,7 @@ export async function softDeleteChangeControl(
   }
 }
 
-// â”€â”€ 5. linkCAPAToChangeControl â”€â”€
+// ── 5. linkCAPAToChangeControl ──
 
 export async function linkCAPAToChangeControl(
   input: z.input<typeof LinkSchema>,
@@ -985,7 +985,7 @@ export async function linkCAPAToChangeControl(
     return { success: false, error: "Cannot link to a deleted Change Control." };
   }
   if (capa.tenantId !== cc.tenantId) {
-    // Defence-in-depth â€” both lookups already enforce tenant scope, but
+    // Defence-in-depth — both lookups already enforce tenant scope, but
     // this guards a super_admin from inadvertently linking across tenants.
     return {
       success: false,
@@ -1065,7 +1065,7 @@ export async function linkCAPAToChangeControl(
   }
 }
 
-// â”€â”€ 6. unlinkCAPAFromChangeControl â”€â”€
+// ── 6. unlinkCAPAFromChangeControl ──
 
 export async function unlinkCAPAFromChangeControl(
   linkId: string,

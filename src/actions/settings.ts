@@ -187,7 +187,7 @@ export async function deleteSite(id: string): Promise<ActionResult> {
   if (!isAdmin(session.user.role)) {
     return { success: false, error: "Access denied" };
   }
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.site.findFirst({
       where: scopedWhere(session, id),
@@ -382,7 +382,7 @@ export async function updateUser(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   // High-value: blocks customer_admin of tenant A from mutating users in tenant B.
   if (session.user.role !== "super_admin") {
     const owned = await prisma.user.findFirst({
@@ -660,7 +660,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   if (!isAdmin(session.user.role)) {
     return { success: false, error: "Access denied" };
   }
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.user.findFirst({
       where: scopedWhere(session, id),

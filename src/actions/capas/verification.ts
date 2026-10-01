@@ -21,10 +21,10 @@ import {
 import { readSigningProvenance } from "./_shared";
 import { sanitizeServerError } from "@/lib/errors";
 
-/* â”€â”€ SME Section 1, Stage 5 (FULL) — Independent QA Verification â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* ── SME Section 1, Stage 5 (FULL) — Independent QA Verification ─────────
  *
  * Verification is the third QA signing event in the CAPA lifecycle:
- *   approveCAPA (per-approver) â†’ â€¦ â†’ all approvals satisfied
+ *   approveCAPA (per-approver) â†’ … â†’ all approvals satisfied
  *   â†’ approveCAPA auto-flips status to pending_verification
  *   â†’ verifyCAPA (this file) mints CAPA_VERIFICATION SignedRecord
  *   â†’ signAndCloseCAPA mints CAPA_CLOSURE SignedRecord (now gated on
@@ -43,11 +43,11 @@ import { sanitizeServerError } from "@/lib/errors";
  *      property is broken if a participant in any other role also
  *      signs verification, regardless of how privileged they are.
  *
- * Part 11 Â§11.200(a)(1)(ii) — password re-verification required, same
+ * Part 11 §11.200(a)(1)(ii) — password re-verification required, same
  * pattern as approveCAPA / signAndCloseCAPA.
  */
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const VerifyCAPASchema = z.object({
   password: z.string().min(1, "Password is required to sign"),
@@ -216,7 +216,7 @@ export async function verifyCAPA(
     };
   }
 
-  // Â§11.200(a)(1)(ii) — re-authenticate at the moment of signing.
+  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing.
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
     parsed.data.password,

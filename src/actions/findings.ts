@@ -3,7 +3,7 @@
 /**
  * Server Actions for Gap Assessment findings.
  *
- * Reference implementation â€” shows the pattern for
+ * Reference implementation — shows the pattern for
  * migrating from Redux dispatch + API routes to
  * Server Actions + revalidatePath.
  *
@@ -13,7 +13,7 @@
  *  3. Mutates via Prisma
  *  4. Creates audit log entry
  *  5. Revalidates the page cache
- *  6. Returns result (no throw â€” return errors)
+ *  6. Returns result (no throw — return errors)
  */
 
 import { revalidatePath } from "next/cache";
@@ -56,7 +56,7 @@ import { FINDING_STATUS_USER_EDITABLE } from "@/constants/statusTaxonomy";
 // disagree (a mismatch made short edits fail silently).
 const MIN_REQUIREMENT = 10;
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const CreateFindingSchema = z.object({
   requirement: z.string().min(MIN_REQUIREMENT, `Requirement must be at least ${MIN_REQUIREMENT} characters`),
@@ -76,7 +76,7 @@ const CreateFindingSchema = z.object({
   rootCause: z.string().optional(),
   rcaMethod: z.enum(CAPA_RCA_METHODS).optional(),
   rcaDetail: z.string().optional(),
-  // SME Section 1, Stage 6 (FULL) â€” optional recurrence link, same
+  // SME Section 1, Stage 6 (FULL) — optional recurrence link, same
   // semantic as Deviation.previousCAPAId.
   previousCAPAId: z.string().optional(),
 });
@@ -114,13 +114,13 @@ const UpdateFindingSchema = z.object({
   reason: z.string().min(FINDING_EDIT_REASON_MIN, `Reason for edit must be at least ${FINDING_EDIT_REASON_MIN} characters`).max(2000),
 });
 
-// â”€â”€ Return types â”€â”€
+// ── Return types ──
 
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
-// â”€â”€ Actions â”€â”€
+// ── Actions ──
 
 /** A gap raised to a CAPA is LOCKED: once Finding.linkedCAPAId points at a LIVE
  *  (non-closed) CAPA, all gap work moves to the CAPA — the finding stays readable
@@ -140,7 +140,7 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
-  // SME Section 1, Stage 6 (FULL) â€” validate the optional recurrence
+  // SME Section 1, Stage 6 (FULL) — validate the optional recurrence
   // link before persisting. Same pattern as createDeviation.
   let priorCAPAStatus: string | null = null;
   if (parsed.data.previousCAPAId) {
@@ -177,7 +177,7 @@ export async function createFinding(input: z.input<typeof CreateFindingSchema>):
   if (!siteRes.ok) return { success: false, error: siteRes.error };
   const siteId = siteRes.siteId;
 
-  // SME final rung â€” site-scoped reference allocation. Same retry-on-
+  // SME final rung — site-scoped reference allocation. Same retry-on-
   // P2002 shape as createDeviation / createCAPA.
   let siteCodeForRef: string | null = null;
   if (siteId) {

@@ -14,7 +14,7 @@ import {
 } from "./_types";
 import { sanitizeServerError } from "@/lib/errors";
 
-/* â”€â”€ SME Section 1, Stage 3 (FULL) â€” RCA Quality Review â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* ── SME Section 1, Stage 3 (FULL) — RCA Quality Review ──────────────────
  *
  * Three-action surface mirroring the substage-4.7 alignment review
  * (set / override / clear). Different audit module, different status
@@ -23,7 +23,7 @@ import { sanitizeServerError } from "@/lib/errors";
  *
  * Differences from alignment review:
  *   - Status window: RCA review is only valid while the CAPA is in
- *     "in_progress" â€” earlier ("open") there's no RCA to review yet;
+ *     "in_progress" — earlier ("open") there's no RCA to review yet;
  *     later (>= "pending_qa_review") the CAPA is past this phase and
  *     editing the RCA verdict would undermine the in-flight QA review.
  *   - SoD: the CAPA creator cannot review their own RCA. This is a
@@ -38,12 +38,12 @@ import { sanitizeServerError } from "@/lib/errors";
  * Auto-invalidation: editing the rca or rcaMethod fields via updateCAPA
  * after rcaApproved is true clears the review back to null (see
  * lifecycle.ts updateCAPA logic). This rung does NOT mint a SignedRecord
- * â€” RCA review is a procedural QA gate, not a Part-11-binding event;
+ * — RCA review is a procedural QA gate, not a Part-11-binding event;
  * the full Stage 3 verification step that DOES sign is the closure
  * SignedRecord later in the lifecycle.
  */
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const ReviewRCASchema = z.object({
   approved: z.boolean(),
@@ -66,7 +66,7 @@ const OverrideRCASchema = z.object({
 });
 
 // Roles authorised to set / override / clear an RCA review. Same role
-// gate as alignment review â€” RCA quality is a QA procedural decision.
+// gate as alignment review — RCA quality is a QA procedural decision.
 // canReviewRCA is imported from the shared role-set module (see import above)
 // so the server gate and the client usePermissions hook share ONE definition.
 
@@ -131,11 +131,11 @@ export async function reviewRCA(
   if (!existing.rca || existing.rca.trim().length === 0) {
     return {
       success: false,
-      error: "No root cause analysis to review â€” author must enter RCA text first.",
+      error: "No root cause analysis to review — author must enter RCA text first.",
     };
   }
 
-  // SoD â€” creator cannot review their own RCA. Prefer the authoritative
+  // SoD — creator cannot review their own RCA. Prefer the authoritative
   // createdById userId FK; fall back to display-name comparison only for
   // legacy rows whose createdById is null (predate the FK / unresolvable
   // backfill). ID comparison is robust against duplicate names and renames.
@@ -306,7 +306,7 @@ export async function reviewRCA(
 /**
  * Override a prior RCA rejection so the CAPA can proceed. SoD: the
  * reviewer who recorded the rejection cannot override their own
- * verdict â€” a different QA reviewer must do so with a recorded
+ * verdict — a different QA reviewer must do so with a recorded
  * rationale. Mirrors overrideCAPAAlignmentFlag.
  */
 export async function overrideRCAReview(
@@ -450,7 +450,7 @@ export async function overrideRCAReview(
 /**
  * Wipe all 9 RCA-review fields back to null so a reviewer can start over.
  * Subject to the same role + status checks as set/override. Mirrors
- * clearCAPAAlignmentReview's permissive scope â€” any reviewer in the
+ * clearCAPAAlignmentReview's permissive scope — any reviewer in the
  * role gate can clear; the audit trail captures who did it.
  */
 export async function clearRCAReview(capaId: string): Promise<ActionResult> {

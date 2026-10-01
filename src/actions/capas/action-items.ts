@@ -25,7 +25,7 @@ import { TASK_DESCRIPTION_MIN } from "@/constants/capaValidation";
 // requireGxPAuthor(). (createdById here is a plain String, no FK — its
 // admin-identity correctness is a separate non-crashing follow-up.)
 
-/* â”€â”€ SME Section 1, Stage 4 (FULL) â€” Structured CAPA Action Plan items â”€â”€
+/* ── SME Section 1, Stage 4 (FULL) — Structured CAPA Action Plan items ──
  *
  * Replaces the free-text CAPA.correctiveActions blob with tracked rows
  * carrying owner, due date, status, completion attribution. The legacy
@@ -41,14 +41,14 @@ import { TASK_DESCRIPTION_MIN } from "@/constants/capaValidation";
  *   closed / rejected        â†’ read-only
  *
  * Auto-invalidate: editing a complete item's description, owner, or
- * dueDate reverts it to pending and clears completion attribution â€”
+ * dueDate reverts it to pending and clears completion attribution —
  * the completion attestation no longer applies to the changed content.
  * Same pattern as the RCA review auto-invalidate from Stage 3.
  */
 
 type TxClient = Prisma.TransactionClient | PrismaClient;
 
-// â”€â”€ Due-date helpers (Item 5 â€” past-date rejection) â”€â”€
+// ── Due-date helpers (Item 5 — past-date rejection) ──
 //
 // Due dates are persisted as `new Date(dueDate)` where the client transmits the
 // picked calendar day as local-midnight→UTC (dayjs(pick).utc().toISOString()).
@@ -68,7 +68,7 @@ function isNotPastDueDate(value: string): boolean {
   return utcDayMs(d) >= utcDayMs(new Date()) - DAY_MS;
 }
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const AddActionItemSchema = z.object({
   description: z.string().min(TASK_DESCRIPTION_MIN, `Task description must be at least ${TASK_DESCRIPTION_MIN} characters`).max(2000),
@@ -92,7 +92,7 @@ const DeleteActionItemSchema = z.object({
   reason: z.string().min(5, "Reason must be at least 5 characters").max(2000),
 });
 
-// â”€â”€ Internal helpers â”€â”€
+// ── Internal helpers ──
 
 /**
  * Rebuild CAPA.correctiveActions as a newline-joined string of action
@@ -116,7 +116,7 @@ export async function syncCorrectiveActions(
     orderBy: { sequence: "asc" },
     select: { description: true, status: true },
   });
-  // Cache reflects live (non-skipped) items only â€” skipped items are
+  // Cache reflects live (non-skipped) items only — skipped items are
   // dropped from the textual blob because they don't represent active
   // commitments. The CAPAActionItem rows themselves are preserved for
   // the audit trail.
@@ -149,7 +149,7 @@ function isTerminalStatus(status: string): boolean {
   return status === "closed" || status === "rejected";
 }
 
-// â”€â”€ Actions â”€â”€
+// ── Actions ──
 
 /**
  * Append a new action item to a CAPA. Blocked when the CAPA is in any
@@ -222,7 +222,7 @@ export async function addActionItem(
   }
   try {
     const created = await prisma.$transaction(async (tx) => {
-      // Determine sequence â€” caller may pin; otherwise append after the
+      // Determine sequence — caller may pin; otherwise append after the
       // current highest.
       let sequence = parsed.data.sequence;
       if (sequence === undefined) {
@@ -327,7 +327,7 @@ export async function addActionItem(
  *   - other CAPA states: full update allowed
  *
  * Auto-invalidate: if a "complete" item's description / owner / dueDate
- * change, status reverts to pending and completion fields clear â€” the
+ * change, status reverts to pending and completion fields clear — the
  * completion attestation no longer covers the new content. Audit row
  * CAPA_ACTION_ITEM_INVALIDATED_BY_EDIT captures the cascade.
  *
@@ -439,7 +439,7 @@ export async function updateActionItem(
     }
   }
 
-  // Auto-invalidate detection â€” only fires when CAPA is unlocked AND a
+  // Auto-invalidate detection — only fires when CAPA is unlocked AND a
   // content field is changing AND the item is currently complete.
   const descChanged =
     parsed.data.description !== undefined &&
@@ -548,7 +548,7 @@ export async function updateActionItem(
       return u;
     });
 
-    // Audit rows â€” main update + paired status-change + paired
+    // Audit rows — main update + paired status-change + paired
     // invalidation row when each fires.
     const changedFields: string[] = [];
     if (descChanged) changedFields.push("description");

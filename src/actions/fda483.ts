@@ -25,9 +25,9 @@ type ActionResult<T = unknown> =
   | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
 const SignSubmitFDA483Schema = z.object({
-  // Re-authentication password (Part 11 Â§11.200(a)(1)(ii)).
+  // Re-authentication password (Part 11 §11.200(a)(1)(ii)).
   password: z.string().min(1, "Password is required to sign"),
-  // From the SignSubmit modal dropdown â€” "approve" / "certify" / "authorize".
+  // From the SignSubmit modal dropdown — "approve" / "certify" / "authorize".
   signatureMeaning: z.string().min(1, "Signature meaning is required"),
 });
 
@@ -261,7 +261,7 @@ export async function addObservation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  // IDOR guard â€” verify the caller's tenant owns the parent event before
+  // IDOR guard — verify the caller's tenant owns the parent event before
   // inserting the child observation. Derives the audit-row tenantId from
   // the verified parent (correct for super_admin cross-tenant writes too).
   const parent = await assertTenantOwnsParent<{
@@ -285,7 +285,7 @@ export async function addObservation(
     return { success: false, error: "Viewers cannot perform this action." };
   }
 
-  // SME final rung â€” site-scoped reference. FDA483Observation has no
+  // SME final rung — site-scoped reference. FDA483Observation has no
   // siteId of its own; the site is resolved via the parent FDA483Event's
   // siteId. Falls back to the legacy 2-segment format when the parent
   // event has no site or the site has no code populated.
@@ -565,7 +565,7 @@ export async function addCommitment(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  // IDOR guard â€” verify the caller's tenant owns the parent event.
+  // IDOR guard — verify the caller's tenant owns the parent event.
   const parent = await assertTenantOwnsParent<{
     id: string;
     tenantId: string;
@@ -719,7 +719,7 @@ export async function deleteFDA483Event(id: string): Promise<ActionResult> {
 }
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
- * RESPONSE DRAFTS â€” narrative + AGI
+ * RESPONSE DRAFTS — narrative + AGI
  * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 export async function saveResponseDraft(
@@ -785,7 +785,7 @@ export async function saveAGIDraft(
       where: { id: eventId, tenantId: session.user.tenantId },
       data: { agiDraft },
     });
-    // Audit log for AGI draft save (audit finding 10.4 â€” coverage gap closed).
+    // Audit log for AGI draft save (audit finding 10.4 — coverage gap closed).
     await prisma.auditLog.create({
       data: {
         tenantId: session.user.tenantId,
@@ -808,7 +808,7 @@ export async function saveAGIDraft(
 }
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
- * SIGN & SUBMIT â€” captures signature meaning
+ * SIGN & SUBMIT — captures signature meaning
  * Schema fields: status, responseDraft, submittedAt,
  * submittedBy, signatureMeaning, closedAt.
  * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
@@ -844,7 +844,7 @@ export async function signSubmitFDA483Response(
     return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
   }
 
-  // Â§11.200(a)(1)(ii) â€” re-authenticate at the moment of signing.
+  // §11.200(a)(1)(ii) — re-authenticate at the moment of signing.
   const passwordOk = await verifyPasswordForSigning(
     session.user.id,
     parsed.data.password,
@@ -885,7 +885,7 @@ export async function signSubmitFDA483Response(
       submittedAt,
     });
     const contentHash = computeContentHash(canonicalContent);
-    const contentSummary = `FDA 483 ${existing.referenceNumber} response submitted by ${session.user.name} (${session.user.role}) â€” meaning: ${parsed.data.signatureMeaning}`;
+    const contentSummary = `FDA 483 ${existing.referenceNumber} response submitted by ${session.user.name} (${session.user.role}) — meaning: ${parsed.data.signatureMeaning}`;
     const provenance = await readSigningProvenance();
 
     const { event, signedRecord } = await prisma.$transaction(async (tx) => {
@@ -1218,10 +1218,10 @@ export async function recordFDA483Outcome(
 }
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
- * OBSERVATIONS â€” update / delete + CAPA link
+ * OBSERVATIONS — update / delete + CAPA link
  * Schema fields: text, area, regulation, severity,
  * rcaMethod, rootCause, capaId, responseText, status.
- * (No `linkedCAPAId` or `rcaData` columns â€” spec
+ * (No `linkedCAPAId` or `rcaData` columns — spec
  * incorrectly named these.)
  * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
@@ -1253,7 +1253,7 @@ export async function updateObservation(
   if (!parsed.success) {
     return { success: false, error: "Validation failed", fieldErrors: parsed.error.flatten().fieldErrors };
   }
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   // Fetch the existing observation (tenant-scoped unless super_admin) —
   // serves as the IDOR guard AND supplies the pre-update rootCause /
   // rcaMethod / capaId for the auto-invalidation comparison below.
@@ -1483,7 +1483,7 @@ export async function linkCAPAToEvent(
   capaId: string,
 ): Promise<ActionResult> {
   const session = await requireAuth();
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   // Rung 3A-bis.1 — explicit viewer block (the super_admin-IDOR-bypass below
   // does not restrict viewers).
   if (!canWriteFDA483(session.user.role)) {
@@ -1530,7 +1530,7 @@ export async function linkCAPAToEvent(
 
 export async function deleteObservation(id: string): Promise<ActionResult> {
   const session = await requireAuth();
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Observation.findFirst({
       where: { id, event: { tenantId: session.user.tenantId } },
@@ -1570,7 +1570,7 @@ export async function deleteObservation(id: string): Promise<ActionResult> {
 }
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
- * COMMITMENTS â€” update / delete
+ * COMMITMENTS — update / delete
  * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 const UpdateCommitmentSchema = z.object({
@@ -1597,7 +1597,7 @@ export async function updateCommitment(
   if (parsed.data.status === "Complete") {
     return { success: false, error: "Use Mark Complete to complete a commitment." };
   }
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Commitment.findFirst({
       where: { id, event: { tenantId: session.user.tenantId } },
@@ -1645,7 +1645,7 @@ export async function updateCommitment(
 
 export async function deleteCommitment(id: string): Promise<ActionResult> {
   const session = await requireAuth();
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Commitment.findFirst({
       where: { id, event: { tenantId: session.user.tenantId } },
@@ -1841,10 +1841,10 @@ export async function reopenCommitment(
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
  * RESPONSE DOCUMENTS
- * (FDA483Document model â€” requires migration)
+ * (FDA483Document model — requires migration)
  *
  * Spec called the URL field `fileUrl`; for in-app uploads via the
- * shared <DocumentUpload> component, this is a base64 data URL â€”
+ * shared <DocumentUpload> component, this is a base64 data URL —
  * for external links it's a real URL. Either way the column stores
  * a string the UI can hand straight to <a href={fileUrl}>.
  * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
@@ -1941,7 +1941,7 @@ export async function removeResponseDocument(
   eventId: string,
 ): Promise<ActionResult> {
   const session = await requireAuth();
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Document.findFirst({
       where: { id, event: { tenantId: session.user.tenantId } },
@@ -2026,7 +2026,7 @@ export async function raiseCAPAFromObservation(
     ? `${d.referenceNumber} Obs #${d.observationNumber}: ${d.observationText}`
     : d.observationText.slice(0, 200);
 
-  // Tenant scope check â€” prevents IDOR (audit finding 1.1)
+  // Tenant scope check — prevents IDOR (audit finding 1.1)
   if (session.user.role !== "super_admin") {
     const owned = await prisma.fDA483Observation.findFirst({
       where: { id: d.observationId, event: { tenantId: session.user.tenantId } },

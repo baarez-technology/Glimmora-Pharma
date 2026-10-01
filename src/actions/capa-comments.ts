@@ -9,17 +9,17 @@ import { sanitizeServerError } from "@/lib/errors";
 import { CONCERN_MIN } from "@/constants/capaValidation";
 
 /**
- * Substage 5.2 Â§5.3 â€” CAPA discussion thread.
+ * Substage 5.2 §5.3 — CAPA discussion thread.
  *
  * Comments attached to a CAPA. Comments flagged `isConcern` block final
  * approval until a different reviewer resolves them. Soft-delete only
- * (Part 11 immutability) â€” replies under a deleted parent remain visible
+ * (Part 11 immutability) — replies under a deleted parent remain visible
  * with a "[deleted]" placeholder rendered by the UI.
  *
  * State-based blocking: comments may be added / resolved / reopened /
  * edited / soft-deleted while the parent CAPA is in any non-terminal
  * status (open / in_progress / pending_qa_review). Once the CAPA is
- * closed or rejected, the discussion is frozen â€” no mutations allowed,
+ * closed or rejected, the discussion is frozen — no mutations allowed,
  * matching the immutability stance of the rest of the CAPA artifacts.
  */
 
@@ -41,7 +41,7 @@ const RESOLVE_PERMITTED_ROLES: ReadonlySet<string> = new Set([
   "regulatory_affairs",
 ]);
 
-// â”€â”€ Schemas â”€â”€
+// ── Schemas ──
 
 const AddCommentSchema = z.object({
   body: z
@@ -83,7 +83,7 @@ const DeleteSchema = z.object({
     .max(2000, "Deletion reason must be 2000 characters or fewer"),
 });
 
-// â”€â”€ Internal helpers â”€â”€
+// ── Internal helpers ──
 
 interface ParentCAPA {
   id: string;
@@ -128,10 +128,10 @@ function recordTitleFor(capa: ParentCAPA): string {
   return (capa.reference ?? capa.id).slice(0, 80);
 }
 
-// â”€â”€ Read wrapper â”€â”€
+// ── Read wrapper ──
 
 /**
- * Client-callable read wrapper â€” mirrors loadApprovalsForCAPA / loadCriteriaForCAPA.
+ * Client-callable read wrapper — mirrors loadApprovalsForCAPA / loadCriteriaForCAPA.
  * Returns the full thread including soft-deleted rows so the UI can render
  * the "[deleted]" placeholder without losing reply chains.
  */
@@ -147,7 +147,7 @@ export async function loadCommentsForCAPA(
   return { success: true, data: comments };
 }
 
-// â”€â”€ 1. addCAPAComment â”€â”€
+// ── 1. addCAPAComment ──
 
 export async function addCAPAComment(
   capaId: string,
@@ -167,7 +167,7 @@ export async function addCAPAComment(
   if (TERMINAL_CAPA_STATUSES.has(capa.status)) {
     return {
       success: false,
-      error: "Discussion is closed â€” the CAPA has reached a terminal state.",
+      error: "Discussion is closed — the CAPA has reached a terminal state.",
     };
   }
   // If a parent is given, verify it belongs to the same CAPA AND isn't
@@ -281,7 +281,7 @@ export async function addCAPAComment(
   }
 }
 
-// â”€â”€ 2. resolveCAPAComment â”€â”€
+// ── 2. resolveCAPAComment ──
 
 export async function resolveCAPAComment(
   commentId: string,
@@ -324,7 +324,7 @@ export async function resolveCAPAComment(
   if (TERMINAL_CAPA_STATUSES.has(comment.capa.status)) {
     return {
       success: false,
-      error: "Discussion is closed â€” the CAPA has reached a terminal state.",
+      error: "Discussion is closed — the CAPA has reached a terminal state.",
     };
   }
   if (comment.deletedAt !== null) {
@@ -388,7 +388,7 @@ export async function resolveCAPAComment(
   }
 }
 
-// â”€â”€ 3. reopenCAPAComment â”€â”€
+// ── 3. reopenCAPAComment ──
 
 export async function reopenCAPAComment(
   commentId: string,
@@ -431,7 +431,7 @@ export async function reopenCAPAComment(
   if (TERMINAL_CAPA_STATUSES.has(comment.capa.status)) {
     return {
       success: false,
-      error: "Discussion is closed â€” the CAPA has reached a terminal state.",
+      error: "Discussion is closed — the CAPA has reached a terminal state.",
     };
   }
   if (comment.deletedAt !== null) {
@@ -487,7 +487,7 @@ export async function reopenCAPAComment(
   }
 }
 
-// â”€â”€ 4. editCAPAComment â”€â”€
+// ── 4. editCAPAComment ──
 
 export async function editCAPAComment(
   commentId: string,
@@ -523,14 +523,14 @@ export async function editCAPAComment(
   if (TERMINAL_CAPA_STATUSES.has(comment.capa.status)) {
     return {
       success: false,
-      error: "Discussion is closed â€” the CAPA has reached a terminal state.",
+      error: "Discussion is closed — the CAPA has reached a terminal state.",
     };
   }
   if (comment.deletedAt !== null) {
     return { success: false, error: "Cannot edit a deleted comment." };
   }
   // Author OR super_admin can edit. Anyone else (including other QAs) can't
-  // alter someone else's words â€” Part 11 spirit even though not literal.
+  // alter someone else's words — Part 11 spirit even though not literal.
   const isAuthor = comment.authorId === session.user.id;
   const isSuperAdmin = session.user.role === "super_admin";
   if (!isAuthor && !isSuperAdmin) {
@@ -577,7 +577,7 @@ export async function editCAPAComment(
   }
 }
 
-// â”€â”€ 5. softDeleteCAPAComment â”€â”€
+// ── 5. softDeleteCAPAComment ──
 
 export async function softDeleteCAPAComment(
   commentId: string,
@@ -613,7 +613,7 @@ export async function softDeleteCAPAComment(
   if (TERMINAL_CAPA_STATUSES.has(comment.capa.status)) {
     return {
       success: false,
-      error: "Discussion is closed â€” the CAPA has reached a terminal state.",
+      error: "Discussion is closed — the CAPA has reached a terminal state.",
     };
   }
   if (comment.deletedAt !== null) {
