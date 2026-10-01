@@ -6,19 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, resolveCreateSiteId, resolveUserFk, requireGxPAuthor, ADMIN_DELETE_ROLES } from "@/lib/auth";
 import { DEVIATION_QA_ROLES, canReportDeviation, canWriteQuality } from "@/lib/permissions/roleSets";
 import { createDocument } from "@/actions/documents";
-import {
-  canonicalizeDeviationClosureContent,
-  computeContentHash,
-  verifyPasswordForSigning,
-} from "@/lib/signing";
-import { readSigningProvenance } from "@/actions/capas/_shared";
+import { verifyPasswordForSigning } from "@/lib/signing";
 import { SIGNING_AUDIT_MODULE } from "@/actions/capas/_types";
-import {
-  tenantSodOverrideOn,
-  evaluateDeviationSodOverride,
-  writeDeviationSodOverride,
-  type DeviationSodControl,
-} from "@/actions/capas/sod-override";
 import {
   getDeviationSODOverrides,
   type DeviationCloseSodReveal,
@@ -28,6 +17,29 @@ import { buildReferencePrefix, generateReference, isReferenceConflict } from "@/
 import { FDA_SEVERITY, coerceSeverityCasing, normalizeSeverityForDisplay } from "@/lib/severity";
 import { INVESTIGATION_RCA_METHODS } from "@/constants/rcaMethods";
 import { sanitizeServerError } from "@/lib/errors";
+import { callDeviationService, DeviationServiceUnavailableError } from "@/lib/api/deviation.server";
+
+/**
+ * Translate a Deviation service failure into the string this action returns.
+ *
+ * The service distinguishes a business refusal from an operator problem, and the two
+ * need different messages. A refusal is the user's next step ("not ready to close"),
+ * so it is shown verbatim. An unavailable service is NOT the user's fault and must not
+ * be phrased as if it were.
+ *
+ * `fallback` is the message for a genuine bug - it should never appear, and if it does
+ * the user is told something honest rather than a stack trace.
+ */
+function deviationErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof DeviationServiceUnavailableError) return e.message;
+  const err = e as { status?: number; code?: string; message?: string };
+  if (typeof err?.message === "string" && err.message) {
+    // 5xx is a service fault; the service's own text is for operators, not users.
+    if (typeof err.status === "number" && err.status >= 500) return fallback;
+    return err.message;
+  }
+  return fallback;
+}
 
 // NOTE — actor identity (AUDIT Finding #2 / Rung 3E): never write
 // `session.user.id` into a User FK column (createdById /
@@ -413,6 +425,17 @@ export async function closeDeviation(
   id: string,
   input: z.input<typeof CloseDeviationSchema>,
 ): Promise<ActionResult> {
+  // MOVED TO FASTAPI. This action is now a call site, not the implementation.
+  // The gate order, the Part 11 signature, the SoD waivers and the single
+  // transaction live in be:app/services/deviation/service.py:close_deviation.
+  //
+  // The zod schema below is RETAINED, and deliberately: it is the UX layer. It gives
+  // per-field messages instantly and costs no round trip. It is NOT the control -
+  // the service re-validates authoritatively and its refusal is what gets returned.
+  //
+  // `status` is absent from both schemas. The status is set only by the transition
+  // endpoint, never by a client (constants/statusTaxonomy.ts states this and the
+  // service enforces it with extra="forbid").
   const session = await requireAuth();
   const parsed = CloseDeviationSchema.safeParse(input);
   if (!parsed.success) {
@@ -422,368 +445,36 @@ export async function closeDeviation(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
-    return { success: false, error: "Only QA Head can close deviations" };
-  }
-
-  const existing = await prisma.deviation.findFirst({
-    where: { id, tenantId: session.user.tenantId },
-    select: {
-      id: true,
-      title: true,
-      severity: true,
-      rootCause: true,
-      linkedCAPAId: true,
-      // Lifecycle precondition (finding #2) + SoD (finding #1). status gates the
-      // close to a ready state; createdById / investigationCompletedById let the
-      // signer be compared against the reporter and the investigator.
-      status: true,
-      createdById: true,
-      investigationCompletedById: true,
-    },
-  });
-  if (!existing) return { success: false, error: "Deviation not found" };
-
-  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
-  try {
-    requireGxPAuthor(actor);
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
-  }
-
-  // Stage 4 (deviation redesign) — low-priority task path: if this deviation
-  // was worked as a DeviationTask, the SIGNED close also completes the task,
-  // and SoD requires the closer (reviewer) ≠ the task assignee (ID-based FK
-  // compare, REUSABLES.md). No-op for deviations with no task.
-  const activeTask = await prisma.deviationTask.findFirst({
-    where: { deviationId: id, tenantId: session.user.tenantId, deletedAt: null, status: { notIn: ["closed", "cancelled"] } },
-    select: { id: true, assigneeId: true, status: true },
-  });
-  // ── Single-QA SoD override (Phase 1) ─────────────────────────────────────
-  // The three identity checks (task-assignee here, reporter + investigator below)
-  // are each WAIVABLE when Tenant.sodSingleQAOverride is ON and the deviation is
-  // non-Critical/Major — but ONLY with a recorded reason code + justification, and
-  // the e-signature is NEVER removed (the waiver rows are written inside the same
-  // password-verified SignedRecord transaction). Compute the self-checks up front;
-  // read the flag only if at least one fires, so the flag-OFF / no-self paths stay
-  // byte-for-byte unchanged and add no query. A closer who trips multiple checks
-  // yields one DeviationSODOverride row per waived control.
-  const reporterSelf = !!existing.createdById && existing.createdById === actor.userId;
-  const investigatorSelf =
-    !!existing.investigationCompletedById && existing.investigationCompletedById === actor.userId;
-  const assigneeSelf = !!activeTask?.assigneeId && activeTask.assigneeId === actor.userId;
-  const sodFlagOn =
-    reporterSelf || investigatorSelf || assigneeSelf
-      ? await tenantSodOverrideOn(session.user.tenantId)
-      : false;
-  const waivedControls: Array<{ control: DeviationSodControl; reasonCode: string; justification: string }> = [];
-
-  if (assigneeSelf) {
-    const decision = evaluateDeviationSodOverride({
-      severity: existing.severity,
-      flagOn: sodFlagOn,
-      existingBlockError:
-        "Separation of duties: the task assignee cannot also sign its closure. A different QA Head must close it.",
-      input: parsed.data,
-    });
-    if (!decision.proceed) return { success: false, error: decision.error };
-    waivedControls.push({ control: "DEV_CLOSE_ASSIGNEE", reasonCode: decision.reasonCode, justification: decision.justification });
-  }
-
-  // ── Lifecycle precondition (finding #2) ──────────────────────────────────
-  // A Part 11 signed close requires the WORK to be complete — enforced here, not
-  // by the client hiding the button (DeviationPage.tsx:659/942). Two paths,
-  // matching the two close triggers in the UI:
-  //   • task path — the assigned DeviationTask must be SUBMITTED for review.
-  //   • investigation path (no active task) — the deviation must be at
-  //     pending_qa_review, OR still capa_pending with its linked CAPA already
-  //     closed. The second case exists because the capa_pending →
-  //     pending_qa_review unblock in signAndCloseCAPA is best-effort POST-COMMIT
-  //     (capas/closure.ts:488-490), so a crash there can strand a ready deviation
-  //     in capa_pending; without this branch it would be un-closeable.
-  if (activeTask) {
-    if (activeTask.status !== "submitted") {
-      return { success: false, error: "This deviation's task hasn't been submitted for review yet — it can't be signed closed." };
-    }
-  } else if (existing.status !== "pending_qa_review") {
-    let recoverable = false;
-    if (existing.status === "capa_pending" && existing.linkedCAPAId) {
-      const linkedForClose = await prisma.cAPA.findFirst({
-        where: { id: existing.linkedCAPAId, tenantId: session.user.tenantId },
-        select: { status: true },
-      });
-      recoverable = linkedForClose?.status === "closed";
-    }
-    if (!recoverable) {
-      return { success: false, error: "This deviation isn't ready to close — its investigation must be complete and under QA review first." };
-    }
-  }
-
-  // ── SoD (finding #1) ─────────────────────────────────────────────────────
-  // The closer signs off the investigation, so they must be neither the reporter
-  // nor the investigator — mirroring guardCapaDecision. Compared on the
-  // authoritative User FK (actor.userId), the value these columns are STORED as
-  // (finding #3). The task-assignee check above covers the low-priority path.
-  if (reporterSelf) {
-    const decision = evaluateDeviationSodOverride({
-      severity: existing.severity,
-      flagOn: sodFlagOn,
-      existingBlockError:
-        "Separation of duties: the reporter of a deviation cannot sign its closure. A different QA Head must close it.",
-      input: parsed.data,
-    });
-    if (!decision.proceed) return { success: false, error: decision.error };
-    waivedControls.push({ control: "DEV_CLOSE_REPORTER", reasonCode: decision.reasonCode, justification: decision.justification });
-  }
-  if (investigatorSelf) {
-    const decision = evaluateDeviationSodOverride({
-      severity: existing.severity,
-      flagOn: sodFlagOn,
-      existingBlockError:
-        "Separation of duties: the investigator cannot sign the closure of their own investigation. A different QA Head must close it.",
-      input: parsed.data,
-    });
-    if (!decision.proceed) return { success: false, error: decision.error };
-    waivedControls.push({ control: "DEV_CLOSE_INVESTIGATOR", reasonCode: decision.reasonCode, justification: decision.justification });
-  }
-
-  // SME Section 1, Stage 1 â€” CAPA Decision Gate.
-  // A Critical deviation cannot be closed until a CAPA exists and is linked.
-  // The linked CAPA must also still exist in this tenant (an orphan
-  // linkedCAPAId from a previously hard-deleted CAPA does not satisfy the
-  // gate). CAPA has no soft-delete column (deletedAt is not on the model),
-  // so existence is the only check.
-  // Handles both legacy lowercase ("critical") and TitleCase
-  // ("Critical") rows; see src/lib/severity.ts for the unification.
-  if (normalizeSeverityForDisplay(existing.severity, "fda") === "Critical") {
-    let gateBlocked = false;
-    let gateReason:
-      | "critical_no_linked_capa"
-      | "critical_linked_capa_missing"
-      | "critical_link_inconsistent"
-      | null = null;
-    let inconsistentCapaDeviationId: string | null = null;
-    if (!existing.linkedCAPAId) {
-      gateBlocked = true;
-      gateReason = "critical_no_linked_capa";
-    } else {
-      // SME Section 1, Stage 2 (FULL) â€” also fetch deviationId for the
-      // bidirectional-consistency check. Records that disagree (CAPA.X.deviationId
-      // !== this.id even though this.linkedCAPAId === X.id) signal a
-      // data-integrity violation introduced by some non-atomic write path;
-      // block closure so the inconsistency is investigated rather than
-      // signed-over.
-      const linkedCapa = await prisma.cAPA.findFirst({
-        where: { id: existing.linkedCAPAId, tenantId: session.user.tenantId },
-        select: { id: true, deviationId: true },
-      });
-      if (!linkedCapa) {
-        gateBlocked = true;
-        gateReason = "critical_linked_capa_missing";
-      } else if (linkedCapa.deviationId !== existing.id) {
-        gateBlocked = true;
-        gateReason = "critical_link_inconsistent";
-        inconsistentCapaDeviationId = linkedCapa.deviationId;
-      }
-    }
-    if (gateBlocked) {
-      const auditAction =
-        gateReason === "critical_link_inconsistent"
-          ? "DEVIATION_CLOSE_BLOCKED_LINK_INCONSISTENT"
-          : "DEVIATION_CLOSE_BLOCKED_NO_CAPA";
-      try {
-        await prisma.auditLog.create({
-          data: {
-            tenantId: session.user.tenantId,
-            userId: actor.userId,
-            userName: actor.displayName,
-            userRole: actor.role,
-            module: "Deviation Management",
-            action: auditAction,
-            recordId: existing.id,
-            recordTitle: existing.title.slice(0, 80),
-            newValue: JSON.stringify({
-              severity: "critical",
-              reason: gateReason,
-              linkedCAPAId: existing.linkedCAPAId ?? null,
-              ...(gateReason === "critical_link_inconsistent"
-                ? { capaDeviationId: inconsistentCapaDeviationId }
-                : {}),
-            }),
-          },
-        });
-      } catch (err) {
-        console.error(`[action] failed to write ${auditAction} audit:`, err);
-      }
-      if (gateReason === "critical_link_inconsistent") {
-        return {
-          success: false,
-          error:
-            "CAPA_DEVIATION_LINK_INCONSISTENT â€” the linked CAPA does not back-reference this deviation. The records have drifted; investigate before closing.",
-        };
-      }
-      return {
-        success: false,
-        error:
-          "Critical deviations require a linked CAPA before closure. Raise a CAPA from this deviation first.",
-      };
-    }
-  }
-
-  // Â§11.200(a)(1)(ii) â€” re-authenticate at the moment of signing.
-  const passwordOk = await verifyPasswordForSigning(
-    session.user.id,
-    parsed.data.password,
-  );
-  if (!passwordOk) {
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userId: actor.userId,
-        userName: actor.displayName,
-        userRole: actor.role,
-        module: SIGNING_AUDIT_MODULE,
-        action: "SIGNING_PASSWORD_FAILED",
-        recordId: id,
-        recordTitle: existing.title.slice(0, 80),
-        newValue: JSON.stringify({
-          recordType: "DEVIATION_CLOSURE",
-          attempt_at: new Date().toISOString(),
-        }),
-      },
-    });
-    return {
-      success: false,
-      error: "Password verification failed. Please try again.",
-    };
-  }
 
   try {
-    const closedAt = new Date();
-    const canonicalContent = canonicalizeDeviationClosureContent({
-      deviationId: existing.id,
-      title: existing.title,
-      severity: existing.severity,
-      rootCause: existing.rootCause,
-      closingComment: parsed.data.notes ?? null,
-      closedAt,
-    });
-    const contentHash = computeContentHash(canonicalContent);
-    const contentSummary = `Deviation ${existing.id.slice(0, 8)} (${existing.severity}) closed by ${session.user.name} (${session.user.role})`;
-    const provenance = await readSigningProvenance();
-
-    const { deviation, signedRecord } = await prisma.$transaction(
-      async (tx) => {
-        const sig = await tx.signedRecord.create({
-          data: {
-            tenantId: session.user.tenantId,
-            recordType: "DEVIATION_CLOSURE",
-            recordId: existing.id,
-            signerId: session.user.id,
-            signerName: session.user.name,
-            signerRole: session.user.role,
-            signerEmail: session.user.email,
-            signatureMeaning: "Closed",
-            contentHash,
-            contentSummary,
-            passwordVerifiedAt: closedAt,
-            ipAddress: provenance.ipAddress,
-            userAgent: provenance.userAgent,
-          },
-        });
-        const updated = await tx.deviation.update({
-          where: { id, tenantId: session.user.tenantId },
-          data: {
-            status: "closed",
-            closedBy: session.user.name,
-            closedDate: closedAt,
-            closureNotes: parsed.data.notes ?? null,
-            closureSignatureId: sig.id,
-          },
-        });
-        // Single-QA SoD override (Phase 1) — one waiver row + audit per waived
-        // identity check, linked to THIS closure signature, atomic with the close.
-        // Empty on the normal path (no query, no rows). The signature above is
-        // never conditional on the waiver — identity-independence is waived, the
-        // e-signature is not.
-        for (const w of waivedControls) {
-          await writeDeviationSodOverride(tx, {
-            tenantId: session.user.tenantId,
-            deviationId: existing.id,
-            control: w.control,
-            // The waiver actor is the SIGNER (matches SignedRecord.signerId above
-            // and the CAPA writeSodOverride convention); session.user.id is the
-            // non-null signed-in identity, not a User FK column here.
-            actorUserId: session.user.id,
-            actorName: session.user.name,
-            actorRole: session.user.role,
-            reasonCode: w.reasonCode,
-            justification: w.justification,
-            recordTitle: existing.title,
-            signedRecordId: sig.id,
-          });
-        }
-        // Stage 4 (deviation redesign) — complete the linked low-priority task
-        // on the signed close (the deviation IS the regulated record; the task
-        // work was lightweight). SoD was enforced above. Atomic with the close.
-        if (activeTask) {
-          await tx.deviationTask.update({
-            where: { id: activeTask.id, tenantId: session.user.tenantId },
-            data: { status: "closed", reviewedAt: closedAt, reviewedById: actor.userId },
-          });
-        }
-        return { deviation: updated, signedRecord: sig };
-      },
-    );
-
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userId: actor.userId,
-        userName: actor.displayName,
-        userRole: actor.role,
-        module: "Deviation Management",
-        action: "DEVIATION_CLOSED",
-        recordId: id,
-      },
-    });
-    await prisma.auditLog.create({
-      data: {
-        tenantId: session.user.tenantId,
-        userId: actor.userId,
-        userName: actor.displayName,
-        userRole: actor.role,
-        module: SIGNING_AUDIT_MODULE,
-        action: "DEVIATION_CLOSED_AND_SIGNED",
-        recordId: signedRecord.id,
-        recordTitle: existing.title.slice(0, 80),
-        newValue: JSON.stringify({
-          signerId: session.user.id,
-          contentHashPrefix: contentHash.slice(0, 16),
-          signatureMeaning: "Closed",
-          deviationId: existing.id,
-        }),
+    const result = await callDeviationService<{
+      deviation: unknown;
+      signedRecordId: string;
+      contentHash: string;
+      waivedControls: { control: string; reasonCode: string; justification: string }[];
+    }>({
+      method: "POST",
+      path: [id, "close"],
+      session,
+      body: {
+        notes: parsed.data.notes,
+        signature_meaning: "Closed",
+        signing_password: parsed.data.password,
+        sod_override_reason_code: parsed.data.sodOverrideReasonCode ?? null,
+        sod_override_justification: parsed.data.sodOverrideJustification ?? null,
       },
     });
     revalidatePath("/deviation");
+    revalidatePath("/worklist");
     revalidatePath("/");
-    return { success: true, data: deviation };
-  } catch (err) {
-    console.error("[action] closeDeviation failed:", err);
-    return { success: false, error: "Failed to close deviation" };
+    // The service returns the closed record, which is what this action has always
+    // returned, so no caller above this line changes.
+    return { success: true, data: result.deviation };
+  } catch (e) {
+    return { success: false, error: deviationErrorMessage(e, "Failed to close deviation") };
   }
 }
 
-/**
- * Single-QA SoD override — client-callable reveal + on-record rows for the Sign &
- * Close Deviation modal (Phase 2 UI). Computes, for the CURRENT user, whether closing
- * this deviation would trip each identity self-check (reporter/investigator/task-
- * assignee ≠ closer) — mirroring closeDeviation's Phase-1 gate EXACTLY (same
- * resolveUserFk actor, same active-task query, same {Critical, Major} FDA ceiling,
- * same tenant flag) — so the UI never offers an override the server would reject nor
- * hides one it accepts. Also returns the DeviationSODOverride rows already used, for
- * the on-record badge/summary. Read-only; enforces nothing (closeDeviation is the gate).
- */
 export async function getDeviationCloseSodContext(
   deviationId: string,
 ): Promise<{ reveal: DeviationCloseSodReveal; overrides: DeviationSODOverrideRow[] }> {
@@ -1088,41 +779,26 @@ export async function completeInvestigation(
  * unchanged — starting the investigation phase is administrative.
  */
 export async function startInvestigation(id: string): Promise<ActionResult> {
+  // MOVED TO FASTAPI. This action is now a call site, not the implementation.
+  // The transition, its precondition and its Part 11 audit row live in
+  // be:app/services/deviation/service.py:start_investigation.
+  //
+  // The `open`-only precondition is enforced by the service in the WHERE clause
+  // equivalent, not by a prior read here, so a record cannot move backwards between
+  // the check and the write.
   const session = await requireAuth();
-  // Part A access-control fix — starting an investigation is a QA action
-  // (mirrors closeDeviation/rejectDeviation). Was only viewer-blocked, which
-  // leaked to every non-viewer author (e.g. regulatory_affairs).
-  if (!DEVIATION_QA_ROLES.includes(session.user.role)) {
-    return { success: false, error: "Only QA Head can start an investigation." };
-  }
-  const actor = await resolveUserFk(session.user.id, session.user.tenantId, session.user.role);
   try {
-    requireGxPAuthor(actor);
+    await callDeviationService({
+      method: "POST",
+      path: [id, "investigation"],
+      session,
+    });
+    revalidatePath("/deviation");
+    revalidatePath("/worklist");
+    return { success: true, data: null };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Not authorized to author GxP records." };
+    return { success: false, error: deviationErrorMessage(e, "Failed to start investigation") };
   }
-  const updated = await prisma.deviation.updateMany({
-    where: { id, tenantId: session.user.tenantId, status: "open" },
-    data: { status: "under_investigation" },
-  });
-  if (updated.count === 0) {
-    return { success: false, error: "Only an open deviation can be moved into investigation." };
-  }
-  await prisma.auditLog.create({
-    data: {
-      tenantId: session.user.tenantId,
-      userId: actor.userId,
-      userName: actor.displayName,
-      userRole: actor.role,
-      module: "Deviation Management",
-      action: "DEVIATION_INVESTIGATION_STARTED",
-      recordId: id,
-      oldValue: "open",
-      newValue: "under_investigation",
-    },
-  });
-  revalidatePath("/deviation");
-  return { success: true, data: null };
 }
 
 /** Shared validation for save/edit of the CAPA decision (SoD + QA role +
