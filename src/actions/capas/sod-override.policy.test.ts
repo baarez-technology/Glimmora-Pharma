@@ -174,37 +174,77 @@ test("a valid waiver proceeds and echoes the trimmed justification", () => {
   }
 });
 
-// ── CHARACTERISATION: the ceiling is fail-open on an unrecognised severity ───
+// ?? FAIL CLOSED on an unrecognised severity ???????????????????????????????????
 //
-// Recorded deliberately. `normalizeSeverityForDisplay` returns null for any value
-// outside its taxonomy, and both ceilings test equality against a known label, so
-// null is not "Critical" and the block is skipped. This is the CURRENT behaviour and
-// the port must reproduce it — but it is a fail-open in a security control, and it
-// is the kind of thing a reviewer would otherwise "fix" silently during a rewrite.
-//
-// Reachable if a record's severity/risk is ever written from the other taxonomy
-// ("High"/"Medium" against the FDA ceiling) or holds an unknown token. The two
-// engines have disjoint vocabularies, so a cross-taxonomy write is the realistic
-// path. Tracked as §8.7, not fixed here.
+// A waiver admits that a control was bypassed. Permitting one because the severity
+// could not be classified is the wrong direction. The two scales here are disjoint -
+// FDA Critical/Major/Minor for deviations and 483s, generic Critical/High/Medium/Low
+// for internal quality records - so a cross-taxonomy write lands a value the taxonomy
+// has no mapping for, and that used to pass straight through the ceiling.
 
-test("CHARACTERISATION: an unrecognised severity bypasses the ceiling (fail-open)", () => {
-  // Deviation engine, FDA taxonomy: "High" is NOT a valid FDA severity.
-  const fdaUnknown = evaluateDeviationSodOverride({
-    severity: "High", flagOn: true, existingBlockError: ORIGINAL, input: input(),
+test("an unrecognised severity refuses the waiver rather than allowing it", () => {
+  // "Major" is a valid FDA severity but NOT a valid generic one.
+  const capa = evaluateSodOverride({
+    risk: "Major",
+    flagOn: true,
+    existingBlockError: ORIGINAL,
+    input: input(),
   });
-  assert.equal(fdaUnknown.proceed, true, "documented fail-open: 'High' is unknown to the FDA taxonomy");
+  assert.equal(capa.proceed, false, "'Major' is not a generic severity and must not be waived");
+  assert.match(capa.proceed === false ? capa.error : "", /not a recognised value/);
 
-  // CAPA engine, generic taxonomy: "Major" is NOT a valid generic severity.
-  const genericUnknown = evaluateSodOverride({
-    risk: "Major", flagOn: true, existingBlockError: ORIGINAL, input: input(),
+  // "High" is a valid generic severity but NOT a valid FDA one.
+  const dev = evaluateDeviationSodOverride({
+    severity: "High",
+    flagOn: true,
+    existingBlockError: ORIGINAL,
+    input: input(),
   });
-  assert.equal(genericUnknown.proceed, true, "documented fail-open: 'Major' is unknown to the generic taxonomy");
+  assert.equal(dev.proceed, false, "'High' is not an FDA severity and must not be waived");
+  assert.match(dev.proceed === false ? dev.error : "", /not a recognised value/);
+});
 
-  // Null / empty severity behaves the same way.
+test("null, empty and whitespace severities also refuse", () => {
   for (const sev of [null, "", "   "]) {
     const d = evaluateDeviationSodOverride({
-      severity: sev, flagOn: true, existingBlockError: ORIGINAL, input: input(),
+      severity: sev,
+      flagOn: true,
+      existingBlockError: ORIGINAL,
+      input: input(),
     });
-    assert.equal(d.proceed, true, `documented fail-open for ${JSON.stringify(sev)}`);
+    assert.equal(d.proceed, false, `${JSON.stringify(sev)} must not be waivable`);
   }
+});
+
+test("flag OFF still wins over the new check", () => {
+  // Privacy ordering must survive: a tenant without the feature sees its ORIGINAL
+  // block message and never learns the override exists - including when the severity
+  // could not be classified.
+  const d = evaluateDeviationSodOverride({
+    severity: "High",
+    flagOn: false,
+    existingBlockError: ORIGINAL,
+    input: input(),
+  });
+  assert.equal(d.proceed, false);
+  assert.equal(d.proceed === false ? d.error : "", ORIGINAL);
+});
+
+test("recognised below-ceiling severities are still waivable", () => {
+  // Fail-closed must not become fail-everything.
+  const g = evaluateSodOverride({
+    risk: "Medium",
+    flagOn: true,
+    existingBlockError: ORIGINAL,
+    input: input(),
+  });
+  assert.equal(g.proceed, true);
+
+  const d = evaluateDeviationSodOverride({
+    severity: "Minor",
+    flagOn: true,
+    existingBlockError: ORIGINAL,
+    input: input(),
+  });
+  assert.equal(d.proceed, true);
 });

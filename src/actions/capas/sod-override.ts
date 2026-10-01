@@ -44,6 +44,17 @@ export const SOD_WAIVED_RULE: Record<SodControl, string> = {
 export const SOD_OVERRIDE_CRITICAL_BLOCK =
   "Critical CAPAs require independent QA review; the single-QA override does not apply.";
 
+/** A waiver is an admission that a control was bypassed, so "I could not classify
+ *  this record" must not permit one. Returned when the stored risk/severity is not a
+ *  value this taxonomy recognises — which is reachable because the generic and FDA
+ *  scales are disjoint, so a cross-taxonomy write lands here.
+ *
+ *  Deliberately distinct from the ceiling message: the ceiling has no remedy, this
+ *  one is "correct the field". */
+export const SOD_SEVERITY_UNVERIFIABLE =
+  "The severity on this record is not a recognised value, so it cannot be confirmed " +
+  "as below the single-QA override threshold. Correct the severity first.";
+
 /** Optional override inputs added to each waivable action's schema. */
 export interface SodOverrideInput {
   sodOverrideReasonCode?: string;
@@ -75,10 +86,14 @@ export function evaluateSodOverride(opts: {
   // Flag OFF first — a tenant WITHOUT the override sees only the gate's ORIGINAL
   // block message; it never learns of a feature it doesn't have (even for Critical).
   if (!opts.flagOn) return { proceed: false, error: opts.existingBlockError };
+  // FAIL CLOSED on an unrecognised severity. This used to fall through to the
+  // reason-code check and permit the waiver, because normalization returns null for
+  // anything outside the taxonomy and null !== "Critical".
+  if (normalizeSeverityForDisplay(opts.risk, "generic") === null) {
+    return { proceed: false, error: SOD_SEVERITY_UNVERIFIABLE };
+  }
   // Critical hard floor — for tenants that DO have the override, Critical CAPAs are
-  // still never waivable; show the ceiling message. Normalized so legacy lowercase
-  // ("critical") is caught too (generic taxonomy). Net: Critical self-action stays
-  // blocked either way — only the message differs by flag.
+  // still never waivable; show the ceiling message.
   if (normalizeSeverityForDisplay(opts.risk, "generic") === "Critical") {
     return { proceed: false, error: SOD_OVERRIDE_CRITICAL_BLOCK };
   }
@@ -182,6 +197,12 @@ export function evaluateDeviationSodOverride(opts: {
   input: SodOverrideInput;
 }): SodDecision {
   if (!opts.flagOn) return { proceed: false, error: opts.existingBlockError };
+  // FAIL CLOSED on an unrecognised severity — see the note on
+  // evaluateSodOverride. Previously an unknown value compared unequal to Critical and
+  // Major and the override was permitted.
+  if (normalizeSeverityForDisplay(opts.severity, "fda") === null) {
+    return { proceed: false, error: SOD_SEVERITY_UNVERIFIABLE };
+  }
   const canon = normalizeSeverityForDisplay(opts.severity, "fda");
   if (canon === "Critical" || canon === "Major") {
     return { proceed: false, error: DEVIATION_SOD_OVERRIDE_CEILING_BLOCK };
